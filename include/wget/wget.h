@@ -1818,6 +1818,34 @@ WGETAPI bool
 	wget_ip_is_family(const char *host, int family) G_GNUC_WGET_PURE;
 
 /*
+ * DNS resolver routines
+ */
+
+#define WGET_DNS_ADDR_FAMILY		1
+#define WGET_DNS_TIMEOUT		2
+#define WGET_DNS_RESOLVER		3
+
+#define WGET_DNS_RESOLVER_DOH		1
+#define WGET_DNS_RESOLVER_GETADDRINFO	2
+
+#define WGET_DNS_RESOLVER_DOH_HOSTNAME	1
+
+typedef struct wget_dns_st *wget_dns_t;
+
+WGETAPI void
+	wget_dns_init(wget_dns_t *, wget_tcp_t *);
+WGETAPI void
+	wget_dns_deinit(wget_dns_t *);
+WGETAPI void
+	wget_dns_set_config_int(wget_dns_t, int key, int value);
+WGETAPI void
+	wget_dns_set_config_string(wget_dns_t, int key, const char *value);
+WGETAPI int
+	wget_dns_resolve(wget_dns_t,
+			 const char *host, uint16_t port,
+			 struct addrinfo **out_addr);
+
+/*
  * SSL routines
  */
 
