@@ -9,3 +9,5 @@
 /Makefile.in.in
 *
 !POTFILES.in
+!ja.po
+!LINGUAS

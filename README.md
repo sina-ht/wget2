@@ -1,3 +1,18 @@
+-------------------------------
+This repository contains an updated Japanese translation for wget.
+
+upstream is:
+https://gitlab.com/gnuwget/wget2.git
+
+While 'master' branch is the upstream master, 'japanese-translation' branch
+contains an updated ja.po (Japanese translation of the strings in wget) for
+master.  The updated translation will be sent to the Translation Project as
+soon as wget.pot (official translatable string list) is updated, and quickly
+upstreamed.
+-------------------------------
+
+
+
 [![Build status](https://gitlab.com/gnuwget/wget2/badges/master/build.svg)](https://gitlab.com/gnuwget/wget2/pipelines)
 [![Coverage status](https://gitlab.com/gnuwget/wget2/badges/master/coverage.svg)](https://gnuwget.gitlab.io/wget2/coverage)
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/7852/badge.svg)](https://scan.coverity.com/projects/rockdaboot-wget2)
