@@ -1,0 +1,1777 @@
+# Japanese messages for GNU Wget2.
+# Copyright (C) 1998 Free Software Foundation, Inc.
+# This file is distributed under the same license as the wget2 package.
+# Hiroshi Takekawa <sian@big.or.jp>, 2000-2018
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: wget2 1.99.1\n"
+"Report-Msgid-Bugs-To: bug-wget2@gnu.org\n"
+"POT-Creation-Date: 2018-06-02 22:13+0900\n"
+"PO-Revision-Date: 2018-06-03 00:10+0900\n"
+"Last-Translator: Hiroshi Takekawa <sian@big.or.jp>\n"
+"Language-Team: Japanese <translation-team-ja@lists.sourceforge.net>\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Bugs: Report translation errors to the Language-Team address.\n"
+"Plural-Forms: nplurals=2; plural=0;\n"
+
+#: lib/error.c:195
+msgid "Unknown system error"
+msgstr "不明なシステムエラーです"
+
+#: lib/gai_strerror.c:57
+msgid "Address family for hostname not supported"
+msgstr "ホスト名のアドレスファミリがサポートされていません"
+
+#: lib/gai_strerror.c:58
+msgid "Temporary failure in name resolution"
+msgstr "名前解決中に一時的な失敗が発生しました"
+
+#: lib/gai_strerror.c:59
+msgid "Bad value for ai_flags"
+msgstr "ai_flags には不正な値です"
+
+#: lib/gai_strerror.c:60
+msgid "Non-recoverable failure in name resolution"
+msgstr "名前解決中に回復不可能な失敗が発生しました"
+
+#: lib/gai_strerror.c:61
+msgid "ai_family not supported"
+msgstr "ai_family がサポートされていません"
+
+#: lib/gai_strerror.c:62
+msgid "Memory allocation failure"
+msgstr "メモリ確保できません"
+
+#: lib/gai_strerror.c:63
+msgid "No address associated with hostname"
+msgstr "ホスト名にアドレスが割り当てられていません"
+
+#: lib/gai_strerror.c:64
+msgid "Name or service not known"
+msgstr "名前かサービスが不明です"
+
+#: lib/gai_strerror.c:65
+msgid "Servname not supported for ai_socktype"
+msgstr "その ai_socktype では、Servname がサポートされていません"
+
+#: lib/gai_strerror.c:66
+msgid "ai_socktype not supported"
+msgstr "その ai_socktype はサポートされていません"
+
+#: lib/gai_strerror.c:67
+msgid "System error"
+msgstr "システムエラーです"
+
+#: lib/gai_strerror.c:68
+msgid "Argument buffer too small"
+msgstr "引数バッファが小さすぎます"
+
+#: lib/gai_strerror.c:70
+msgid "Processing request in progress"
+msgstr "リクエストを処理中です"
+
+#: lib/gai_strerror.c:71
+msgid "Request canceled"
+msgstr "リクエストはキャンセルされました"
+
+#: lib/gai_strerror.c:72
+msgid "Request not canceled"
+msgstr "リクエストはキャンセルされていません"
+
+#: lib/gai_strerror.c:73
+msgid "All requests done"
+msgstr "全てのリクエストが完了しました"
+
+#: lib/gai_strerror.c:74
+msgid "Interrupted by a signal"
+msgstr "シグナルによって中断されました"
+
+#: lib/gai_strerror.c:75
+msgid "Parameter string not correctly encoded"
+msgstr "パラメータ文字列のエンコードが正しくありません"
+
+#: lib/gai_strerror.c:87
+msgid "Unknown error"
+msgstr "不明なエラーです"
+
+#: lib/regcomp.c:135
+msgid "Success"
+msgstr "成功"
+
+#: lib/regcomp.c:138
+msgid "No match"
+msgstr "マッチなし"
+
+#: lib/regcomp.c:141
+msgid "Invalid regular expression"
+msgstr "不正な正規表現です"
+
+#: lib/regcomp.c:144
+msgid "Invalid collation character"
+msgstr "不正な collation 文字です"
+
+#: lib/regcomp.c:147
+msgid "Invalid character class name"
+msgstr "不正な文字クラス名です"
+
+#: lib/regcomp.c:150
+msgid "Trailing backslash"
+msgstr "最後にバックスラッシュがあります"
+
+#: lib/regcomp.c:153
+msgid "Invalid back reference"
+msgstr "不正な後方参照です"
+
+#: lib/regcomp.c:156
+msgid "Unmatched [, [^, [:, [., or [="
+msgstr "マッチしない [, [^ [:, [. や [="
+
+#: lib/regcomp.c:159
+msgid "Unmatched ( or \\("
+msgstr "マッチしない ( や \\("
+
+#: lib/regcomp.c:162
+msgid "Unmatched \\{"
+msgstr "マッチしない \\{"
+
+#: lib/regcomp.c:165
+msgid "Invalid content of \\{\\}"
+msgstr "\\{\\} の中味が不正です"
+
+#: lib/regcomp.c:168
+msgid "Invalid range end"
+msgstr "範囲の終了が不正です"
+
+#: lib/regcomp.c:171
+msgid "Memory exhausted"
+msgstr "メモリ不足"
+
+#: lib/regcomp.c:174
+msgid "Invalid preceding regular expression"
+msgstr "先行する正規表現が不正です"
+
+#: lib/regcomp.c:177
+msgid "Premature end of regular expression"
+msgstr "正規表現が中途半端な状態で終わっています"
+
+#: lib/regcomp.c:180
+msgid "Regular expression too big"
+msgstr "正規表現が大きすぎます"
+
+#: lib/regcomp.c:183
+msgid "Unmatched ) or \\)"
+msgstr "マッチしない ) や \\)"
+
+#: lib/regcomp.c:689
+msgid "No previous regular expression"
+msgstr "これより前に正規表現はありません"
+
+#: lib/spawn-pipe.c:142 lib/spawn-pipe.c:145 lib/spawn-pipe.c:266
+#: lib/spawn-pipe.c:269
+#, c-format
+msgid "cannot create pipe"
+msgstr "パイプが作成できません"
+
+#: lib/spawn-pipe.c:236 lib/spawn-pipe.c:350 lib/wait-process.c:282
+#: lib/wait-process.c:356
+#, c-format
+msgid "%s subprocess failed"
+msgstr "%s サブプロセスが失敗しました"
+
+#: lib/w32spawn.h:49
+#, c-format
+msgid "_open_osfhandle failed"
+msgstr "_open_osfhandle が失敗しました"
+
+#: lib/w32spawn.h:90
+#, c-format
+msgid "cannot restore fd %d: dup2 failed"
+msgstr "fd %d をリストアできません: dup2 が失敗しました"
+
+#: lib/wait-process.c:223 lib/wait-process.c:255 lib/wait-process.c:317
+#, c-format
+msgid "%s subprocess"
+msgstr "%s サブプロセス"
+
+#: lib/wait-process.c:274 lib/wait-process.c:346
+#, c-format
+msgid "%s subprocess got fatal signal %d"
+msgstr "%s サブプロセスが致命的なシグナル %d を受信しました"
+
+#: lib/xalloc-die.c:34
+msgid "memory exhausted"
+msgstr "メモリ不足"
+
+#: libwget/cookie.c:464
+msgid "Cookie without name or assignment ignored\n"
+msgstr ""
+
+#: libwget/cookie.c:866
+#, c-format
+msgid "Incomplete cookie entry: %s\n"
+msgstr "不完全なクッキーエントリです: %s\n"
+
+#: libwget/cookie.c:898
+msgid "Failed to read cookies\n"
+msgstr "クッキーの読み込みに失敗しました\n"
+
+#: libwget/cookie.c:901
+#, c-format
+msgid "Fetched cookies from '%s'\n"
+msgstr "'%s' からクッキーを取得しました\n"
+
+#: libwget/cookie.c:957
+#, c-format
+msgid "Failed to write cookie file '%s'\n"
+msgstr "クッキーファイル '%s' への書き込みに失敗しました\n"
+
+#: libwget/cookie.c:962
+#, c-format
+msgid "Saved %d cookie%s into '%s'\n"
+msgstr ""
+
+#: libwget/cookie.c:964
+msgid "No cookies to save. Table is empty.\n"
+msgstr ""
+
+#: libwget/css.c:152
+#, c-format
+msgid "Unknown token after @charset: %d\n"
+msgstr ""
+
+#: libwget/css.c:194 libwget/io.c:368 libwget/xml.c:583
+#, c-format
+msgid "Failed to open %s\n"
+msgstr "%s の open() に失敗しました\n"
+
+#: libwget/css_url.c:58 src/wget.c:2703 src/wget.c:2731 src/wget.c:2750
+#, c-format
+msgid "URI content encoding = '%s'\n"
+msgstr ""
+
+#: libwget/css_url.c:88
+#, c-format
+msgid "Cannot resolve relative URI '%s'\n"
+msgstr "相対 URI '%s' を解決できません\n"
+
+#: libwget/decompressor.c:103
+msgid "Failed to init gzip decompression\n"
+msgstr "gzip 形式の復号の初期化に失敗しました\n"
+
+#: libwget/decompressor.c:142
+#, c-format
+msgid "Failed to uncompress gzip stream (%d)\n"
+msgstr "gzip stream (%d) の復号に失敗しました\n"
+
+#: libwget/decompressor.c:151
+#, c-format
+msgid "Failed to close gzip stream (%d)\n"
+msgstr "gzip stream (%d) の close に失敗しました\n"
+
+#: libwget/decompressor.c:160
+msgid "Failed to init deflate decompression\n"
+msgstr "deflate 形式の復号の初期化に失敗しました\n"
+
+#: libwget/decompressor.c:175
+msgid "Failed to init LZMA decompression\n"
+msgstr "LZMA 形式の復号の初期化に失敗しました\n"
+
+#: libwget/decompressor.c:214
+#, c-format
+msgid "Failed to uncompress LZMA stream (%d)\n"
+msgstr "LZMA stream (%d) の復号に失敗しました\n"
+
+#: libwget/decompressor.c:228
+msgid "Failed to init Brotli decompression\n"
+msgstr "Brotli 形式の復号の初期化に失敗しました\n"
+
+#: libwget/decompressor.c:271
+#, c-format
+msgid "Failed to uncompress Brotli stream (%u): %s\n"
+msgstr "Brotli stream (%u) の復号に失敗しました: %s\n"
+
+#: libwget/decompressor.c:288
+msgid "Failed to init bzip2 decompression\n"
+msgstr "bzip2 形式の復号の初期化に失敗しました\n"
+
+#: libwget/decompressor.c:327
+#, c-format
+msgid "Failed to uncompress bzip2 stream (%d)\n"
+msgstr "bzip2 stream (%d) の復号に失敗しました\n"
+
+#: libwget/encoding.c:107
+#, c-format
+msgid "Failed to transcode '%s' string into '%s' (%d)\n"
+msgstr "文字コードを '%s' から '%s' に変換するのに失敗しました (%d)\n"
+
+#: libwget/encoding.c:117
+#, c-format
+msgid "Failed to prepare transcoding '%s' into '%s' (%d)\n"
+msgstr ""
+
+#: libwget/encoding.c:244
+#, c-format
+msgid "u8_tolower(%s) failed (%d)\n"
+msgstr ""
+
+#: libwget/encoding.c:261 libwget/encoding.c:282
+#, c-format
+msgid "toASCII(%s) failed (%d): %s\n"
+msgstr "IDN の扱いにおいて toASCII(%s) に失敗しました (%d): %s\n"
+
+#: libwget/encoding.c:302
+#, c-format
+msgid "toASCII failed (%d): %s\n"
+msgstr "IDN の扱いにおいて toASCII に失敗しました (%d): %s\n"
+
+#: libwget/encoding.c:305
+#, c-format
+msgid "Invalid UTF-8 sequence not converted: '%s'\n"
+msgstr ""
+
+#: libwget/encoding.c:309
+#, c-format
+msgid "toASCII not available: '%s'\n"
+msgstr "toASCII が使用できません: '%s'\n"
+
+#: libwget/hash_printf.c:74
+#, c-format
+msgid "Failed to hash (%d)\n"
+msgstr "ハッシュできませんでした (%d)\n"
+
+#: libwget/hashfile.c:92
+#, c-format
+msgid "Unknown hash type '%s'\n"
+msgstr "'%s' は不明なハッシュタイプです\n"
+
+#: libwget/hashfile.c:558
+#, c-format
+msgid "%s: Hash type '%s' not supported by linked crypto engine\n"
+msgstr ""
+
+#: libwget/hashfile.c:574
+#, c-format
+msgid "%s: Failed to read %llu bytes\n"
+msgstr ""
+
+#: libwget/hpkp.c:542
+#, c-format
+msgid "HPKP: could not parse host line '%s'\n"
+msgstr ""
+
+#: libwget/hpkp.c:548
+#, c-format
+msgid "HPKP: could not parse pin line '%s'\n"
+msgstr ""
+
+#: libwget/hpkp.c:593
+msgid "Failed to read HPKP data\n"
+msgstr ""
+
+#: libwget/hpkp.c:678
+#, c-format
+msgid "Failed to write HPKP file '%s'\n"
+msgstr "HPKP ファイル '%s' の書き込みに失敗しました\n"
+
+#: libwget/hsts.c:396 libwget/tls_session.c:309
+#, c-format
+msgid "Failed to parse HSTS line: '%s'\n"
+msgstr "HSTS ラインが解釈できませんでした: '%s'\n"
+
+#: libwget/hsts.c:439
+msgid "Failed to read HSTS data\n"
+msgstr "HSTS データの読み込みに失敗しました\n"
+
+#: libwget/hsts.c:442
+#, c-format
+msgid "Fetched HSTS data from '%s'\n"
+msgstr ""
+
+#: libwget/hsts.c:501
+#, c-format
+msgid "Failed to write HSTS file '%s'\n"
+msgstr "HSTS ファイル '%s' の書き込みに失敗しました\n"
+
+#: libwget/hsts.c:506
+#, c-format
+msgid "Saved %d HSTS entr%s into '%s'\n"
+msgstr ""
+
+#: libwget/hsts.c:508
+msgid "No HSTS entries to save. Table is empty.\n"
+msgstr ""
+
+#: libwget/http.c:200 libwget/http.c:209 libwget/http.c:218 libwget/http.c:227
+#, c-format
+msgid "%s: Unknown key %d (or value must not be an integer)\n"
+msgstr ""
+
+#: libwget/http.c:309
+#, c-format
+msgid "Unsupported quality of protection '%s'.\n"
+msgstr "'%s' という保護方式はサポートされていません。\n"
+
+#: libwget/http.c:320
+#, c-format
+msgid "Unsupported algorithm '%s'.\n"
+msgstr "'%s' というアルゴリズムはサポートされていません。\n"
+
+#: libwget/http.c:415
+#, c-format
+msgid "Decompress failed [host: %s - resource: %s]\n"
+msgstr ""
+
+#: libwget/http.c:758
+msgid "Failed to create HTTP2 callbacks\n"
+msgstr ""
+
+#: libwget/http.c:768
+#, c-format
+msgid "Failed to create HTTP2 client session (%d)\n"
+msgstr ""
+
+#: libwget/http.c:779
+#, c-format
+msgid "Failed to submit HTTP2 client settings (%d)\n"
+msgstr ""
+
+#: libwget/http.c:808
+#, c-format
+msgid "Failed to terminate HTTP2 session (%d)\n"
+msgstr "HTTP2 セッション (%d) を終了させられませんでした\n"
+
+#: libwget/http.c:882
+msgid "Failed to submit HTTP2 request\n"
+msgstr "HTTP2 の要求の送信に失敗しました\n"
+
+#: libwget/http.c:897
+msgid "Failed to create request buffer\n"
+msgstr ""
+
+#: libwget/http.c:1254
+#, c-format
+msgid "Chunk size overflow: %lX\n"
+msgstr ""
+
+#: libwget/http.c:1286
+msgid "Expected end-of-chunk not found\n"
+msgstr ""
+
+#: libwget/http.c:1332
+#, c-format
+msgid "Failed to read %zd bytes (%d)\n"
+msgstr "%zd バイトの読み込みに失敗しました (%d)\n"
+
+#: libwget/http.c:1334
+#, c-format
+msgid "Just got %zu of %zu bytes\n"
+msgstr ""
+
+#: libwget/http.c:1336
+#, c-format
+msgid "Body too large: %zu instead of %zu bytes\n"
+msgstr ""
+
+#: libwget/http_highlevel.c:45 libwget/http_highlevel.c:60
+#, c-format
+msgid "Failed to write %zu bytes of data (%d: %s)\n"
+msgstr "%zu バイトのデータの書き込みに失敗しました (%d: %s)\n"
+
+#: libwget/http_highlevel.c:153
+#, c-format
+msgid "Unknown option %d\n"
+msgstr "不明なオプション %d です\n"
+
+#: libwget/http_highlevel.c:162
+msgid "Error parsing URL\n"
+msgstr "URL を解釈中にエラーが発生しました\n"
+
+#: libwget/http_highlevel.c:169
+msgid "Missing URL/URI\n"
+msgstr "URL/URI がありません\n"
+
+#: libwget/http_parse.c:841 libwget/http_parse.c:868
+#, c-format
+msgid "Failed to parse date '%s'\n"
+msgstr "日付 '%s' を理解できませんでした。\n"
+
+#: libwget/http_parse.c:1220
+msgid "HTTP response header not found\n"
+msgstr ""
+
+#: libwget/init.c:161 libwget/init.c:238 libwget/init.c:263 libwget/init.c:278
+#, c-format
+msgid "%s: Unknown option %d"
+msgstr "%s: 不明なオプション %d です"
+
+#: libwget/init.c:180
+#, c-format
+msgid "%s: Failed to init networking (%d)"
+msgstr ""
+
+#: libwget/init.c:219
+#, c-format
+msgid "%s: Failed to deinit networking (%d)"
+msgstr "%s: ネットワークの終了処理に失敗しました (%d)"
+
+#: libwget/io.c:129
+#, c-format
+msgid "%s: Failed to read, error %d\n"
+msgstr "%s: 読み込みに失敗しました。エラー %d\n"
+
+#: libwget/io.c:361
+#, c-format
+msgid ""
+"WARNING: Size of %s changed from %lld to %lld while reading. This may lead "
+"to unwanted results !\n"
+msgstr ""
+
+#: libwget/io.c:364
+#, c-format
+msgid "Failed to fstat %s\n"
+msgstr "ファイル %s の fstat() に失敗しました\n"
+
+#: libwget/io.c:446
+#, c-format
+msgid "Failed to create '%s' (%d)\n"
+msgstr "'%s' の作成に失敗しました: (%d)\n"
+
+#: libwget/io.c:454
+#, c-format
+msgid "Failed to lock '%s' (%d)\n"
+msgstr "'%s' のロックに失敗しました (%d)\n"
+
+#: libwget/io.c:466
+#, c-format
+msgid "Failed to read open '%s' (%d)\n"
+msgstr "'%s' を読み込み用にオープンできませんでした (%d)\n"
+
+#: libwget/io.c:489
+#, c-format
+msgid "Failed to open tmpfile '%s' (%d)\n"
+msgstr "一時ファイル '%s' の作成に失敗しました (%d)\n"
+
+#: libwget/io.c:498
+#, c-format
+msgid "Failed to write open '%s' (%d)\n"
+msgstr "'%s' を書き込み用にオープンできませんでした (%d)\n"
+
+#: libwget/io.c:514
+#, c-format
+msgid "Failed to write/close '%s' (%d)\n"
+msgstr "'%s' への書き込み、クローズに失敗しました (%d)\n"
+
+#: libwget/io.c:521
+#, c-format
+msgid "Failed to rename '%s' to '%s' (%d)\n"
+msgstr "'%s' から '%s' に名前の変更ができませんでした (%d)\n"
+
+#: libwget/io.c:522
+#, c-format
+msgid "Take manually care for '%s'\n"
+msgstr ""
+
+#: libwget/iri.c:538
+#, c-format
+msgid "Missing host/domain in URI '%s'\n"
+msgstr ""
+
+#: libwget/net.c:402
+#, c-format
+msgid "Failed to resolve %s (%s)\n"
+msgstr "%s を解決できません (%s)\n"
+
+#: libwget/net.c:937 libwget/net.c:945
+msgid "Failed to set socket to non-blocking\n"
+msgstr "ソケットがブロッキングしないように設定できませんでした\n"
+
+#: libwget/net.c:942
+msgid "Failed to get socket flags\n"
+msgstr "ソケットのフラグを取得できませんでした\n"
+
+#: libwget/net.c:954
+msgid "Failed to set socket option REUSEADDR\n"
+msgstr "ソケットオプション REUSEADDR を設定できませんでした\n"
+
+#: libwget/net.c:958
+msgid "Failed to set socket option NODELAY\n"
+msgstr "ソケットオプション NODELAY を設定できませんでした\n"
+
+#: libwget/net.c:1047
+#, c-format
+msgid "Failed to bind (%d)\n"
+msgstr "bind() に失敗しました (%d)\n"
+
+#: libwget/net.c:1075 libwget/net.c:1245
+#, c-format
+msgid "Failed to connect (%d)\n"
+msgstr "connect() に失敗しました (%d)\n"
+
+#: libwget/net.c:1106
+#, c-format
+msgid "Failed to create socket (%d)\n"
+msgstr "ソケットの作成に失敗しました (%d)\n"
+
+#: libwget/net.c:1185
+#, c-format
+msgid "Failed to read %zu bytes (%d)\n"
+msgstr "%zu バイトの読み込みに失敗しました (%d)\n"
+
+#: libwget/net.c:1267
+#, c-format
+msgid "Failed to write %zu bytes (%d: %s)\n"
+msgstr "%zu バイトの書き込みに失敗しました (%d: %s)\n"
+
+#: libwget/net.c:1308
+#, c-format
+msgid "%s: internal error: length mismatch %zu != %zd\n"
+msgstr ""
+
+#: libwget/netrc.c:251
+#, c-format
+msgid "Failed to open .netrc file '%s' (%d)\n"
+msgstr ".netrc ファイル '%s' のオープンに失敗しました (%d)\n"
+
+#: libwget/metalink.c:264
+msgid "Error in parsing XML"
+msgstr "XML が解釈できませんでした"
+
+#: libwget/ocsp.c:460
+#, c-format
+msgid "Failed to parse OCSP line: '%s'\n"
+msgstr "OCSP ラインの解釈できませんでした: '%s'\n"
+
+#: libwget/ocsp.c:513
+msgid "Failed to read OCSP hosts\n"
+msgstr "OCSP ホストを読み込めませんでした\n"
+
+#: libwget/ocsp.c:515
+#, c-format
+msgid "Fetched OCSP hosts from '%s'\n"
+msgstr ""
+
+#: libwget/ocsp.c:518
+msgid "Failed to read OCSP fingerprints\n"
+msgstr ""
+
+#: libwget/ocsp.c:521
+#, c-format
+msgid "Fetched OCSP fingerprints from '%s'\n"
+msgstr ""
+
+#: libwget/ocsp.c:606
+#, c-format
+msgid "Failed to write to OCSP hosts to '%s'\n"
+msgstr "'%s' に OCSP ホストを書き込めませんでした\n"
+
+#: libwget/ocsp.c:608
+#, c-format
+msgid "Saved OCSP hosts to '%s'\n"
+msgstr ""
+
+#: libwget/ocsp.c:611
+#, c-format
+msgid "Failed to write to OCSP fingerprints to '%s'\n"
+msgstr "'%s' に OCSP フィンガープリントを書き込めませんでした\n"
+
+#: libwget/ocsp.c:614
+#, c-format
+msgid "Saved OCSP fingerprints to '%s'\n"
+msgstr ""
+
+#: libwget/pipe.c:85
+#, c-format
+msgid "Failed to create pipe for STDIN on %s\n"
+msgstr "%s の標準入力に対するパイプの作成に失敗しました\n"
+
+#: libwget/pipe.c:89
+#, c-format
+msgid "Failed to create pipe for STDOUT on %s\n"
+msgstr "%s の標準出力に対するパイプの作成に失敗しました\n"
+
+#: libwget/pipe.c:97
+#, c-format
+msgid "Failed to create pipe for STDERR on %s\n"
+msgstr "%s の標準エラー出力に対するパイプの作成に失敗しました\n"
+
+#: libwget/pipe.c:115 libwget/pipe.c:125 libwget/pipe.c:136
+#, c-format
+msgid "Failed to dup2(%d,%d) (%d)\n"
+msgstr ""
+
+#: libwget/pipe.c:163
+#, c-format
+msgid "Failed to fork '%s'\n"
+msgstr "'%s' の fork() に失敗しました\n"
+
+#: libwget/ssl_gnutls.c:237
+#, c-format
+msgid "Unknown config key %d (or value must not be a string)\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:247
+#, c-format
+msgid "Unknown config key %d (or value must not be an object)\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:293
+#, c-format
+msgid "Unknown config key %d (or value must not be an integer)\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:327
+#, c-format
+msgid "Certificate info [%u]:\n"
+msgstr "証明書情報 [%u]:\n"
+
+#: libwget/ssl_gnutls.c:330
+#, c-format
+msgid "  Valid since: %s"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:333
+#, c-format
+msgid "  Expires: %s"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:340
+#, c-format
+msgid "  Fingerprint: %s\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:348
+#, c-format
+msgid "  Serial number: %s\n"
+msgstr "  シリアルナンバー: %s\n"
+
+#: libwget/ssl_gnutls.c:353
+#, c-format
+msgid "  Public key: %s, %s (%u bits)\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:358
+#, c-format
+msgid "  Version: #%d\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:366
+#, c-format
+msgid "  Issuer's DN: %s\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:370
+#, c-format
+msgid "  Issuer's OID: %s\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:374
+#, c-format
+msgid "  Issuer's UID: %s\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:386
+#, c-format
+msgid "  Unknown certificate type %d\n"
+msgstr "  証明書タイプ %d は不明です\n"
+
+#: libwget/ssl_gnutls.c:403 libwget/ssl_gnutls.c:475 libwget/ssl_gnutls.c:504
+msgid "----\n"
+msgstr "----\n"
+
+#: libwget/ssl_gnutls.c:411
+msgid "TLS/IA session\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:416
+#, c-format
+msgid "SRP session with username %s\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:424
+#, c-format
+msgid "PSK authentication. PSK hint '%s'\n"
+msgstr "PSK 認証。PSK ヒント '%s'\n"
+
+#: libwget/ssl_gnutls.c:429
+#, c-format
+msgid "PSK authentication. Connected as '%s'\n"
+msgstr "PSK 認証。'%s' として接続しました\n"
+
+#: libwget/ssl_gnutls.c:441
+msgid "Anonymous authentication.\n"
+msgstr "匿名認証。\n"
+
+#: libwget/ssl_gnutls.c:469
+msgid "Transport authentication failure\n"
+msgstr "トランスポート層の認証に失敗しました\n"
+
+#: libwget/ssl_gnutls.c:471
+#, c-format
+msgid "Unsupported credential type %d.\n"
+msgstr "タイプ %d のクレデンシャルはサポートされていません\n"
+
+#: libwget/ssl_gnutls.c:478
+#, c-format
+msgid "Ephemeral DH using prime of %d bits\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:481
+#, c-format
+msgid "Ephemeral ECDH using curve %s\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:486
+#, c-format
+msgid "Key Exchange: %s\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:490
+#, c-format
+msgid "Protocol: %s\n"
+msgstr "プロトコル: %s\n"
+
+#: libwget/ssl_gnutls.c:494
+#, c-format
+msgid "Certificate Type: %s\n"
+msgstr "証明書タイプ: %s\n"
+
+#: libwget/ssl_gnutls.c:498
+#, c-format
+msgid "Cipher: %s\n"
+msgstr "暗号: %s\n"
+
+#: libwget/ssl_gnutls.c:502
+#, c-format
+msgid "MAC: %s\n"
+msgstr "MAC: %s\n"
+
+#: libwget/ssl_gnutls.c:850
+#, c-format
+msgid "Failed to import pubkey: %s\n"
+msgstr "公開鍵のインポートに失敗しました: %s\n"
+
+#: libwget/ssl_gnutls.c:858 libwget/ssl_gnutls.c:870 libwget/ssl_gnutls.c:878
+#, c-format
+msgid "Failed to export pubkey: %s\n"
+msgstr "公開鍵のエクスポートに失敗しました: %s\n"
+
+#: libwget/ssl_gnutls.c:918
+msgid "ERROR"
+msgstr "エラー"
+
+#: libwget/ssl_gnutls.c:918
+msgid "WARNING"
+msgstr "警告"
+
+#: libwget/ssl_gnutls.c:937
+#, c-format
+msgid "%s: Certificate verification error\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:977
+#, c-format
+msgid "%s: The certificate is not trusted.\n"
+msgstr "%s: この証明書は信用されません。\n"
+
+#: libwget/ssl_gnutls.c:979
+#, c-format
+msgid "%s: The certificate has been revoked.\n"
+msgstr "%s: この証明書は失効しています。\n"
+
+#: libwget/ssl_gnutls.c:981
+#, c-format
+msgid "%s: The certificate hasn't got a known issuer.\n"
+msgstr "%s: この証明書の発行者が不明です。\n"
+
+#: libwget/ssl_gnutls.c:983
+#, c-format
+msgid "%s: The certificate signer was not a CA.\n"
+msgstr "%s: この証明書に署名しているのが CA ではありません。\n"
+
+#: libwget/ssl_gnutls.c:985
+#, c-format
+msgid "%s: The certificate was signed using an insecure algorithm.\n"
+msgstr "%s: この証明書の署名に使われているアルゴリズムが安全ではありません。\n"
+
+#: libwget/ssl_gnutls.c:987
+#, c-format
+msgid "%s: The certificate is not yet activated.\n"
+msgstr "%s: この証明書はまだ有効になっていません。\n"
+
+#: libwget/ssl_gnutls.c:989
+#, c-format
+msgid "%s: The certificate has expired.\n"
+msgstr "%s: 証明書は失効しています。\n"
+
+#: libwget/ssl_gnutls.c:992
+#, c-format
+msgid "%s: The certificate signature is invalid.\n"
+msgstr "%s: この証明書の署名が無効です。\n"
+
+#: libwget/ssl_gnutls.c:994
+#, c-format
+msgid "%s: The certificate's owner does not match hostname '%s'.\n"
+msgstr "%s: 証明書の所有者の名前とホスト名 '%s' が一致しません\n"
+
+#: libwget/ssl_gnutls.c:1006
+#, c-format
+msgid "%s: The certificate could not be verified (0x%X).\n"
+msgstr "%s: この証明書は検証できません (0x%X)。\n"
+
+#: libwget/ssl_gnutls.c:1017
+#, c-format
+msgid "%s: Certificate must be X.509\n"
+msgstr "%s: 証明書は X.509 形式でなければなりません\n"
+
+#: libwget/ssl_gnutls.c:1022
+#, c-format
+msgid "%s: Error initializing X.509 certificate\n"
+msgstr "%s: X509 証明書の初期化に失敗しました\n"
+
+#: libwget/ssl_gnutls.c:1028
+#, c-format
+msgid "%s: No certificate was found!\n"
+msgstr "%s: 証明書が見つかりません\n"
+
+#: libwget/ssl_gnutls.c:1033
+#, c-format
+msgid "%s: Failed to parse certificate: %s\n"
+msgstr "%s: 証明書を解釈できませんでした: %s\n"
+
+#: libwget/ssl_gnutls.c:1056
+msgid "WARNING: The certificate's (stapled) OCSP status is invalid\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:1059
+msgid "WARNING: The certificate's (stapled) OCSP status has not been sent\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:1071
+#, c-format
+msgid "%s: Failed to parse certificate[%u]: %s\n"
+msgstr "%s: 証明書[%u]を解釈できませんでした: %s\n"
+
+#: libwget/ssl_gnutls.c:1123
+#, c-format
+msgid "%s: Certificate[%u] of '%s' has been revoked (via OCSP)\n"
+msgstr "%s: 証明書[%u]('%s'向け)は OCSP により失効しています。\n"
+
+#: libwget/ssl_gnutls.c:1157
+#, c-format
+msgid "%s: Pubkey pinning mismatch!\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:1213
+msgid "GnuTLS requires the key and the cert to be of the same type.\n"
+msgstr "GnuTLS は鍵と証明書のタイプが同じでなければなりません。\n"
+
+#: libwget/ssl_gnutls.c:1217
+msgid "No certificates or keys were found\n"
+msgstr "証明書か鍵が見つかりません\n"
+
+#: libwget/ssl_gnutls.c:1222
+#, c-format
+msgid "No CAs were found in '%s'\n"
+msgstr "'%s' に CA が見つかりませんでした\n"
+
+#: libwget/ssl_gnutls.c:1298
+#, c-format
+msgid "Failed to opendir %s\n"
+msgstr "opendir() %s に失敗しました\n"
+
+#: libwget/ssl_gnutls.c:1305
+#, c-format
+msgid "Failed to load CRL '%s': (%d)\n"
+msgstr "'%s' というCRLファイルを開けません: (%d)\n"
+
+#: libwget/ssl_gnutls.c:1339
+#, c-format
+msgid "GnuTLS: Unsupported priority string '%s': %s\n"
+msgstr "GnuTLS: '%s' はサポートしていない優先度です: %s\n"
+
+#: libwget/ssl_gnutls.c:1343
+#, c-format
+msgid "GnuTLS: Unsupported default priority 'NULL': %s\n"
+msgstr "GnuTLS: デフォルト優先度 'NULL' がサポートされていません: %s\n"
+
+#: libwget/ssl_gnutls.c:1577 libwget/ssl_gnutls.c:1582
+msgid ""
+"TLS False Start requested but Wget built with insufficient GnuTLS version\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:1587
+#, c-format
+msgid "GnuTLS: Failed to set priorities: %s\n"
+msgstr "GnuTLS: 優先度が設定できませんでした: %s\n"
+
+#: libwget/ssl_gnutls.c:1617
+msgid "WARNING: OCSP is not available in this version of GnuTLS.\n"
+msgstr ""
+
+#: libwget/ssl_gnutls.c:1682
+#, c-format
+msgid "GnuTLS: Failed to set session data: %s\n"
+msgstr "GnuTLS: セッションデータを設定できませんでした: %s\n"
+
+#: libwget/tls_session.c:332
+#, fuzzy
+msgid "Failed to read TLS session data\n"
+msgstr "%s のパーミッションが設定できません。\n"
+
+#: libwget/tls_session.c:335
+#, c-format
+msgid "Fetched TLS session data from '%s'\n"
+msgstr ""
+
+#: libwget/tls_session.c:379
+#, fuzzy, c-format
+msgid "Failed to write TLS session file '%s'\n"
+msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+
+#: libwget/tls_session.c:384
+#, c-format
+msgid "Saved %d TLS session entr%s into '%s'\n"
+msgstr ""
+
+#: libwget/tls_session.c:386
+msgid "No TLS session entries to save. Table is empty.\n"
+msgstr ""
+
+#: src/bar.c:95
+msgid "Cannot create progress bar thread. Disabling progess bar.\n"
+msgstr ""
+
+#: src/dl.c:41
+#, c-format
+msgid "Piling up error '%s' over error '%s'"
+msgstr ""
+
+#: src/gpgme.c:60
+msgid "GPGME Failure\n"
+msgstr "GPGME の失敗\n"
+
+#: src/gpgme.c:67
+#, c-format
+msgid "%s: Key %s expired\n"
+msgstr "%s: キー %s の有効期限が切れました\n"
+
+#: src/gpgme.c:73
+#, fuzzy, c-format
+msgid "%s: Key %s missing\n"
+msgstr "%s: URLがありません\n"
+
+#: src/gpgme.c:76
+#, c-format
+msgid "%s: Unhandled failure\n"
+msgstr "%s: 処理しきれない失敗が起きました\n"
+
+#: src/gpgme.c:117
+msgid "Invalid signature, signature file must have a sig extension\n"
+msgstr ""
+
+#: src/gpgme.c:156
+#, fuzzy
+msgid "Failed to init gpgme context\n"
+msgstr "c-ares チャネルの初期化に失敗しました\n"
+
+#: src/gpgme.c:171
+msgid "Couldn't specify gnupg homedir\n"
+msgstr "gnupg homedir が指定できません\n"
+
+#: src/gpgme.c:177
+#, c-format
+msgid "Couldn't canonicalize %s. (Does the path exist?)\n"
+msgstr ""
+
+#: src/gpgme.c:186
+#, fuzzy
+msgid "Error during verification\n"
+msgstr "証明書を解釈中にエラーが発生しました: %s\n"
+
+#: src/gpgme.c:194
+#, fuzzy
+msgid "GPGME verify failed!\n"
+msgstr "GPGME op_verify: %s\n"
+
+#: src/gpgme.c:273
+#, fuzzy, c-format
+msgid "Unsupported protocol type for content: %s\n"
+msgstr "'%s' という保護方式はサポートされていません。\n"
+
+#: src/gpgme.c:281
+#, fuzzy
+msgid "Couldn't correct signature file!\n"
+msgstr "ダウンロードファイルをオープンできません。\n"
+
+#: src/gpgme.c:290
+#, fuzzy, c-format
+msgid "Failed to read file to verify sig: %s\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/host.c:379 src/wget.c:887
+#, c-format
+msgid "URL '%s' not followed (disallowed by robots.txt)\n"
+msgstr ""
+
+#: src/job.c:186
+#, c-format
+msgid ""
+"Failed to truncate %s\n"
+" from %llu to %llu bytes\n"
+msgstr ""
+
+#: src/job.c:205
+#, fuzzy, c-format
+msgid "Checksum OK for '%s'\n"
+msgstr "%s のチェックサムを計算しています\n"
+
+#: src/job.c:212
+msgid "Failed to build checksum, assuming file to be OK\n"
+msgstr ""
+
+#: src/job.c:217
+#, fuzzy, c-format
+msgid "Bad checksum for '%s'\n"
+msgstr "%s のチェックサムを計算しています\n"
+
+#: src/job.c:235
+#, c-format
+msgid "Piece %d/%d not OK - requeuing\n"
+msgstr ""
+
+#: src/options.c:251
+#, c-format
+msgid "Value out of range (0-65535): %s\n"
+msgstr ""
+
+#: src/options.c:280
+#, fuzzy, c-format
+msgid "Invalid byte specifier: %s\n"
+msgstr "%s: %s: %s は無効なバイト値です。\n"
+
+#: src/options.c:356
+#, fuzzy, c-format
+msgid "Ignoring invalid header: %s\n"
+msgstr "%s: %s: %s は無効なヘッダです。\n"
+
+#: src/options.c:365
+#, c-format
+msgid "No value in header (ignoring): %s\n"
+msgstr ""
+
+#: src/options.c:506
+#, fuzzy, c-format
+msgid "Invalid boolean value '%s'\n"
+msgstr "%s: %s: %s は無効なバイト値です。\n"
+
+#: src/options.c:548
+#, fuzzy, c-format
+msgid "Invalid time specifier in '%s'\n"
+msgstr "%s: %s: %s は無効な時間間隔です。\n"
+
+#: src/options.c:578
+#, c-format
+msgid "Unknown cert type '%s'\n"
+msgstr "'%s' は不明な証明書タイプです \n"
+
+#: src/options.c:595
+#, fuzzy, c-format
+msgid "Unsupported regex type '%s'\n"
+msgstr "'%s' というアルゴリズムはサポートされていません。\n"
+
+#: src/options.c:609
+#, fuzzy, c-format
+msgid "Unknown progress type '%s'\n"
+msgstr "%s: %s: %s は無効な経過表示形式です。\n"
+
+#: src/options.c:634
+#, c-format
+msgid "Unknown restrict-file-name type '%s'\n"
+msgstr ""
+
+#: src/options.c:666
+#, c-format
+msgid "Unknown option '-n%c'\n"
+msgstr ""
+
+#: src/options.c:686
+#, c-format
+msgid "Unknown address family '%s'\n"
+msgstr ""
+
+#: src/options.c:728 src/options.c:746
+#, c-format
+msgid "Plugin '%s' failed to load: %s\n"
+msgstr ""
+
+#: src/options.c:807
+msgid "Missing required type specifier\n"
+msgstr ""
+
+#: src/options.c:811
+#, fuzzy, c-format
+msgid "Invalid type specifier: %s\n"
+msgstr "%s: %s: %s は無効な時間間隔です。\n"
+
+#: src/options.c:873
+#, fuzzy, c-format
+msgid "Compression type %s not supported\n"
+msgstr "%s から %s への変換はサポートしていません\n"
+
+#: src/options.c:876
+#, c-format
+msgid "Duplicate type %s"
+msgstr ""
+
+#: src/options.c:898
+#, c-format
+msgid "Lib for type %s not built"
+msgstr ""
+
+#: src/options.c:2140
+#, fuzzy, c-format
+msgid "Unknown option '%s'\n"
+msgstr "%s: '%s%s' は認識できないオプションです\n"
+
+#: src/options.c:2155
+#, fuzzy, c-format
+msgid "Option 'no-%s' doesn't allow an argument\n"
+msgstr "%s: オプション '%s%s' は引数を必要としません\n"
+
+#: src/options.c:2159
+#, fuzzy, c-format
+msgid "Option '%s' doesn't allow an argument\n"
+msgstr "%s: オプション '%s%s' は引数を必要としません\n"
+
+#: src/options.c:2170
+#, fuzzy, c-format
+msgid "Missing argument for option '%s'\n"
+msgstr "エラーのため終了します：%s\n"
+
+#: src/options.c:2235
+#, fuzzy, c-format
+msgid "Failed to parse: '%s'\n"
+msgstr "IP アドレス '%s' を理解できませんでした。\n"
+
+#: src/options.c:2297
+#, c-format
+msgid "Config file recursion detected in %s\n"
+msgstr ""
+
+#: src/options.c:2324
+#, fuzzy, c-format
+msgid "Failed to open %s (%d): %s\n"
+msgstr "ファイル %s の fopen() 失敗しました\n"
+
+#: src/options.c:2388
+#, fuzzy, c-format
+msgid "Failed to parse last line in '%s'\n"
+msgstr "IP アドレス '%s' を理解できませんでした。\n"
+
+#: src/options.c:2467
+#, c-format
+msgid "Missing argument(s) for option '-%c'\n"
+msgstr ""
+
+#: src/options.c:2487
+#, fuzzy, c-format
+msgid "Unknown option '-%c'\n"
+msgstr "不明なホストです"
+
+#: src/options.c:2519
+#, fuzzy, c-format
+msgid "Password for user \"%s\": "
+msgstr "ユーザ %s のパスワード: "
+
+#: src/options.c:2521
+#, c-format
+msgid "Password: "
+msgstr "パスワード: "
+
+#: src/options.c:2542
+#, fuzzy
+msgid "Cannot create pipe"
+msgstr "パイプが作成できません\n"
+
+#: src/options.c:2548
+#, fuzzy, c-format
+msgid "Error initializing spawn file actions for use-askpass: %d"
+msgstr ""
+"認証情報取得用のプログラム(use-askpass)を起動するための初期化でエラーが発生し"
+"ました: %d\n"
+
+#: src/options.c:2559
+#, fuzzy, c-format
+msgid "Error setting spawn file actions for use-askpass: %d"
+msgstr ""
+"認証情報取得用のプログラム(use-askpass)を起動するための設定でエラーが発生しま"
+"した: %d\n"
+
+#: src/options.c:2566
+#, fuzzy, c-format
+msgid "Error spawning %s: %d"
+msgstr "%s を閉じる際にエラーが発生しました: %s\n"
+
+#: src/options.c:2583
+#, c-format
+msgid "Error reading response from command \"%s %s\": %s\n"
+msgstr "コマンド \"%s %s\" の応答の読み込みでエラーが発生しました: %s\n"
+
+#: src/options.c:2811
+#, fuzzy, c-format
+msgid "Failed to set http proxies %s\n"
+msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+
+#: src/options.c:2815
+#, fuzzy, c-format
+msgid "Failed to set https proxies %s\n"
+msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+
+#: src/options.c:2819
+#, fuzzy, c-format
+msgid "Failed to set proxy exceptions %s\n"
+msgstr "%s のパーミッションが設定できません。\n"
+
+#: src/options.c:2914
+#, c-format
+msgid "Failed to init networking (%d)"
+msgstr ""
+
+#: src/options.c:3093
+#, c-format
+msgid "%s: Option not in order '%s' after '%s' (using opt_compare())\n"
+msgstr ""
+
+#: src/options.c:3102
+#, c-format
+msgid "%s: Option not in order '%s' after '%s' (using opt_compare_config())\n"
+msgstr ""
+
+#: src/options.c:3112
+#, c-format
+msgid "%s: Failed to find option '%s' (using opt_compare())\n"
+msgstr ""
+
+#: src/options.c:3122 src/options.c:3146
+#, c-format
+msgid "%s: Failed to find option '%s' (using opt_compare_config())\n"
+msgstr ""
+
+#: src/options.c:3172
+#, c-format
+msgid "%s: Failed to parse bool short option #%zu (=%d)\n"
+msgstr ""
+
+#: src/options.c:3199 src/options.c:3206
+#, c-format
+msgid "%s: Failed to parse bool long option #%zu (%d)\n"
+msgstr ""
+
+#: src/options.c:3249
+#, c-format
+msgid "%s: Failed to parse timeout short option #%zu (=%d)\n"
+msgstr ""
+
+#: src/options.c:3280
+#, c-format
+msgid "%s: Failed to parse timeout long option #%zu (%d)\n"
+msgstr ""
+
+#: src/options.c:3315
+#, c-format
+msgid "%s: Extra headers found in option #%zu\n"
+msgstr ""
+
+#: src/options.c:3320
+#, fuzzy, c-format
+msgid "%s: Failed to parse header option #%zu\n"
+msgstr "IP アドレス '%s' を理解できませんでした。\n"
+
+#: src/options.c:3343
+#, fuzzy, c-format
+msgid "%s: Accepted illegal header option #%zu\n"
+msgstr "%s: `-n%c' は不正なオプション指定です\n"
+
+#: src/options.c:3371 src/options.c:3390
+#, c-format
+msgid "%s: Failed to parse string short option #%zu (=%s)\n"
+msgstr ""
+
+#: src/plugin.c:456
+#, c-format
+msgid "Plugin '%s' failed to load: %s"
+msgstr ""
+
+#: src/plugin.c:565
+#, fuzzy, c-format
+msgid "Options for %s:\n"
+msgstr "%s のサイズを計算しています\n"
+
+#: src/stats.c:63
+#, c-format
+msgid "Unknown stats format '%s'\n"
+msgstr ""
+
+#: src/stats.c:89
+#, c-format
+msgid "Stats format not supported by %s stats \n"
+msgstr ""
+
+#: src/stats.c:143
+#, c-format
+msgid "File could not be opened %s for %s stats\n"
+msgstr ""
+
+#: src/stats.c:150
+#, fuzzy, c-format
+msgid "%s stats saved in %s\n"
+msgstr ""
+"%s (%s) - %s へ保存終了 [%s]\n"
+"\n"
+
+#: src/wget.c:182
+#, c-format
+msgid "Internal error: Unexpected relative path: '%s'\n"
+msgstr ""
+
+#: src/wget.c:206 src/wget.c:213
+#, fuzzy, c-format
+msgid "Failed to make directory '%s' (errno=%d)\n"
+msgstr "'%s' というDNSサーバを設定できません: (%d)\n"
+
+#: src/wget.c:211
+#, fuzzy, c-format
+msgid "Failed to rename '%s' (errno=%d)\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/wget.c:619
+#, fuzzy, c-format
+msgid "Failed to parse URI '%s'\n"
+msgstr "IP アドレス '%s' を理解できませんでした。\n"
+
+#: src/wget.c:637
+#, fuzzy, c-format
+msgid "URI scheme not supported: '%s'\n"
+msgstr "IPv6 アドレスはサポートされていません"
+
+#: src/wget.c:749
+#, fuzzy, c-format
+msgid "Adding URL: %s\n"
+msgstr "%s に保存中\n"
+
+#: src/wget.c:777 src/wget.c:1020
+#, fuzzy, c-format
+msgid "Cannot resolve URI '%s'\n"
+msgstr "%s を開けません: %s"
+
+#: src/wget.c:797
+#, fuzzy, c-format
+msgid "URL '%s' not followed (unsupported scheme '%s')\n"
+msgstr "%s はサポートされていないスキームです"
+
+#: src/wget.c:804
+#, c-format
+msgid "URL '%s' not followed (https-only requested)\n"
+msgstr ""
+
+#: src/wget.c:831
+msgid "missing ip/host/domain"
+msgstr ""
+
+#: src/wget.c:833
+msgid "no host-spanning requested"
+msgstr ""
+
+#: src/wget.c:835
+msgid "domain explicitly excluded"
+msgstr ""
+
+#: src/wget.c:839
+#, c-format
+msgid "URL '%s' not followed (%s)\n"
+msgstr ""
+
+#: src/wget.c:864
+#, c-format
+msgid "URL '%s' not followed (parent ascending not allowed)\n"
+msgstr ""
+
+#: src/wget.c:896
+#, fuzzy, c-format
+msgid "Failed to get '%s' from hosts\n"
+msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+
+#: src/wget.c:998
+#, fuzzy, c-format
+msgid "convert %s %s %s\n"
+msgstr "%s 中のリンクを変換できません: %s\n"
+
+#: src/wget.c:1001
+#, fuzzy, c-format
+msgid "%s not found (%d)\n"
+msgstr "%s: %s (%s)を読み込めません。\n"
+
+#: src/wget.c:1063
+#, fuzzy, c-format
+msgid "Failed to rename %s to %s (%d)"
+msgstr "エラー：%s という証明書を開けません: (%d)\n"
+
+#: src/wget.c:1067
+#, fuzzy, c-format
+msgid "Failed to write open %s (%d)"
+msgstr "エラー：%s という証明書を開けません: (%d)\n"
+
+#: src/wget.c:1199 src/wget.c:1281
+#, fuzzy, c-format
+msgid "Failed to start downloader, error %d\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/wget.c:1222
+#, fuzzy, c-format
+msgid "Failed to open input file %s\n"
+msgstr "ファイル %s の fopen() 失敗しました\n"
+
+#: src/wget.c:1227
+#, fuzzy
+msgid "Nothing to do - goodbye\n"
+msgstr "なにもすることがありません。\n"
+
+#: src/wget.c:1242
+msgid "Wget2 built without thread support. Disabling progress report\n"
+msgstr ""
+
+#: src/wget.c:1288
+#, c-format
+msgid "Quota of %lld bytes reached - stopping.\n"
+msgstr ""
+
+#: src/wget.c:1308
+#, fuzzy, c-format
+msgid "Failed to wait for downloader #%d (%d %d)\n"
+msgstr "小文字に変換できませんでした: %d: %s\n"
+
+#: src/wget.c:1314
+#, c-format
+msgid "Downloaded: %d files, %s bytes, %d redirects, %d errors\n"
+msgstr ""
+
+#: src/wget.c:1394
+#, c-format
+msgid "HSTS in effect for %s:%hu\n"
+msgstr ""
+
+#: src/wget.c:1597
+#, fuzzy
+msgid "The file is already fully retrieved; nothing to do.\n"
+msgstr ""
+"\n"
+"    このファイルは既に全部取得しおわっています。何もすることはありません。\n"
+"\n"
+
+#: src/wget.c:1657
+#, c-format
+msgid "Not scanning '%s' (known ETag)\n"
+msgstr ""
+
+#: src/wget.c:1838
+#, c-format
+msgid "File length %llu - remove job\n"
+msgstr ""
+
+#: src/wget.c:1840
+msgid "No download mirrors found - remove job\n"
+msgstr ""
+
+#: src/wget.c:1952
+#, fuzzy
+msgid "Couldn't determine base file to delete for failed verification\n"
+msgstr "署名検証時にダウンロードしたファイルをオープンできませんでした。\n"
+
+#: src/wget.c:1956
+#, c-format
+msgid "Signature for file %s successfully verified\n"
+msgstr ""
+
+#: src/wget.c:1972
+msgid "File name for signature checking not assigned to job!\n"
+msgstr ""
+
+#: src/wget.c:2174
+#, fuzzy, c-format
+msgid "Unhandled action %d\n"
+msgstr "処理されないエラー (errno %d)\n"
+
+#: src/wget.c:2253
+#, c-format
+msgid "URL '%.*s' not followed (conversion failed)\n"
+msgstr ""
+
+#: src/wget.c:2261
+#, fuzzy, c-format
+msgid "Cannot resolve relative URI %.*s\n"
+msgstr "%s: 不完全なリンク %s を解決できません。\n"
+
+#: src/wget.c:2282
+msgid "set by user"
+msgstr ""
+
+#: src/wget.c:2287 src/wget.c:2295 src/wget.c:2303
+msgid "set by BOM"
+msgstr ""
+
+#: src/wget.c:2309
+msgid "set by server response"
+msgstr ""
+
+#: src/wget.c:2318
+#, c-format
+msgid "Convert non-ASCII encoding '%s' (%s) to UTF-8\n"
+msgstr ""
+
+#: src/wget.c:2322
+#, c-format
+msgid "Link conversion disabled for '%s'\n"
+msgstr ""
+
+#: src/wget.c:2326
+#, c-format
+msgid "Failed to convert non-ASCII encoding '%s' (%s) to UTF-8, skip parsing\n"
+msgstr ""
+
+#: src/wget.c:2339
+msgid "set by document"
+msgstr ""
+
+#: src/wget.c:2342
+msgid "default, encoding not specified"
+msgstr ""
+
+#: src/wget.c:2346
+#, c-format
+msgid "URI content encoding = '%s' (%s)\n"
+msgstr ""
+
+#: src/wget.c:2354
+#, c-format
+msgid "BASE '%.*s' not usable (missing absolute base URI)\n"
+msgstr ""
+
+#: src/wget.c:2361
+#, c-format
+msgid "Cannot resolve BASE URI %.*s\n"
+msgstr ""
+
+#: src/wget.c:2372
+#, c-format
+msgid "URL '%.*s' not followed (action/formaction attribute)\n"
+msgstr ""
+
+#: src/wget.c:2384
+#, c-format
+msgid "URL '%.*s' not followed (page requisites + level)\n"
+msgstr ""
+
+#: src/wget.c:2394 src/wget.c:2717
+#, c-format
+msgid "URL '%.*s' not followed (missing base URI)\n"
+msgstr ""
+
+#: src/wget.c:2449 src/wget.c:2580
+#, c-format
+msgid "found %d url(s) (base=%s)\n"
+msgstr ""
+
+#: src/wget.c:2457 src/wget.c:2551 src/wget.c:2587
+#, c-format
+msgid "URL '%.*s' not followed (not matching sitemap location)\n"
+msgstr ""
+
+#: src/wget.c:2464 src/wget.c:2481 src/wget.c:2594
+#, c-format
+msgid "URL '%.*s' not followed (already known)\n"
+msgstr ""
+
+#: src/wget.c:2472
+#, c-format
+msgid "found %d sitemap url(s) (base=%s)\n"
+msgstr ""
+
+#: src/wget.c:2512
+#, c-format
+msgid "Can't scan '%s' because no libz support enabled at compile time\n"
+msgstr ""
+
+#: src/wget.c:2651
+#, c-format
+msgid "Invalid file length %llu\n"
+msgstr ""
+
+#: src/wget.c:2654
+msgid "No download mirrors found\n"
+msgstr ""
+
+#: src/wget.c:2792
+#, fuzzy, c-format
+msgid "Failed to set file date: %s\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/wget.c:2902
+#, fuzzy, c-format
+msgid "Failed to write to STDOUT (%zu, errno=%d)\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/wget.c:3001
+#, fuzzy, c-format
+msgid "Failed to rename %s to %s (errno=%d)\n"
+msgstr "エラー：%s という証明書を開けません: (%d)\n"
+
+#: src/wget.c:3024 src/wget.c:3030
+#, fuzzy, c-format
+msgid "Failed to load partial content from '%s' (errno=%d): %s\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/wget.c:3046
+#, fuzzy, c-format
+msgid "Saving '%s'\n"
+msgstr "%s に保存中\n"
+
+#: src/wget.c:3050
+#, fuzzy, c-format
+msgid "Failed to write file %s (%zd, errno=%d)\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/wget.c:3058
+#, fuzzy, c-format
+msgid "File '%s' already there; not retrieving.\n"
+msgstr "ファイル %s はすでに存在するので、取得しません。\n"
+
+#: src/wget.c:3060
+#, c-format
+msgid "Directory / file name clash - not saving '%s'\n"
+msgstr ""
+
+#: src/wget.c:3062
+#, fuzzy, c-format
+msgid "Failed to open '%s' (errno=%d): %s\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
+
+#: src/wget.c:3075
+#, fuzzy, c-format
+msgid "Failed to save extended attribute %s\n"
+msgstr "ファイル %s の fopen() 失敗しました\n"
+
+#: src/wget.c:3194
+#, c-format
+msgid ""
+"# got header %zu bytes:\n"
+"%s\n"
+msgstr ""
+
+#: src/wget.c:3545
+#, fuzzy, c-format
+msgid "Failed to fsync errno=%d\n"
+msgstr "ファイル %s の stat() に失敗しました: %s\n"
