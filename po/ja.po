@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: wget2 1.99.1\n"
 "Report-Msgid-Bugs-To: bug-wget2@gnu.org\n"
 "POT-Creation-Date: 2018-06-02 22:13+0900\n"
-"PO-Revision-Date: 2018-06-03 00:10+0900\n"
+"PO-Revision-Date: 2018-06-03 14:39+0900\n"
 "Last-Translator: Hiroshi Takekawa <sian@big.or.jp>\n"
 "Language-Team: Japanese <translation-team-ja@lists.sourceforge.net>\n"
 "Language: ja\n"
@@ -1018,9 +1018,8 @@ msgid "GnuTLS: Failed to set session data: %s\n"
 msgstr "GnuTLS: セッションデータを設定できませんでした: %s\n"
 
 #: libwget/tls_session.c:332
-#, fuzzy
 msgid "Failed to read TLS session data\n"
-msgstr "%s のパーミッションが設定できません。\n"
+msgstr "TLS セッションデータが読み込めません\n"
 
 #: libwget/tls_session.c:335
 #, c-format
@@ -1028,9 +1027,9 @@ msgid "Fetched TLS session data from '%s'\n"
 msgstr ""
 
 #: libwget/tls_session.c:379
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to write TLS session file '%s'\n"
-msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+msgstr "TLS セッションデータをファイル '%s' に書き込めませんでした\n"
 
 #: libwget/tls_session.c:384
 #, c-format
@@ -1060,9 +1059,9 @@ msgid "%s: Key %s expired\n"
 msgstr "%s: キー %s の有効期限が切れました\n"
 
 #: src/gpgme.c:73
-#, fuzzy, c-format
+#, c-format
 msgid "%s: Key %s missing\n"
-msgstr "%s: URLがありません\n"
+msgstr "%s: キー %s がありません\n"
 
 #: src/gpgme.c:76
 #, c-format
@@ -1074,9 +1073,8 @@ msgid "Invalid signature, signature file must have a sig extension\n"
 msgstr ""
 
 #: src/gpgme.c:156
-#, fuzzy
 msgid "Failed to init gpgme context\n"
-msgstr "c-ares チャネルの初期化に失敗しました\n"
+msgstr "gpgme コンテキストの初期化に失敗しました\n"
 
 #: src/gpgme.c:171
 msgid "Couldn't specify gnupg homedir\n"
@@ -1088,29 +1086,26 @@ msgid "Couldn't canonicalize %s. (Does the path exist?)\n"
 msgstr ""
 
 #: src/gpgme.c:186
-#, fuzzy
 msgid "Error during verification\n"
-msgstr "証明書を解釈中にエラーが発生しました: %s\n"
+msgstr "検証中にエラーが発生しました\n"
 
 #: src/gpgme.c:194
-#, fuzzy
 msgid "GPGME verify failed!\n"
-msgstr "GPGME op_verify: %s\n"
+msgstr "GPGME verify (検証)に失敗しました！\n"
 
 #: src/gpgme.c:273
-#, fuzzy, c-format
+#, c-format
 msgid "Unsupported protocol type for content: %s\n"
-msgstr "'%s' という保護方式はサポートされていません。\n"
+msgstr "プロトコルがサポートされていません: %s\n"
 
 #: src/gpgme.c:281
-#, fuzzy
 msgid "Couldn't correct signature file!\n"
-msgstr "ダウンロードファイルをオープンできません。\n"
+msgstr "署名ファイル名を補正できませんでした！\n"
 
 #: src/gpgme.c:290
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to read file to verify sig: %s\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "署名検証のためにファイルを読み込めませんでした: %s\n"
 
 #: src/host.c:379 src/wget.c:887
 #, c-format
@@ -1125,18 +1120,18 @@ msgid ""
 msgstr ""
 
 #: src/job.c:205
-#, fuzzy, c-format
+#, c-format
 msgid "Checksum OK for '%s'\n"
-msgstr "%s のチェックサムを計算しています\n"
+msgstr "'%s' のチェックサムは正常です\n"
 
 #: src/job.c:212
 msgid "Failed to build checksum, assuming file to be OK\n"
 msgstr ""
 
 #: src/job.c:217
-#, fuzzy, c-format
+#, c-format
 msgid "Bad checksum for '%s'\n"
-msgstr "%s のチェックサムを計算しています\n"
+msgstr "'%s' のチェックサムが間違っています\n"
 
 #: src/job.c:235
 #, c-format
@@ -1149,14 +1144,14 @@ msgid "Value out of range (0-65535): %s\n"
 msgstr ""
 
 #: src/options.c:280
-#, fuzzy, c-format
+#, c-format
 msgid "Invalid byte specifier: %s\n"
-msgstr "%s: %s: %s は無効なバイト値です。\n"
+msgstr "無効なバイト値です: %s\n"
 
 #: src/options.c:356
-#, fuzzy, c-format
+#, c-format
 msgid "Ignoring invalid header: %s\n"
-msgstr "%s: %s: %s は無効なヘッダです。\n"
+msgstr "無効なヘッダを無視します: %s\n"
 
 #: src/options.c:365
 #, c-format
@@ -1164,14 +1159,14 @@ msgid "No value in header (ignoring): %s\n"
 msgstr ""
 
 #: src/options.c:506
-#, fuzzy, c-format
+#, c-format
 msgid "Invalid boolean value '%s'\n"
-msgstr "%s: %s: %s は無効なバイト値です。\n"
+msgstr "'%s' は無効なブール値です\n"
 
 #: src/options.c:548
-#, fuzzy, c-format
+#, c-format
 msgid "Invalid time specifier in '%s'\n"
-msgstr "%s: %s: %s は無効な時間間隔です。\n"
+msgstr "'%s' は無効な時間指定です。\n"
 
 #: src/options.c:578
 #, c-format
@@ -1179,14 +1174,14 @@ msgid "Unknown cert type '%s'\n"
 msgstr "'%s' は不明な証明書タイプです \n"
 
 #: src/options.c:595
-#, fuzzy, c-format
+#, c-format
 msgid "Unsupported regex type '%s'\n"
-msgstr "'%s' というアルゴリズムはサポートされていません。\n"
+msgstr "'%s' 形式の正規表現はサポートされていません\n"
 
 #: src/options.c:609
-#, fuzzy, c-format
+#, c-format
 msgid "Unknown progress type '%s'\n"
-msgstr "%s: %s: %s は無効な経過表示形式です。\n"
+msgstr "'%s' は無効な経過表示形式です\n"
 
 #: src/options.c:634
 #, c-format
@@ -1213,14 +1208,14 @@ msgid "Missing required type specifier\n"
 msgstr ""
 
 #: src/options.c:811
-#, fuzzy, c-format
+#, c-format
 msgid "Invalid type specifier: %s\n"
-msgstr "%s: %s: %s は無効な時間間隔です。\n"
+msgstr "無効な転送速度単位です: %s\n"
 
 #: src/options.c:873
-#, fuzzy, c-format
+#, c-format
 msgid "Compression type %s not supported\n"
-msgstr "%s から %s への変換はサポートしていません\n"
+msgstr "圧縮形式 %s はサポートしていません\n"
 
 #: src/options.c:876
 #, c-format
@@ -1233,29 +1228,29 @@ msgid "Lib for type %s not built"
 msgstr ""
 
 #: src/options.c:2140
-#, fuzzy, c-format
+#, c-format
 msgid "Unknown option '%s'\n"
-msgstr "%s: '%s%s' は認識できないオプションです\n"
+msgstr "'%s' は認識できないオプションです\n"
 
 #: src/options.c:2155
-#, fuzzy, c-format
+#, c-format
 msgid "Option 'no-%s' doesn't allow an argument\n"
-msgstr "%s: オプション '%s%s' は引数を必要としません\n"
+msgstr "オプション 'no-%s' は引数を取りません\n"
 
 #: src/options.c:2159
-#, fuzzy, c-format
+#, c-format
 msgid "Option '%s' doesn't allow an argument\n"
-msgstr "%s: オプション '%s%s' は引数を必要としません\n"
+msgstr "オプション '%s' は引数を取りません\n"
 
 #: src/options.c:2170
-#, fuzzy, c-format
+#, c-format
 msgid "Missing argument for option '%s'\n"
-msgstr "エラーのため終了します：%s\n"
+msgstr "オプション '%s' の引数がありません\n"
 
 #: src/options.c:2235
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to parse: '%s'\n"
-msgstr "IP アドレス '%s' を理解できませんでした。\n"
+msgstr "解釈できませんでした: '%s'\n"
 
 #: src/options.c:2297
 #, c-format
@@ -1263,14 +1258,14 @@ msgid "Config file recursion detected in %s\n"
 msgstr ""
 
 #: src/options.c:2324
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to open %s (%d): %s\n"
-msgstr "ファイル %s の fopen() 失敗しました\n"
+msgstr "ファイル %s (%d) のオープンに失敗しました: %s\n"
 
 #: src/options.c:2388
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to parse last line in '%s'\n"
-msgstr "IP アドレス '%s' を理解できませんでした。\n"
+msgstr "'%s' の最終行を解釈できませんでした\n"
 
 #: src/options.c:2467
 #, c-format
@@ -1278,14 +1273,14 @@ msgid "Missing argument(s) for option '-%c'\n"
 msgstr ""
 
 #: src/options.c:2487
-#, fuzzy, c-format
+#, c-format
 msgid "Unknown option '-%c'\n"
-msgstr "不明なホストです"
+msgstr "オプション '-%c' は不明です\n"
 
 #: src/options.c:2519
-#, fuzzy, c-format
+#, c-format
 msgid "Password for user \"%s\": "
-msgstr "ユーザ %s のパスワード: "
+msgstr "ユーザ \"%s\" のパスワード: "
 
 #: src/options.c:2521
 #, c-format
@@ -1293,28 +1288,23 @@ msgid "Password: "
 msgstr "パスワード: "
 
 #: src/options.c:2542
-#, fuzzy
 msgid "Cannot create pipe"
-msgstr "パイプが作成できません\n"
+msgstr "パイプが作成できません"
 
 #: src/options.c:2548
-#, fuzzy, c-format
+#, c-format
 msgid "Error initializing spawn file actions for use-askpass: %d"
-msgstr ""
-"認証情報取得用のプログラム(use-askpass)を起動するための初期化でエラーが発生し"
-"ました: %d\n"
+msgstr "認証情報取得用のプログラム(use-askpass)を起動するための初期化でエラーが発生しました: %d"
 
 #: src/options.c:2559
-#, fuzzy, c-format
+#, c-format
 msgid "Error setting spawn file actions for use-askpass: %d"
-msgstr ""
-"認証情報取得用のプログラム(use-askpass)を起動するための設定でエラーが発生しま"
-"した: %d\n"
+msgstr "認証情報取得用のプログラム(use-askpass)を起動するための設定でエラーが発生しました: %d"
 
 #: src/options.c:2566
-#, fuzzy, c-format
+#, c-format
 msgid "Error spawning %s: %d"
-msgstr "%s を閉じる際にエラーが発生しました: %s\n"
+msgstr "%s を起動する際にエラーが発生しました: %d"
 
 #: src/options.c:2583
 #, c-format
@@ -1322,19 +1312,19 @@ msgid "Error reading response from command \"%s %s\": %s\n"
 msgstr "コマンド \"%s %s\" の応答の読み込みでエラーが発生しました: %s\n"
 
 #: src/options.c:2811
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to set http proxies %s\n"
-msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+msgstr "http プロクシ %s の設定に失敗しました\n"
 
 #: src/options.c:2815
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to set https proxies %s\n"
-msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+msgstr "https プロクシ %s の設定に失敗しました\n"
 
 #: src/options.c:2819
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to set proxy exceptions %s\n"
-msgstr "%s のパーミッションが設定できません。\n"
+msgstr "プロクシ例外 %s の設定に失敗しました\n"
 
 #: src/options.c:2914
 #, c-format
@@ -1387,14 +1377,14 @@ msgid "%s: Extra headers found in option #%zu\n"
 msgstr ""
 
 #: src/options.c:3320
-#, fuzzy, c-format
+#, c-format
 msgid "%s: Failed to parse header option #%zu\n"
-msgstr "IP アドレス '%s' を理解できませんでした。\n"
+msgstr "%s: header オプションが解釈できませんでした (#%zu)\n"
 
 #: src/options.c:3343
-#, fuzzy, c-format
+#, c-format
 msgid "%s: Accepted illegal header option #%zu\n"
-msgstr "%s: `-n%c' は不正なオプション指定です\n"
+msgstr "%s: 不正な header オプションを受けつけました (#%zu)\n"
 
 #: src/options.c:3371 src/options.c:3390
 #, c-format
@@ -1407,9 +1397,9 @@ msgid "Plugin '%s' failed to load: %s"
 msgstr ""
 
 #: src/plugin.c:565
-#, fuzzy, c-format
+#, c-format
 msgid "Options for %s:\n"
-msgstr "%s のサイズを計算しています\n"
+msgstr "%s に対するオプション:\n"
 
 #: src/stats.c:63
 #, c-format
@@ -1427,11 +1417,9 @@ msgid "File could not be opened %s for %s stats\n"
 msgstr ""
 
 #: src/stats.c:150
-#, fuzzy, c-format
+#, c-format
 msgid "%s stats saved in %s\n"
-msgstr ""
-"%s (%s) - %s へ保存終了 [%s]\n"
-"\n"
+msgstr "%s の統計を %s に保存しました\n"
 
 #: src/wget.c:182
 #, c-format
@@ -1439,39 +1427,39 @@ msgid "Internal error: Unexpected relative path: '%s'\n"
 msgstr ""
 
 #: src/wget.c:206 src/wget.c:213
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to make directory '%s' (errno=%d)\n"
-msgstr "'%s' というDNSサーバを設定できません: (%d)\n"
+msgstr "ディレクトリ '%s' の作成に失敗しました (errno=%d)\n"
 
 #: src/wget.c:211
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to rename '%s' (errno=%d)\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "'%s' のリネームに失敗しました (errno=%d)\n"
 
 #: src/wget.c:619
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to parse URI '%s'\n"
-msgstr "IP アドレス '%s' を理解できませんでした。\n"
+msgstr "URI '%s' を解釈できませんでした\n"
 
 #: src/wget.c:637
-#, fuzzy, c-format
+#, c-format
 msgid "URI scheme not supported: '%s'\n"
-msgstr "IPv6 アドレスはサポートされていません"
+msgstr "URI スキームがサポートされていません: '%s'\n"
 
 #: src/wget.c:749
-#, fuzzy, c-format
+#, c-format
 msgid "Adding URL: %s\n"
-msgstr "%s に保存中\n"
+msgstr "URL を追加: %s\n"
 
 #: src/wget.c:777 src/wget.c:1020
-#, fuzzy, c-format
+#, c-format
 msgid "Cannot resolve URI '%s'\n"
-msgstr "%s を開けません: %s"
+msgstr "URI '%s' を解決できませんでした\n"
 
 #: src/wget.c:797
-#, fuzzy, c-format
+#, c-format
 msgid "URL '%s' not followed (unsupported scheme '%s')\n"
-msgstr "%s はサポートされていないスキームです"
+msgstr "URL '%s' は '%s' というサポートされていないスキームのため辿りません\n"
 
 #: src/wget.c:804
 #, c-format
@@ -1501,42 +1489,41 @@ msgid "URL '%s' not followed (parent ascending not allowed)\n"
 msgstr ""
 
 #: src/wget.c:896
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to get '%s' from hosts\n"
-msgstr "ファイル %s の FD(ファイルディスクリプタ) の取得に失敗しました\n"
+msgstr "hosts から '%s' を取得できませんでした\n"
 
 #: src/wget.c:998
-#, fuzzy, c-format
+#, c-format
 msgid "convert %s %s %s\n"
-msgstr "%s 中のリンクを変換できません: %s\n"
+msgstr "変換 %s %s %s\n"
 
 #: src/wget.c:1001
-#, fuzzy, c-format
+#, c-format
 msgid "%s not found (%d)\n"
-msgstr "%s: %s (%s)を読み込めません。\n"
+msgstr "%s が見つかりません (%d)\n"
 
 #: src/wget.c:1063
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to rename %s to %s (%d)"
-msgstr "エラー：%s という証明書を開けません: (%d)\n"
+msgstr "%s を %s にリネームできません (%d)"
 
 #: src/wget.c:1067
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to write open %s (%d)"
-msgstr "エラー：%s という証明書を開けません: (%d)\n"
+msgstr "%s を書き込み用に開けません (%d)"
 
 #: src/wget.c:1199 src/wget.c:1281
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to start downloader, error %d\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "ダウンローダの開始に失敗しました、エラーコード %d\n"
 
 #: src/wget.c:1222
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to open input file %s\n"
-msgstr "ファイル %s の fopen() 失敗しました\n"
+msgstr "ファイル %s を読み込み用にオープンできませんでした\n"
 
 #: src/wget.c:1227
-#, fuzzy
 msgid "Nothing to do - goodbye\n"
 msgstr "なにもすることがありません。\n"
 
@@ -1550,9 +1537,9 @@ msgid "Quota of %lld bytes reached - stopping.\n"
 msgstr ""
 
 #: src/wget.c:1308
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to wait for downloader #%d (%d %d)\n"
-msgstr "小文字に変換できませんでした: %d: %s\n"
+msgstr "ダウンローダの終了待ちに失敗しました #%d (%d %d)\n"
 
 #: src/wget.c:1314
 #, c-format
@@ -1565,12 +1552,8 @@ msgid "HSTS in effect for %s:%hu\n"
 msgstr ""
 
 #: src/wget.c:1597
-#, fuzzy
 msgid "The file is already fully retrieved; nothing to do.\n"
-msgstr ""
-"\n"
-"    このファイルは既に全部取得しおわっています。何もすることはありません。\n"
-"\n"
+msgstr "このファイルは既に全部取得し終わっています。何もすることはありません。\n"
 
 #: src/wget.c:1657
 #, c-format
@@ -1587,9 +1570,8 @@ msgid "No download mirrors found - remove job\n"
 msgstr ""
 
 #: src/wget.c:1952
-#, fuzzy
 msgid "Couldn't determine base file to delete for failed verification\n"
-msgstr "署名検証時にダウンロードしたファイルをオープンできませんでした。\n"
+msgstr "署名検証失敗時に削除すべきファイルを特定できませんでした\n"
 
 #: src/wget.c:1956
 #, c-format
@@ -1601,9 +1583,9 @@ msgid "File name for signature checking not assigned to job!\n"
 msgstr ""
 
 #: src/wget.c:2174
-#, fuzzy, c-format
+#, c-format
 msgid "Unhandled action %d\n"
-msgstr "処理されないエラー (errno %d)\n"
+msgstr "処理されないアクション %d\n"
 
 #: src/wget.c:2253
 #, c-format
@@ -1611,9 +1593,9 @@ msgid "URL '%.*s' not followed (conversion failed)\n"
 msgstr ""
 
 #: src/wget.c:2261
-#, fuzzy, c-format
+#, c-format
 msgid "Cannot resolve relative URI %.*s\n"
-msgstr "%s: 不完全なリンク %s を解決できません。\n"
+msgstr "相対 URI %.*s を解決できません\n"
 
 #: src/wget.c:2282
 msgid "set by user"
@@ -1715,39 +1697,39 @@ msgid "No download mirrors found\n"
 msgstr ""
 
 #: src/wget.c:2792
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to set file date: %s\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "ファイルのタイムスタンプの設定に失敗しました: %s\n"
 
 #: src/wget.c:2902
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to write to STDOUT (%zu, errno=%d)\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "標準出力への書き込みに失敗しました(%zu, errno=%d)\n"
 
 #: src/wget.c:3001
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to rename %s to %s (errno=%d)\n"
-msgstr "エラー：%s という証明書を開けません: (%d)\n"
+msgstr "%s から %s へのリネームに失敗しました (errno=%d)\n"
 
 #: src/wget.c:3024 src/wget.c:3030
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to load partial content from '%s' (errno=%d): %s\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "'%s' から部分データを読み込むのに失敗しました (errno=%d): %s\n"
 
 #: src/wget.c:3046
-#, fuzzy, c-format
+#, c-format
 msgid "Saving '%s'\n"
 msgstr "%s に保存中\n"
 
 #: src/wget.c:3050
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to write file %s (%zd, errno=%d)\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "ファイル %s への書き込みに失敗しました (%zd, errno=%d)\n"
 
 #: src/wget.c:3058
-#, fuzzy, c-format
+#, c-format
 msgid "File '%s' already there; not retrieving.\n"
-msgstr "ファイル %s はすでに存在するので、取得しません。\n"
+msgstr "ファイル '%s' はすでに存在するので、取得しません。\n"
 
 #: src/wget.c:3060
 #, c-format
@@ -1755,14 +1737,14 @@ msgid "Directory / file name clash - not saving '%s'\n"
 msgstr ""
 
 #: src/wget.c:3062
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to open '%s' (errno=%d): %s\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "'%s' のオープンに失敗しました (errno=%d): %s\n"
 
 #: src/wget.c:3075
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to save extended attribute %s\n"
-msgstr "ファイル %s の fopen() 失敗しました\n"
+msgstr "拡張属性 %s の保存に失敗しました\n"
 
 #: src/wget.c:3194
 #, c-format
@@ -1772,6 +1754,6 @@ msgid ""
 msgstr ""
 
 #: src/wget.c:3545
-#, fuzzy, c-format
+#, c-format
 msgid "Failed to fsync errno=%d\n"
-msgstr "ファイル %s の stat() に失敗しました: %s\n"
+msgstr "fsync() に失敗しました (errno=%d)\n"
