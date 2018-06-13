@@ -497,7 +497,7 @@ Go to background immediately after startup. If no output file is specified via t
   dot representing a fixed amount of downloaded data.
 
   The progress type can also take one or more parameters.  The parameters vary based on the type selected.
-  Parameters to type are passed by appending them to the type sperated by a colon (`:`) like this:
+  Parameters to type are passed by appending them to the type separated by a colon (`:`) like this:
   `--progress=type:parameter1:parameter2`.
 
   When using the dotted retrieval, you may set the style by specifying the type as dot:style.  Different styles
@@ -850,14 +850,27 @@ Go to background immediately after startup. If no output file is specified via t
   Specifies the maximum number of concurrent download threads for a resource. The default is 5 but if you want to
   allow more or fewer this is the option to use.
 
-### `-s`, `--verify-sig`
+### `-s`, `--verify-sig[=fail|no-fail]`
 
-  Enable PGP signature verification. When enabled Wget2 will attempt to download and verify PGP signatures against
-  their corresponding files. When enabled, any file downloaded that has a content type beginning with `application/`
-  will cause Wget2 to request a signature file for that file. The name of the signature file is computed by
-  appending the extension to the full path of the file that was just downloaded. The extension used is defined by
-  the `--signature-extensions` option. If the content type for the signature request is `application/pgp-signature`,
-  Wget2 will attempt to verify the signature against the original file.
+  Enable PGP signature verification (when not prefixed with `no-`). When enabled Wget2 will attempt
+  to download and verify PGP signatures against their corresponding files. Any file downloaded that has a
+  content type beginning with `application/` will cause Wget2 to request the signature for that file.
+
+  The name of the signature file is computed by appending the extension to the full path of the file that
+  was just downloaded. The extension used is defined by the `--signature-extensions` option.
+  If the content type for the signature request is `application/pgp-signature`, Wget2 will attempt to
+  verify the signature against the original file. By default, if a signature file cannot be found
+  (I.E. the request for it gets a 404 status code) Wget2 will exit with an error code.
+
+  This behavior can be tuned using the following arguments:
+  * `fail`: This is the default, meaning that this is the value when you supply the flag without an argument.
+    Indicates that missing signature files will cause Wget2 to exit with an error code.
+  * `no-fail`: This value allows missing signature files. A 404 message will still be issued, but the program
+    will exit normally (assuming no unrelated errors).
+
+  Additionally, `--no-verify-sig` disables signature checking altogether
+  `--no-verify-sig` does not allow any arguments.
+
 
 ### `--signature-extensions`
 
