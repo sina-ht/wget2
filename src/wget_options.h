@@ -31,7 +31,14 @@
 #include <stdarg.h>
 #include <unistd.h> // needed for EXIT_SUCCESS
 
+#ifdef WITH_LIBHSTS
+#include <libhsts.h>
+#endif
+
 #include <wget.h>
+
+#define INCLUDED_DIRECTORY_PREFIX '+'
+#define EXCLUDED_DIRECTORY_PREFIX '-'
 
 //types for --https-enforce
 enum {
@@ -52,7 +59,6 @@ struct config {
 	const char
 		*post_file,
 		*post_data,
-		*gnutls_options,
 		*http_username,
 		*http_password,
 		*http_proxy_username,
@@ -92,11 +98,20 @@ struct config {
 		*stats_ocsp,
 		*stats_server,
 		*stats_site,
-		*stats_tls;
+		*stats_tls,
+		*hsts_file,
+		*hsts_preload_file,
+		*hpkp_file,
+		*tls_session_file,
+		*ocsp_file,
+		*netrc_file,
+		*use_askpass_bin,
+		*dns_cache_preload;
 	wget_vector_t
 		*compression,
 		*config_files,
 		*domains,
+		*exclude_directories,
 		*exclude_domains,
 		*accept_patterns,
 		*reject_patterns,
@@ -107,11 +122,17 @@ struct config {
 		*ignore_tags,
 		*default_challenges,
 		*headers,
-		*mime_types;
+		*mime_types,
+		*http_retry_on_status,
+		*save_content_on;
 	wget_content_encoding_type_t
 		compression_methods[wget_content_encoding_max + 1];	// the last one for counting
 	wget_hsts_db_t
 		*hsts_db; // in-memory HSTS database
+#ifdef WITH_LIBHSTS
+	hsts_t
+		*hsts_preload_data; // in-memory HSTS preloaded data
+#endif
 	wget_hpkp_db_t
 		*hpkp_db; // in-memory HPKP database
 	wget_tls_session_db_t
@@ -123,13 +144,7 @@ struct config {
 	struct _wget_cookie_db_st
 		*cookie_db;
 	char
-		*hsts_file,
-		*hpkp_file,
-		*tls_session_file,
-		*ocsp_file,
-		*netrc_file,
 		*password,
-		*use_askpass_bin,
 		*username;
 	size_t
 		chunk_size;
@@ -171,6 +186,7 @@ struct config {
 		convert_links,
 		ignore_case,
 		hsts,                  // if HSTS (HTTP Strict Transport Security) is enabled or not
+		hsts_preload,          // if loading of a HSTS Preload file is enabled of not
 		hpkp,                  // HTTP Public Key Pinning (HPKP)
 		random_wait,
 		trust_server_names,
@@ -202,6 +218,7 @@ struct config {
 		continue_download,
 		server_response,
 		keep_alive,
+		keep_extension,
 		keep_session_cookies,
 		cookies,
 		spider,

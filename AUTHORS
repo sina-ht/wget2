@@ -2,7 +2,9 @@ Authors of and contributors to Wget2.
 Thank you very much for spending your time !
 
 This list of contributors is maintained in the
-order of date of first commit
+order of date of first commit. Those with the
+"ASSGN" tag have assigned the copyrights of their
+patches to the FSF.
 
 Design and implementation of Wget2 and libwget:
 Tim Rühsen (rockdaboot)
@@ -18,6 +20,7 @@ Contributors:
 [     ] Benoit Goudreault-Emond *bgoudreault [at] webmd.net*
 [     ] magemore *alex [at] magemore.com*
 [ASSGN] Ander Juaristi *ajuaristi [at] gmx.es*
+[ASSGN] Ander Juaristi *a [at] juaristi.eus*
 [     ] Andries E. Brouwer *Andries.Brouwer [at] cwi.nl*
 [     ] Jaaap [at] github.com
 [     ] Dagobert Michelsen *dam [at] opencsw.org*
@@ -30,8 +33,10 @@ Contributors:
 [     ] Michael *michael [at] cyber-dome.com*
 [     ] Gabriele Balducci
 [ASSGN] DalmeGNU *dalmemail [at] gmail.com*
-[     ] Josef Moellers *jmoellers [at] suse.de*
+[ASSGN] Josef Möllers *jmoellers [at] suse.de*
 [ASSGN] Neil Locketz *neil [at] nlocketz.com*
 [ASSGN] Jiading Guo *zingdle [at] gmail.com*
 [ASSGN] Jay *jbhv12 [at] gmail.com*
 [     ] Tsukasa OI *floss_wget [at] irq.a4lg.com*
+[ASSGN] Aniketh Gireesh *anikethgireesh [at] gmail.com*
+[ASSGN] Red Hat, Inc. *redhat.com*

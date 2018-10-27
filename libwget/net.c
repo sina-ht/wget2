@@ -230,80 +230,19 @@ static struct addrinfo *_wget_sort_preferred(struct addrinfo *addrinfo, int pref
 	}
 }
 
-#if defined HAVE_GETADDRINFO_A && ! defined FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-static int _wget_tcp_resolve(wget_tcp_t *tcp, const char *host, uint16_t port, struct addrinfo **out_addr)
-{
-	int err;
-	char s_port[NI_MAXSERV];
-
-	if (port) {
-		wget_snprintf(s_port, sizeof(s_port), "%hu", port);
-		debug_printf("resolving %s:%s...\n", host ? host : "", s_port);
-	} else {
-		debug_printf("resolving %s...\n", host);
-	}
-
-	struct addrinfo hints = {
-		.ai_family = tcp->family,
-		.ai_socktype = SOCK_STREAM,
-		.ai_flags = AI_ADDRCONFIG | (port ? AI_NUMERICSERV : 0)
-	};
-
-	// shortcut if no timeout has been specified
-	if (tcp->dns_timeout == -1)
-		return getaddrinfo(host, port ? s_port : NULL, &hints, out_addr);
-
-	struct gaicb addr = {
-		.ar_name = host,
-		.ar_service = port ? s_port : NULL,
-		.ar_request = &hints,
-	};
-	struct gaicb *addrs = &addr;
-
-	if ((err = getaddrinfo_a(GAI_NOWAIT, &addrs, 1, NULL))) {
-		debug_printf("getaddrinfo_a() failed (%d): %s\n", err, gai_strerror(err));
-		return err;
-	}
-
-	struct timespec tmo = {
-		.tv_sec = tcp->dns_timeout / 1000,
-		.tv_nsec = (tcp->dns_timeout % 1000) * 1000000
-	};
-
-	if ((err = gai_suspend((const struct gaicb * const *) &addrs, 1, &tmo)) == EAI_AGAIN) {
-		// timeout occurred, do we need to cancel ?
-		int cancel_err = gai_cancel(&addr);
-		debug_printf("gai_cancel = %s\n", gai_strerror(cancel_err));
-	} else if (err == EAI_ALLDONE) {
-		debug_printf("gai_suspend(): %s, accept as OK\n", gai_strerror(err));
-		err = 0;
-	} else if (err)
-		debug_printf("gai_suspend() failed (%d): %s\n", err, gai_strerror(err));
-
-	gai_cancel(NULL); // seems to free some internal memory, but this is not even documented
-
-	if (err == 0) {
-		if (addr.ar_result) {
-			*out_addr = addr.ar_result;
-			addr.ar_result = NULL;
-		} else
-			err = EAI_NODATA; // as returned by getaddrinfo(): "No address associated with hostname"
-	}
-
-	return err;
-}
-#else
 // we can't provide a portable way of respecting a DNS timeout
-static int _wget_tcp_resolve(wget_tcp_t *tcp, const char *host, uint16_t port, struct addrinfo **out_addr)
+static int _wget_tcp_resolve(int family, int flags, const char *host, uint16_t port, struct addrinfo **out_addr)
 {
 	struct addrinfo hints = {
-		.ai_family = tcp->family,
+		.ai_family = family,
 		.ai_socktype = SOCK_STREAM,
-		.ai_flags = AI_ADDRCONFIG | (port ? AI_NUMERICSERV : 0)
+		.ai_flags = AI_ADDRCONFIG | flags
 	};
 
 	if (port) {
 		char s_port[NI_MAXSERV];
+
+		hints.ai_flags |= AI_NUMERICSERV;
 
 		wget_snprintf(s_port, sizeof(s_port), "%hu", port);
 		debug_printf("resolving %s:%s...\n", host ? host : "", s_port);
@@ -313,7 +252,38 @@ static int _wget_tcp_resolve(wget_tcp_t *tcp, const char *host, uint16_t port, s
 		return getaddrinfo(host, NULL, &hints, out_addr);
 	}
 }
-#endif
+
+/**
+ *
+ * \param[in] ip IP address of name
+ * \param[in] name Domain name, part of the cache's lookup key
+ * \param[in] port Port number, part of the cache's lookup key
+ * \return 0 on success, < 0 on error
+ *
+ * Assign an IP address to the name+port key in the DNS cache.
+ * The \p name should be lowercase.
+ */
+int wget_tcp_dns_cache_add(const char *ip, const char *name, uint16_t port)
+{
+	int rc, family;
+	struct addrinfo *ai;
+
+	if (wget_ip_is_family(ip, WGET_NET_FAMILY_IPV4)) {
+		family = AF_INET;
+	} else if (wget_ip_is_family(ip, WGET_NET_FAMILY_IPV6)) {
+		family = AF_INET6;
+	} else
+		return -1;
+
+	if ((rc = _wget_tcp_resolve(family, AI_NUMERICHOST, ip, port, &ai)) != 0) {
+		error_printf(_("Failed to resolve %s:%d: %s\n"), ip, port, gai_strerror(rc));
+		return -1;
+	}
+
+	wget_dns_cache_add(name, port, ai);
+
+	return 0;
+}
 
 /**
  * \param[in] tcp A `wget_tcp_t` structure, obtained with a previous call to wget_tcp_init().
@@ -380,7 +350,7 @@ struct addrinfo *wget_tcp_resolve(wget_tcp_t *tcp, const char *host, uint16_t po
 
 		addrinfo = NULL;
 
-		rc = _wget_tcp_resolve(tcp, host, port, &addrinfo);
+		rc = _wget_tcp_resolve(tcp->family, 0, host, port, &addrinfo);
 		if (rc == 0 || rc != EAI_AGAIN)
 			break;
 

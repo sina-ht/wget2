@@ -71,7 +71,7 @@ enum _BAR_DECOR_SIZE {
 		_BAR_RATIO_SIZE     + 2 + \
 		_BAR_METER_COST     + 1 + \
 		_BAR_DOWNBYTES_SIZE + 1 + \
-		_BAR_SPEED_SIZE     + 2
+		_BAR_SPEED_SIZE     + 3
 };
 
 enum _SCREEN_WIDTH {
@@ -85,16 +85,31 @@ enum _bar_slot_status_t {
 	COMPLETE = 2
 };
 
+/** The settings for drawing the progress bar.
+ *
+ *  This includes things like how often it is updated, how many values are
+ *  stored in the speed ring, etc.
+ */
+enum _BAR_SETTINGS {
+	/// The number of values to store in the speed ring
+	SPEED_RING_SIZE   =  24,
+};
+
 typedef struct {
 	char
 		*progress,
 		*filename,
+		speed_buf[_BAR_SPEED_SIZE],
 		human_size[_BAR_DOWNBYTES_SIZE];
 	uint64_t
 		file_size,
+		time_ring[SPEED_RING_SIZE],
+		bytes_ring[SPEED_RING_SIZE],
 		bytes_downloaded;
 	int
-		tick;
+		ring_pos,
+		tick,
+		numfiles;
 	enum _bar_slot_status_t
 		status;
 	bool
@@ -116,65 +131,67 @@ struct _wget_bar_st {
 		mutex;
 };
 
-/* 24 positions with a 125ms return time is at least
- * the average of the last 3 seconds */
-#define RING_POSITIONS 24
-
-struct _speed_report {
-	uint64_t
-		times[RING_POSITIONS],
-		bytes[RING_POSITIONS],
-		total_time,
-		total_bytes,
-		old_cur_bytes,
-		last_update_time,
-		last_redraw_time;
-	int
-		pos;
-	char
-		speed_buf[16];
-};
-
-static struct _speed_report *speed_r;
-
-static void _bar_update_speed(int64_t cur_bytes, int slot)
-{
-	struct _speed_report *SReport = &speed_r[slot];
-	int *ringpos = &SReport->pos;
-	SReport->total_bytes -= SReport->bytes[*ringpos];
-	SReport->total_time -= SReport->times[*ringpos];
-	SReport->bytes[*ringpos] = cur_bytes - SReport->old_cur_bytes;
-
-	if (SReport->last_update_time)
-		SReport->times[*ringpos] = wget_get_timemillis() - SReport->last_update_time;
-
-	SReport->total_bytes += SReport->bytes[*ringpos];
-	SReport->total_time += SReport->times[*ringpos];
-	SReport->last_update_time = wget_get_timemillis();
-	SReport->old_cur_bytes = cur_bytes;
-	if (++(*ringpos) == RING_POSITIONS)
-		*ringpos = 0; // reset
-}
-
 static char report_speed_type = WGET_REPORT_SPEED_BYTES;
 static char report_speed_type_char = 'B';
+static unsigned short speed_modifier = 1000;
+
+// The progress bar may be redrawn if the window size changes.
+// XXX: Don't handle that case currently. Instead, later test
+// what happens if we don't explicitly redraw in such a case.
+// For fast downloads, it doesn't matter. For slow downloads,
+// the progress bar will maybe span across two lines till it
+// gets redrawn. Ideally, this should be a part of the client
+// code logic and not in the library.
+// Tl;dr: Move window size detection to client. Allow client to
+// specify rate at which speed stats should be updated. Speed
+// ring size will remain constant (Don't want second heap allocation)
+//  - darnir 29/07/2018
+static void _bar_update_speed_stats(_bar_slot_t *slotp)
+{
+	int ring_pos = slotp->ring_pos;
+	// In case this function is called with no downloaded bytes,
+	// exit early
+	if (slotp->bytes_downloaded == slotp->bytes_ring[ring_pos]) {
+		return;
+	}
+	uint64_t curtime = wget_get_timemillis();
+
+	// Increment the position pointer
+	if (++ring_pos == SPEED_RING_SIZE)
+		ring_pos = 0;
+
+	slotp->bytes_ring[ring_pos] = slotp->bytes_downloaded;
+	slotp->time_ring[ring_pos] = curtime;
+
+	int next_pos = (ring_pos + 1 == SPEED_RING_SIZE) ? 0 : ring_pos + 1;
+	if (slotp->bytes_ring[next_pos] == 0) {
+		sprintf(slotp->speed_buf, " --.-K");
+	} else {
+		size_t bytes = slotp->bytes_ring[ring_pos] - slotp->bytes_ring[next_pos];
+		size_t time = slotp->time_ring[ring_pos] - slotp->time_ring[next_pos];
+		size_t speed = (bytes * speed_modifier) / time;
+
+		wget_human_readable(slotp->speed_buf, sizeof(slotp->speed_buf), speed);
+	}
+	slotp->ring_pos = ring_pos;
+}
 
 static volatile sig_atomic_t winsize_changed;
 
 static inline G_GNUC_WGET_ALWAYS_INLINE void
 _restore_cursor_position(void)
 {
-	// CSI u: Restore cursor position
-	fputs("\033[u", stdout);
+	// ESC 8: Restore cursor position
+	fputs("\0338", stdout);
 }
 
 static inline G_GNUC_WGET_ALWAYS_INLINE void
 _bar_print_slot(const wget_bar_t *bar, int slot)
 {
-	// CSI s: Save cursor
+	// ESC 7: Save cursor
 	// CSI <n> A: Cursor up
 	// CSI <n> G: Cursor horizontal absolute
-	wget_fprintf(stdout, "\033[s\033[%dA\033[1G", bar->nslots - slot);
+	wget_fprintf(stdout, "\0337\033[%dA\033[1G", bar->nslots - slot);
 }
 
 static inline G_GNUC_WGET_ALWAYS_INLINE void
@@ -183,7 +200,6 @@ _bar_set_progress(const wget_bar_t *bar, int slot)
 	_bar_slot_t *slotp = &bar->slots[slot];
 
 	if (slotp->file_size > 0) {
-//		size_t bytes = (slot->status == DOWNLOADING) ? slot->raw_downloaded : slot->bytes_downloaded;
 		size_t bytes = slotp->bytes_downloaded;
 		int cols = (int) ((bytes / (double) slotp->file_size) * bar->max_width);
 		if (cols > bar->max_width)
@@ -197,9 +213,6 @@ _bar_set_progress(const wget_bar_t *bar, int slot)
 		slotp->progress[cols - 1] = '>';
 		if (cols < bar->max_width)
 			memset(slotp->progress + cols, ' ', bar->max_width - cols);
-
-//		wget_snprintf(slotp->progress, bar->max_width + 1, "%.*s>%.*s",
-//			cols - 1, bar->known_size, bar->max_width - cols, bar->spaces);
 	} else {
 		int ind = slotp->tick % (bar->max_width * 2 - 6);
 		int pre_space;
@@ -211,16 +224,10 @@ _bar_set_progress(const wget_bar_t *bar, int slot)
 
 		memset(slotp->progress, ' ', bar->max_width);
 		memcpy(slotp->progress + pre_space, "<=>", 3);
-
-//		wget_snprintf(slotp->progress, bar->max_width + 1, "%.*s<=>%.*s",
-//			pre_space, bar->spaces, bar->max_width - pre_space - 3, bar->spaces);
 	}
 
 	slotp->progress[bar->max_width] = 0;
 }
-
-/* The time in ms between every speed calculation */
-#define SPEED_REDRAW_TIME 400
 
 static void _bar_update_slot(const wget_bar_t *bar, int slot)
 {
@@ -231,32 +238,15 @@ static void _bar_update_slot(const wget_bar_t *bar, int slot)
 	if (slotp->status == DOWNLOADING || slotp->status == COMPLETE) {
 		uint64_t max, cur;
 		int ratio;
-		char *human_readable_bytes;
-		char *human_readable_speed;
-		unsigned int mod = 1000;
-		struct _speed_report *SReport = &speed_r[slot];
-
-		if (report_speed_type == WGET_REPORT_SPEED_BITS)
-			mod *= 8;
 
 		max = slotp->file_size;
 		cur = slotp->bytes_downloaded;
 
 		ratio = max ? (int) ((100 * cur) / max) : 0;
 
-		human_readable_bytes = wget_human_readable(slotp->human_size, sizeof(slotp->human_size), cur);
+		wget_human_readable(slotp->human_size, sizeof(slotp->human_size), cur);
 
-		_bar_update_speed(cur, slot);
-
-		uint64_t cur_time = wget_get_timemillis();
-		if (SReport->total_time && (cur_time - SReport->last_redraw_time) > SPEED_REDRAW_TIME) {
-			human_readable_speed = wget_human_readable(SReport->speed_buf, sizeof(SReport->speed_buf), ((SReport->total_bytes*mod)/(SReport->total_time)));
-			SReport->last_redraw_time = cur_time;
-		}
-		else if (!SReport->total_time)
-			human_readable_speed = wget_human_readable(SReport->speed_buf, sizeof(SReport->speed_buf), 0);
-		else
-			human_readable_speed = SReport->speed_buf;
+		_bar_update_speed_stats(slotp);
 
 		_bar_set_progress(bar, slot);
 
@@ -267,19 +257,19 @@ static void _bar_update_slot(const wget_bar_t *bar, int slot)
 		// filename   xxx% [======>      ] xxx.xxK
 		//
 		// It is made of the following elements:
-		// filename		_BAR_FILENAME_SIZE		Name of local file
-		// xxx%			_BAR_RATIO_SIZE + 1		Amount of file downloaded
-		// []			_BAR_METER_COST			Bar Decorations
-		// xxx.xxK		_BAR_DOWNBYTES_SIZE		Number of downloaded bytes
-		// xxx.xxKB/s		_BAR_SPEED_SIZE			Download speed
-		// ===>			Remaining			Progress Meter
+		// filename     _BAR_FILENAME_SIZE      Name of local file
+		// xxx%         _BAR_RATIO_SIZE + 1     Amount of file downloaded
+		// []           _BAR_METER_COST         Bar Decorations
+		// xxx.xxK      _BAR_DOWNBYTES_SIZE     Number of downloaded bytes
+		// xxx.xxKB/s   _BAR_SPEED_SIZE         Download speed
+		// ===>         Remaining               Progress Meter
 
 		wget_fprintf(stdout, "%-*.*s %*d%% [%s] %*s %*s%c/s",
 				_BAR_FILENAME_SIZE, _BAR_FILENAME_SIZE, slotp->filename,
 				_BAR_RATIO_SIZE, ratio,
 				slotp->progress,
-				_BAR_DOWNBYTES_SIZE, human_readable_bytes,
-				_BAR_SPEED_SIZE, human_readable_speed, report_speed_type_char);
+				_BAR_DOWNBYTES_SIZE, slotp->human_size,
+				_BAR_SPEED_SIZE, slotp->speed_buf, report_speed_type_char);
 
 		_restore_cursor_position();
 		fflush(stdout);
@@ -399,8 +389,6 @@ void wget_bar_set_slots(wget_bar_t *bar, int nslots)
 		memset(bar->slots + bar->nslots, 0, more_slots * sizeof(_bar_slot_t));
 		bar->nslots = nslots;
 
-		speed_r = wget_realloc(speed_r, nslots * sizeof(struct _speed_report));
-		memset(&speed_r[nslots - more_slots], 0, more_slots * sizeof(struct _speed_report));
 		for (int i = 0; i < more_slots; i++)
 			fputs("\n", stdout);
 
@@ -414,26 +402,35 @@ void wget_bar_set_slots(wget_bar_t *bar, int nslots)
  * \param[in] bar Pointer to a wget_bar_t object
  * \param[in] slot The slot number to use
  * \param[in] filename The file name to display in the given \p slot
+ * \param[in] new_file if this is the start of a download of the body of a new file
  * \param[in] file_size The file size that would be 100%
  *
  * Initialize the given \p slot of the \p bar object with it's (file) name to display
  * and the (file) size to be assumed 100%.
  */
-void wget_bar_slot_begin(wget_bar_t *bar, int slot, const char *filename, ssize_t file_size)
+void wget_bar_slot_begin(wget_bar_t *bar, int slot, const char *filename, int new_file, ssize_t file_size)
 {
 	wget_thread_mutex_lock(bar->mutex);
 	_bar_slot_t *slotp = &bar->slots[slot];
-	struct _speed_report *slot_speed = &speed_r[slot];
 
 	xfree(slotp->filename);
-	slotp->filename = wget_strdup(filename);
+	if (new_file)
+	    slotp->numfiles++;
+	if (slotp->numfiles == 1) {
+	    slotp->filename = wget_strdup(filename);
+	} else {
+	    char tag[20];	/* big enough to hold "xxx files\0" */
+	    snprintf(tag, sizeof(tag), "%d files", slotp->numfiles);
+	    slotp->filename = wget_strdup(tag);
+	}
 	slotp->tick = 0;
-	slotp->file_size = file_size;
-	slotp->bytes_downloaded = 0;
+	slotp->file_size += file_size;
 	slotp->status = DOWNLOADING;
 	slotp->redraw = 1;
+	slotp->ring_pos = 0;
 
-	memset(slot_speed, 0, sizeof(*slot_speed));
+	memset(&slotp->time_ring, 0, sizeof(slotp->time_ring));
+	memset(&slotp->bytes_ring, 0, sizeof(slotp->bytes_ring));
 
 	wget_thread_mutex_unlock(bar->mutex);
 }
@@ -441,7 +438,7 @@ void wget_bar_slot_begin(wget_bar_t *bar, int slot, const char *filename, ssize_
 /**
  * \param[in] bar Pointer to a wget_bar_t object
  * \param[in] slot The slot number to use
- * \param[in] nbytes The current number of bytes to display
+ * \param[in] nbytes The number of bytes downloaded since the last invokation of this function
  *
  * Set the current number of bytes for \p slot for the next update of
  * the bar/slot.
@@ -449,7 +446,7 @@ void wget_bar_slot_begin(wget_bar_t *bar, int slot, const char *filename, ssize_
 void wget_bar_slot_downloaded(wget_bar_t *bar, int slot, size_t nbytes)
 {
 	wget_thread_mutex_lock(bar->mutex);
-	bar->slots[slot].bytes_downloaded = nbytes;
+	bar->slots[slot].bytes_downloaded += nbytes;
 	bar->slots[slot].redraw = 1;
 	wget_thread_mutex_unlock(bar->mutex);
 }
@@ -501,7 +498,6 @@ void wget_bar_deinit(wget_bar_t *bar)
 		xfree(bar->known_size);
 		xfree(bar->unknown_size);
 		xfree(bar->slots);
-		xfree(speed_r);
 		wget_thread_mutex_destroy(&bar->mutex);
 	}
 }
@@ -594,13 +590,13 @@ void wget_bar_screen_resized(void)
 void wget_bar_write_line(wget_bar_t *bar, const char *buf, size_t len)
 {
 	wget_thread_mutex_lock(bar->mutex);
-	// CSI s:    Save cursor
+	// ESC 7:    Save cursor
 	// CSI <n>S: Scroll up whole screen
 	// CSI <n>A: Cursor up
 	// CSI <n>G: Cursor horizontal absolute
 	// CSI 0J:   Clear from cursor to end of screen
 	// CSI 31m:  Red text color
-	wget_fprintf(stdout, "\033[s\033[1S\033[%dA\033[1G\033[0J\033[31m", bar->nslots + 1);
+	wget_fprintf(stdout, "\0337\033[1S\033[%dA\033[1G\033[0J\033[31m", bar->nslots + 1);
 	fwrite(buf, 1, len, stdout);
 	fputs("\033[m", stdout); // reset text color
 	_restore_cursor_position();
@@ -620,7 +616,10 @@ void wget_bar_write_line(wget_bar_t *bar, const char *buf, size_t len)
 void wget_bar_set_speed_type(char type)
 {
 	report_speed_type = type;
-	if (type == WGET_REPORT_SPEED_BITS)
+	if (type == WGET_REPORT_SPEED_BITS) {
 		report_speed_type_char = 'b';
+		speed_modifier = 8;
+	}
+
 }
 /** @}*/

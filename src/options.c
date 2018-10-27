@@ -30,13 +30,8 @@
  * - add a default value for your variable in the 'config' initializer if needed (in this file)
  * - add the long option into 'options[]' (in this file). keep alphabetical order !
  * - if appropriate, add a new parse function (examples see below)
- * - extend the print_help() function and the documentation
+ * - extend the documentation (at docs/wget2.md)
  *
- * First, I prepared the parsing to allow multiple arguments for an option,
- * e.g. "--whatever arg1 arg2 ...".
- * But now I think, it is ok to say 'each option may just have 0 or 1 option'.
- * An option with a list of values might then look like: --whatever="arg1 arg2 arg3" or use
- * any other argument separator. I remove the legacy code as soon as I am 100% sure...
  * Set args to -1 if value for an option is optional.
  */
 
@@ -129,6 +124,8 @@ struct optionw {
 	    *help_str[4];
 };
 
+#include "version-text.h"
+
 static int print_version(G_GNUC_WGET_UNUSED option_t opt, G_GNUC_WGET_UNUSED const char *val, G_GNUC_WGET_UNUSED const char invert)
 {
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
@@ -176,10 +173,16 @@ static int print_version(G_GNUC_WGET_UNUSED option_t opt, G_GNUC_WGET_UNUSED con
 	" -psl"
 #endif
 
-#if defined HAVE_ICONV
-	" +iconv"
+#if defined WITH_LIBHSTS
+	" +hsts\n"
 #else
-	" -iconv"
+	" -hsts\n"
+#endif
+
+#if defined HAVE_ICONV
+	"+iconv"
+#else
+	"-iconv"
 #endif
 
 #if defined WITH_LIBIDN2
@@ -208,6 +211,12 @@ static int print_version(G_GNUC_WGET_UNUSED option_t opt, G_GNUC_WGET_UNUSED con
 	" -brotlidec"
 #endif
 
+#if defined WITH_ZSTD
+	" +zstd"
+#else
+	" -zstd"
+#endif
+
 #if defined WITH_BZIP2
 	" +bzip2"
 #else
@@ -227,6 +236,8 @@ static int print_version(G_GNUC_WGET_UNUSED option_t opt, G_GNUC_WGET_UNUSED con
 #endif
 	);
 #endif // #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+
+	puts(_version_text);
 
 	set_exit_status(WG_EXIT_STATUS_NO_ERROR);
 	return -1; // stop processing & exit
@@ -383,6 +394,50 @@ static int parse_header(option_t opt, const char *val, G_GNUC_WGET_UNUSED const 
 	return 0;
 }
 
+static const char *_strchrnul_esc(const char *s, char c)
+{
+	const char *p;
+
+	for (p = s; *p; p++) {
+		if (*p == '\\' && (p[1] == '\\' || p[1] == c))
+			p++;
+		else if (*p == c)
+			return p;
+	}
+
+	return p; // pointer to trailing \0
+}
+
+static char *_strmemdup_esc(const char *s, size_t size)
+{
+   const char *p, *e;
+	size_t newsize = 0;
+
+	for (p = s, e = s + size; p < e; p++) {
+		if (*p == '\\') {
+			if (p < e - 1) {
+				newsize++;
+				p++;
+			}
+		} else
+			newsize++;
+	}
+
+	char *ret = wget_malloc(newsize + 1);
+	char *dst = ret;
+
+	for (p = s, e = s + size; p < e; p++) {
+		if (*p == '\\') {
+			if (p < e - 1)
+				*dst++ = *++p;
+		} else
+			*dst++ = *p;
+	}
+	*dst = 0;
+
+	return ret;
+}
+
 static int parse_stringlist_expand(option_t opt, const char *val, int expand, int max_entries)
 {
 	if (val && *val) {
@@ -393,13 +448,13 @@ static int parse_stringlist_expand(option_t opt, const char *val, int expand, in
 			v = *((wget_vector_t **)opt->var) = wget_vector_create(8, (wget_vector_compare_t)strcmp);
 
 		for (s = p = val; *p; s = p + 1) {
-			if ((p = strchrnul(s, ',')) != s) {
+			if ((p = _strchrnul_esc(s, ',')) != s) {
 				if (wget_vector_size(v) >= max_entries) {
 					wget_debug_printf("%s: More than %d entries, ignoring overflow\n", __func__, max_entries);
 					return -1;
 				}
 
-				const char *fname = wget_strmemdup(s, p - s);
+				const char *fname = _strmemdup_esc(s, p - s);
 
 				if (expand && *s == '~') {
 					wget_vector_add_noalloc(v, shell_expand(fname));
@@ -419,6 +474,60 @@ static int parse_stringlist(option_t opt, const char *val, G_GNUC_WGET_UNUSED co
 {
 	/* max number of 1024 entries to avoid out-of-memory */
 	return parse_stringlist_expand(opt, val, 0, 1024);
+}
+
+static char *set_char_prefix(const char *val, char prefix)
+{
+	if (val && *val) {
+		// we just need a scratch buffer, no need for optimal size calculation
+		char *prefixed_val = wget_malloc(strlen(val) * 3 + 1), *dst = prefixed_val;
+
+		*dst++ = prefix;
+		for (const char *src = val; *src; src++) {
+			if (*src == '\\') {
+				*dst++ = *src;
+				if (src[1])
+					*dst++ = *++src;
+			} else if (*src == ',') {
+				while (dst[-1] == '/')
+					dst--;
+				*dst++ = *src;
+				*dst++ = prefix;
+			} else
+				*dst++ = *src;
+		}
+
+		while (dst[-1] == '/')
+			dst--;
+
+		*dst = 0;
+
+		return prefixed_val;
+	}
+
+	return NULL;
+}
+
+static int parse_included_directories(option_t opt, const char *val, G_GNUC_WGET_UNUSED const char invert)
+{
+	char *prefixed_val = set_char_prefix(val, INCLUDED_DIRECTORY_PREFIX);
+	int ret = parse_stringlist_expand(opt, prefixed_val, 0, 1024);
+
+	if (prefixed_val)
+		xfree(prefixed_val);
+
+	return ret;
+}
+
+static int parse_excluded_directories(option_t opt, const char *val, G_GNUC_WGET_UNUSED const char invert)
+{
+	char *prefixed_val = set_char_prefix(val, EXCLUDED_DIRECTORY_PREFIX);
+	int ret = parse_stringlist_expand(opt, prefixed_val, 0, 1024);
+
+	if (prefixed_val)
+		xfree(prefixed_val);
+
+	return ret;
 }
 
 static int parse_filenames(option_t opt, const char *val, G_GNUC_WGET_UNUSED const char invert)
@@ -918,6 +1027,10 @@ static int parse_compression(option_t opt, const char *val, const char invert)
 			if (type == wget_content_encoding_brotli)
 				not_built = 1;
 #endif
+#ifndef WITH_ZSTD
+			if (type == wget_content_encoding_zstd)
+				not_built = 1;
+#endif
 
 			if (not_built) {
 				wget_error_printf(_("Lib for type %s not built"), wget_content_encoding_to_name(type));
@@ -1001,6 +1114,7 @@ struct config config = {
 	.robots = 1,
 	.tries = 20,
 	.hsts = 1,
+	.hsts_preload = 1,
 	.hpkp = 1,
 
 #if defined WITH_LIBNGHTTP2
@@ -1142,7 +1256,7 @@ static const struct optionw options[] = {
 		"compression", &config.compression, parse_compression, -1, 0,
 		SECTION_HTTP,
 		{ "Customize Accept-Encoding with\n",
-		   "identity, gzip, deflate, xz, lzma, br, bzip2\n",
+		   "identity, gzip, deflate, xz, lzma, br, bzip2, zstd\n",
 		   "and any combination of it\n",
 		   "no-compression means no Accept-Encoding\n"
 		}
@@ -1249,9 +1363,15 @@ static const struct optionw options[] = {
 		{ "Set directory prefix.\n"
 		}
 	},
-	{ "dns-caching", &config.dns_caching, parse_bool, -1, 0,
+	{ "dns-cache", &config.dns_caching, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "Caching of domain name lookups. (default: on)\n"
+		}
+	},
+	{ "dns-cache-preload", &config.dns_cache_preload, parse_filename, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "File to be used to preload the DNS cache.\n",
+		  "Format is like /etc/hosts (IP<whitespace>hostname).\n"
 		}
 	},
 	{ "dns-timeout", &config.dns_timeout, parse_timeout, 1, 0,
@@ -1268,6 +1388,12 @@ static const struct optionw options[] = {
 		SECTION_SSL,
 		{ "File to be used as socket for random data from\n",
 		  "Entropy Gathering Daemon.\n"
+		}
+	},
+	{ "exclude-directories", &config.exclude_directories, parse_excluded_directories, 1, 'X',
+		SECTION_DOWNLOAD,
+		{ "Comma-separated list of directories NOT to download.\n",
+		  "Wildcards are allowed.\n"
 		}
 	},
 	{ "exclude-domains", &config.exclude_domains, parse_stringlist, 1, 0,
@@ -1288,7 +1414,7 @@ static const struct optionw options[] = {
 	{ "filter-urls", &config.filter_urls, parse_bool, 0, 0,
 		SECTION_DOWNLOAD,
 		{ "Apply the accept and reject filters on the URL\n",
-                  "before starting a download. (default: off)\n"
+		  "before starting a download. (default: off)\n"
 		}
 	},
 	{ "follow-tags", &config.follow_tags, parse_taglist, 1, 0,
@@ -1353,13 +1479,6 @@ static const struct optionw options[] = {
 		}
 	},
 #endif
-	{ "gnutls-options", &config.gnutls_options, parse_string, 1, 0,
-		SECTION_SSL,
-		{ "Custom GnuTLS priority string.\n",
-		  "Interferes with --secure-protocol.\n",
-		  "(default: none)\n"
-		}
-	},
 	{ "header", &config.headers, parse_header, 1, 0,
 		SECTION_HTTP,
 		{ "Insert input string as a HTTP header in\n",
@@ -1397,6 +1516,26 @@ static const struct optionw options[] = {
 	{ "hsts-file", &config.hsts_file, parse_filename, 1, 0,
 		SECTION_SSL,
 		{ "Set file for HSTS caching. (default: ~/.wget-hsts)\n"
+		}
+	},
+	{ "hsts-preload", &config.hsts_preload, parse_bool, -1, 0,
+		SECTION_SSL,
+		{ "Use HTTP Strict Transport Security (HSTS).\n",
+#ifdef WITH_LIBHSTS
+		  "(default: on)\n"
+#else
+		  "[Not built with libhsts, so not functional]\n"
+#endif
+		}
+	},
+	{ "hsts-preload-file", &config.hsts_preload_file, parse_filename, 1, 0,
+		SECTION_SSL,
+		{ "Set name for the HSTS Preload file (DAFSA format).\n",
+#ifdef WITH_LIBHSTS
+		  "(default: the distribution's HSTS data file)\n"
+#else
+		  "[Not built with libhsts, so not functional]\n"
+#endif
 		}
 	},
 	{ "html-extension", &config.adjust_extension, parse_bool, -1, 0,
@@ -1481,6 +1620,12 @@ static const struct optionw options[] = {
 		  "e.g. --ignore-tags=\"img,a/href\n"
 		}
 	},
+	{ "include-directories", &config.exclude_directories, parse_included_directories, 1, 'I',
+		SECTION_DOWNLOAD,
+		{ "Comma-separated list of directories TO download.\n",
+		  "Wildcards are allowed.\n"
+		}
+	},
 	{ "inet4-only", &config.inet4_only, parse_bool, -1, '4',
 		SECTION_DOWNLOAD,
 		{ "Use IPv4 connections only. (default: off)\n"
@@ -1502,12 +1647,18 @@ static const struct optionw options[] = {
 		{ "File where URLs are read from, - for STDIN.\n"
 		}
 	},
-	{ "iri", NULL, parse_bool, -1, 0,
+	{ "iri", NULL, parse_bool, -1, 0, // Wget compatibility, in fact a do-nothing option
 		SECTION_DOWNLOAD,
 		{ "Wget dummy option, you can't switch off\n",
 		  "international support\n"
 		}
-	}, // Wget compatibility, in fact a do-nothing option
+	},
+	{ "keep-extension", &config.keep_extension, parse_bool, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "If file exists: Use pattern 'basename_N.ext'\n",
+			"instead of 'filename.N'. (default: off)\n"
+		}
+	},
 	{ "keep-session-cookies", &config.keep_session_cookies, parse_bool, -1, 0,
 		SECTION_HTTP,
 		{ "Also save session cookies. (default: off)\n"
@@ -1681,7 +1832,7 @@ static const struct optionw options[] = {
 	},
 	{ "progress", &config.progress, parse_progress_type, 1, 0,
 		SECTION_DOWNLOAD,
-		{ "Type of progress bar (bar, dot, none).\n",
+		{ "Type of progress bar (bar, none).\n",
 		  "(default: none)\n"
 		}
 	},
@@ -1781,10 +1932,21 @@ static const struct optionw options[] = {
 		  " (default: off)\n"
 		}
 	},
+	{ "retry-on-http-status", &config.http_retry_on_status, parse_stringlist, 1, 0,
+		SECTION_DOWNLOAD,
+		{ "Specify a list of http statuses in which the download will be retried\n"
+		}
+	},
 	{ "robots", &config.robots, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "Respect robots.txt standard for recursive\n",
 		  "downloads. (default: on)\n"
+		}
+	},
+	{ "save-content-on", &config.save_content_on, parse_stringlist, 1, 0,
+		SECTION_DOWNLOAD,
+		{ "Specify a list of response codes that requires it's\n",
+		  "response body to be saved on error status\n"
 		}
 	},
 	{ "save-cookies", &config.save_cookies, parse_string, 1, 0,
@@ -1800,7 +1962,7 @@ static const struct optionw options[] = {
 	},
 	{ "secure-protocol", &config.secure_protocol, parse_string, 1, 0,
 		SECTION_SSL,
-		{ "Set protocol to be used (auto, SSLv3, TLSv1, PFS).\n",
+		{ "Set protocol to be used (auto, SSLv3, TLSv1, TLSv1_1, TLSv1_2, TLS1_3, PFS).\n",
 		  "(default: auto). Or use GnuTLS priority\n",
 		  "strings, e.g. NORMAL:-VERS-SSL3.0:-RSA\n"
 		}
@@ -2520,10 +2682,10 @@ static int G_GNUC_WGET_NONNULL((2)) parse_command_line(int argc, const char **ar
 	return n;
 }
 
-static void G_GNUC_WGET_NORETURN _no_memory(void)
+static int _no_memory(void)
 {
 	fprintf(stderr, "No memory\n");
-	exit(EXIT_FAILURE);
+	return EXIT_FAILURE;
 }
 
 
@@ -2653,6 +2815,40 @@ static int use_askpass(void)
 	return 0;
 }
 
+/*
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+*/
+
+static int _preload_dns_cache(const char *fname)
+{
+	FILE *fp;
+	char buf[256], ip[64], name[256];
+
+	if (!strcmp(fname, "-"))
+		fp = stdin;
+	else if (!(fp = fopen(fname, "r"))) {
+		error_printf(_("Failed to open %s"), fname);
+		return -1;
+	}
+
+	while (fgets(buf, sizeof(buf), fp)) {
+		if (sscanf(buf, "%63[0-9.:] %255[a-zA-Z0-9.-]", ip, name) != 2)
+			continue;
+
+		wget_strtolower(name);
+
+		wget_tcp_dns_cache_add(ip, name, 80);
+		wget_tcp_dns_cache_add(ip, name, 443);
+	}
+
+	if (fp != stdin)
+		fclose(fp);
+
+	return 0;
+}
+
 // read config, parse CLI options, check values, set module options
 // and return the number of arguments consumed
 
@@ -2683,7 +2879,6 @@ int init(int argc, const char **argv)
 	config.secure_protocol = wget_strdup(config.secure_protocol);
 	config.ca_directory = wget_strdup(config.ca_directory);
 	config.default_page = wget_strdup(config.default_page);
-	config.domains = wget_vector_create(16, (wget_vector_compare_t)strcmp);
 
 	// create list of default config file names
 	const char *env;
@@ -2739,7 +2934,13 @@ int init(int argc, const char **argv)
 	if (config.netrc && !config.netrc_file)
 		config.netrc_file = wget_aprintf("%s/.netrc", home_dir);
 
+#ifdef WITH_LIBHSTS
+	if (config.hsts_preload && !config.hsts_preload_file)
+		config.hsts_preload_file = wget_strdup(hsts_dist_filename());
+#endif
+
 	xfree(home_dir);
+	wget_vector_free(&config.exclude_directories); // -I and -X stack up, so free before final command line parsing
 
 	//Enable plugin loading
 	{
@@ -2866,6 +3067,14 @@ int init(int argc, const char **argv)
 		wget_hsts_db_load(config.hsts_db);
 	}
 
+#ifdef WITH_LIBHSTS
+	if (config.hsts_preload) {
+		if ((rc = hsts_load_file(config.hsts_preload_file, &config.hsts_preload_data))) {
+			wget_error_printf(_("Failed to load %s (%d)"), config.hsts_preload_file, rc);
+		}
+	}
+#endif
+
 	if (config.hpkp) {
 		config.hpkp_db = plugin_db_fetch_provided_hpkp_db();
 		if (! config.hpkp_db)
@@ -2988,7 +3197,6 @@ int init(int argc, const char **argv)
 	wget_ssl_set_config_int(WGET_SSL_OCSP, config.ocsp);
 	wget_ssl_set_config_int(WGET_SSL_OCSP_STAPLING, config.ocsp_stapling);
 	wget_ssl_set_config_string(WGET_SSL_SECURE_PROTOCOL, config.secure_protocol);
-	wget_ssl_set_config_string(WGET_SSL_DIRECT_OPTIONS, config.gnutls_options);
 	wget_ssl_set_config_string(WGET_SSL_CA_DIRECTORY, config.ca_directory);
 	wget_ssl_set_config_string(WGET_SSL_CA_FILE, config.ca_cert);
 	wget_ssl_set_config_string(WGET_SSL_CERT_FILE, config.cert_file);
@@ -3036,6 +3244,9 @@ int init(int argc, const char **argv)
 			wget_strtolower(hostname);
 	}
 
+	if (config.dns_cache_preload)
+		_preload_dns_cache(config.dns_cache_preload);
+
 	return n;
 }
 
@@ -3055,6 +3266,7 @@ void deinit(void)
 	wget_ocsp_db_free(&config.ocsp_db);
 	wget_netrc_db_free(&config.netrc_db);
 
+	xfree(config.accept_regex);
 	xfree(config.base_url);
 	xfree(config.bind_address);
 	xfree(config.ca_cert);
@@ -3065,7 +3277,6 @@ void deinit(void)
 	xfree(config.default_page);
 	xfree(config.directory_prefix);
 	xfree(config.egd_file);
-	xfree(config.gnutls_options);
 	xfree(config.hsts_file);
 	xfree(config.hpkp_file);
 	xfree(config.http_password);
@@ -3074,6 +3285,7 @@ void deinit(void)
 	xfree(config.http_proxy_username);
 	xfree(config.http_username);
 	xfree(config.https_proxy);
+	xfree(config.hsts_preload_file);
 	xfree(config.input_encoding);
 	xfree(config.input_file);
 	xfree(config.load_cookies);
@@ -3089,6 +3301,7 @@ void deinit(void)
 	xfree(config.private_key);
 	xfree(config.random_file);
 	xfree(config.referer);
+	xfree(config.reject_regex);
 	xfree(config.remote_encoding);
 	xfree(config.save_cookies);
 	xfree(config.secure_protocol);
@@ -3106,7 +3319,10 @@ void deinit(void)
 
 	wget_iri_free(&config.base);
 
+	wget_vector_free(&config.exclude_directories);
+	wget_vector_free(&config.save_content_on);
 	wget_vector_free(&config.mime_types);
+	wget_vector_free(&config.http_retry_on_status);
 	wget_vector_free(&config.domains);
 	wget_vector_free(&config.exclude_domains);
 	wget_vector_free(&config.follow_tags);
@@ -3123,6 +3339,12 @@ void deinit(void)
 	wget_http_set_http_proxy(NULL, NULL);
 	wget_http_set_https_proxy(NULL, NULL);
 	wget_http_set_no_proxy(NULL, NULL);
+
+
+#ifdef WITH_LIBHSTS
+	hsts_free(config.hsts_preload_data);
+	config.hsts_preload_data = NULL;
+#endif
 }
 
 // self test some functions, called by using --self-test

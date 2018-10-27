@@ -32,8 +32,8 @@ functions needed by a web client.
 
 Wget2 works multi-threaded and uses many features to allow fast operation.
 
-In many cases Wget2 downloads much faster than Wget1.x due to HTTP zlib
-compression, parallel connections and use of If-Modified-Since HTTP header.
+In many cases Wget2 downloads much faster than Wget1.x due to HTTP2, HTTP compression,
+parallel connections and use of If-Modified-Since HTTP header.
 
 GNU Wget2 is licensed under GPLv3+.
 
@@ -46,6 +46,7 @@ A non-exhaustive list of features
 
 - Support for HTTP/1.1 and HTTP/2.0 protocol
 - [brotli](https://github.com/google/brotli) decompression support (Accept-Encoding: br)
+- [zstandard](https://github.com/facebook/zstd) decompression support, RFC8478 (Accept-Encoding: zstd)
 - HPKP - HTTP Public Key Pinning (RFC7469) with persistent database
 - TCP Fast Open for plain text *and* for HTTPS
 - TLS Session Resumption including persistent session data cache
@@ -129,7 +130,7 @@ The following packages are needed to build the software
 * libbz2 >= 1.0.6 (optional, if you want HTTP bzip2 decompression)
 * libbrotlidec >= 1.0.0 (optional, if you want HTTP brotli decompression)
 * libgnutls (3.3, 3.5 or 3.6)
-* libidn2 >= 0.9 + libunistring >= 0.9.3 (libidn >= 1.25 if you don't have libidn2)
+* libidn2 >= 0.14 (libidn >= 1.25 if you don't have libidn2)
 * flex >= 2.5.35
 * libpsl >= 0.5.0
 * libnghttp2 >= 1.3.0 (optional, if you want HTTP/2 support)
@@ -137,6 +138,8 @@ The following packages are needed to build the software
 * lzip (optional, if you want to build distribution tarballs)
 * lcov (optional, for coverage reports)
 * libgpgme >= 0.4.2 (optional, for automatic signature verification)
+* libpcre | libpcre2 (optional, for filtering by PCRE|PCRE2 regex)
+* libhsts (optional, to support HSTS preload lists)
 
 The versions are recommended, but older versions may also work.
 
@@ -155,6 +158,12 @@ Build Wget2 with
 		./configure
 		make
 
+In Haiku build Wget2 with
+
+        setarch x86
+        ./configure --prefix=/boot/home/config/non-packaged
+        rm /boot/home/config/non-packaged/wget2 && mv /boot/home/config/non-packaged/wget2_noinstall /boot/home/config/non-packaged/wget2
+
 Test the functionality
 
 		make check
@@ -162,43 +171,3 @@ Test the functionality
 Install Wget2 and libwget
 
 		sudo make install (or su -c "make install")
-
-
-# Valgrind Testing
-
-To run the test suite with valgrind memcheck
-
-		make check-valgrind
-
-or if you want valgrind memcheck by default
-
-		./configure --enable-valgrind-tests
-		make check
-
-To run single tests with valgrind (e.g. test-k)
-
-		cd tests
-		VALGRIND_TESTS=1 ./test-k
-
-Why not directly using valgrind like 'valgrind --leak-check=full ./test-k' ?
-Well, you want to valgrind 'wget2' and not the test program itself, right ?
-
-
-# Coverage Report
-
-To generate and view the test code coverage (works with gcc, not with clang)
-
-		make check-coverage
-		<browser> lcov/index.html
-
-
-# Control Flow Integrity with clang
-
-To instrument clang's [CFI](https://clang.llvm.org/docs/ControlFlowIntegrity.html):
-
-		CC="clang-5.0" CFLAGS="-g -fsanitize=cfi -fno-sanitize-trap=all -fno-sanitize=cfi-icall -flto -fvisibility=hidden" NM=/usr/bin/llvm-nm-5.0 RANLIB=/usr/bin/llvm-ranlib-5.0 AR=/usr/bin/llvm-ar-5.0 LD=/usr/bin/gold ./configure
-		make clean
-		make check
-
-With clang-5.0 `-fsanitize=cfi-icall` does not work as expected.
-Our logger callback functions are typed correctly, but falsely cause a hiccup.

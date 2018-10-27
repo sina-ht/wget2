@@ -303,7 +303,10 @@ static int _tls_session_db_load(wget_tls_session_db_t *tls_session_db, FILE *fp)
 		}
 
 		if (ok) {
+			bool no_change = wget_hashmap_size(tls_session_db->entries) == 0;
 			wget_tls_session_db_add(tls_session_db, wget_memdup(&tls_session, sizeof(tls_session)));
+			if (no_change)
+				tls_session_db->changed = 0;
 		} else {
 			wget_tls_session_deinit(&tls_session);
 			error_printf(_("Failed to parse HSTS line: '%s'\n"), buf);
@@ -339,7 +342,7 @@ int wget_tls_session_db_load(wget_tls_session_db_t *tls_session_db, const char *
 
 static int G_GNUC_WGET_NONNULL_ALL _tls_session_save(FILE *fp, const wget_tls_session_t *tls_session)
 {
-	char session_b64[((tls_session->data_size + 2) / 3) * 4 + 1];
+	char session_b64[wget_base64_get_encoded_length(tls_session->data_size)];
 
 	wget_base64_encode(session_b64, (const char *) tls_session->data, tls_session->data_size);
 

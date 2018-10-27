@@ -241,18 +241,23 @@ WGET_BEGIN_DECLS
 #define WGET_HTTP_USER_DATA           2019
 
 // definition of error conditions
-#define WGET_E_SUCCESS 0 /* OK */
-#define WGET_E_UNKNOWN -1 /* general error if nothing else appropriate */
-#define WGET_E_INVALID -2 /* invalid value to function */
-#define WGET_E_TIMEOUT -3 /* timeout condition */
-#define WGET_E_CONNECT -4 /* connect failure */
-#define WGET_E_HANDSHAKE -5 /* general TLS handshake failure */
-#define WGET_E_CERTIFICATE -6 /* general TLS certificate failure */
-#define WGET_E_TLS_DISABLED -7 /* TLS was not enabled at compile time */
-#define WGET_E_GPG_DISABLED -8 /* GPGME was not enabled at compile time */
-#define WGET_E_GPG_VER_FAIL -9 /* 1 or more non-valid signatures */
-#define WGET_E_GPG_VER_ERR -11 /* Verification failed, GPGME error */
-#define WGET_E_XML_PARSE_ERR -12 /* XML parsing failed */
+typedef enum {
+	WGET_E_SUCCESS = 0, /* OK */
+	WGET_E_UNKNOWN = -1, /* general error if nothing else appropriate */
+	WGET_E_INVALID = -2, /* invalid value to function */
+	WGET_E_TIMEOUT = -3, /* timeout condition */
+	WGET_E_CONNECT = -4, /* connect failure */
+	WGET_E_HANDSHAKE = -5, /* general TLS handshake failure */
+	WGET_E_CERTIFICATE = -6, /* general TLS certificate failure */
+	WGET_E_TLS_DISABLED = -7, /* TLS was not enabled at compile time */
+	WGET_E_GPG_DISABLED = -8, /* GPGME was not enabled at compile time */
+	WGET_E_GPG_VER_FAIL = -9, /* 1 or more non-valid signatures */
+	WGET_E_GPG_VER_ERR = -11, /* Verification failed, GPGME error */
+	WGET_E_XML_PARSE_ERR = -12, /* XML parsing failed */
+} wget_error_t;
+
+WGETAPI const char *
+	wget_strerror(int err);
 
 typedef void (*wget_global_get_func_t)(const char *, size_t);
 
@@ -334,7 +339,7 @@ WGETAPI int
 WGETAPI char *
 	wget_strnglob(const char *str, size_t n, int flags) G_GNUC_WGET_PURE;
 WGETAPI char *
-	wget_human_readable(char *buf, size_t bufsize, uint64_t n) G_GNUC_WGET_CONST;
+	wget_human_readable(char *buf, size_t bufsize, uint64_t n);
 WGETAPI int
 	wget_get_screen_size(int *width, int *height);
 WGETAPI char *
@@ -419,7 +424,7 @@ WGETAPI int
 // I try to never leave freed pointers hanging around
 #define wget_xfree(a) do { if (a) { wget_free((void *)(a)); a=NULL; } } while (0)
 
-typedef void (*wget_oom_callback_t)(void);
+typedef int (*wget_oom_callback_t)(void);
 
 WGETAPI void *
 	wget_malloc(size_t size) G_GNUC_WGET_MALLOC G_GNUC_WGET_ALLOC_SIZE(1);
@@ -449,22 +454,18 @@ WGETAPI void
  * Base64 routines
  */
 
-static inline size_t wget_base64_get_decoded_length(size_t len)
-{
-	return ((len + 3) / 4) * 3 + 1;
-}
-
-static inline size_t wget_base64_get_encoded_length(size_t len)
-{
-	return ((len + 2) / 3) * 4 + 1;
-}
-
 WGETAPI bool
 	wget_base64_is_string(const char *src) G_GNUC_WGET_PURE;
+WGETAPI size_t
+	wget_base64_get_decoded_length(size_t len) G_GNUC_WGET_PURE;
+WGETAPI size_t
+	wget_base64_get_encoded_length(size_t len) G_GNUC_WGET_PURE;
 WGETAPI size_t
 	wget_base64_decode(char *restrict dst, const char *restrict src, size_t n) G_GNUC_WGET_NONNULL_ALL;
 WGETAPI size_t
 	wget_base64_encode(char *restrict dst, const char *restrict src, size_t n) G_GNUC_WGET_NONNULL_ALL;
+WGETAPI size_t
+	wget_base64_urlencode(char *restrict dst, const char *restrict src, size_t n) G_GNUC_WGET_NONNULL_ALL;
 WGETAPI char *
 	wget_base64_decode_alloc(const char *restrict src, size_t n, size_t *outlen) G_GNUC_WGET_NONNULL((1));
 WGETAPI char *
@@ -473,6 +474,24 @@ WGETAPI char *
 	wget_base64_encode_vprintf_alloc(const char *restrict fmt, va_list args) G_GNUC_WGET_PRINTF_FORMAT(1,0) G_GNUC_WGET_NONNULL_ALL;
 WGETAPI char *
 	wget_base64_encode_printf_alloc(const char *restrict fmt, ...) G_GNUC_WGET_PRINTF_FORMAT(1,2) G_GNUC_WGET_NONNULL_ALL;
+
+/*
+ * Bitmap routines
+ */
+
+typedef struct _wget_bitmap_st wget_bitmap_t;
+
+WGETAPI void
+	wget_bitmap_set(wget_bitmap_t *b, unsigned n); // n is the index
+WGETAPI void
+	wget_bitmap_clear(wget_bitmap_t *b, unsigned n);
+WGETAPI bool
+	wget_bitmap_get(const wget_bitmap_t *b, unsigned n);
+
+WGETAPI wget_bitmap_t *
+	wget_bitmap_allocate(unsigned bits);
+WGETAPI void
+	wget_bitmap_free(wget_bitmap_t **b);
 
 /*
  * Buffer routines
@@ -831,7 +850,8 @@ typedef enum {
 	wget_content_encoding_lzma = 4,
 	wget_content_encoding_bzip2 = 5,
 	wget_content_encoding_brotli = 6,
-	wget_content_encoding_max = 7
+	wget_content_encoding_zstd = 7,
+	wget_content_encoding_max = 8
 } wget_content_encoding_type_t;
 
 WGETAPI G_GNUC_WGET_PURE wget_content_encoding_type_t
@@ -1202,20 +1222,27 @@ typedef struct _wget_hpkp_st wget_hpkp_t;
 
 //typedef struct _wget_hpkp_pin_st wget_hpkp_pin_t;
 
-/* FIXME this doesn't work */
+/* FIXME: the following entries are not used. review the hpkp function return values ! */
 /**
- * \ingroup libwget-hpkp
- * Return values
+ * \addtogroup libwget-hpkp
+ *
  * @{
  */
+/// Success
 #define WGET_HPKP_OK			 0
+/// General error
 #define WGET_HPKP_ERROR			-1
+/// The HPKP entry is expired
 #define WGET_HPKP_ENTRY_EXPIRED		-2
+/// The HPKP entry was deleted
 #define WGET_HPKP_WAS_DELETED		-3
+/// The entry doesn't have enough PINs
 #define WGET_HPKP_NOT_ENOUGH_PINS	-4
+/// The entry already exists
 #define WGET_HPKP_ENTRY_EXISTS		-5
+/// Failed to open a file
 #define WGET_HPKP_ERROR_FILE_OPEN	-6
-/* @} */
+/** @} */
 
 /**
  * \ingroup libwget-hpkp
@@ -1798,6 +1825,8 @@ WGETAPI void
 WGETAPI struct addrinfo *
 	wget_tcp_resolve(wget_tcp_t *tcp, const char *restrict name, uint16_t port);
 WGETAPI int
+	wget_tcp_dns_cache_add(const char *ip, const char *name, uint16_t port);
+WGETAPI int
 	wget_tcp_connect(wget_tcp_t *tcp, const char *host, uint16_t port);
 WGETAPI int
 	wget_tcp_tls_start(wget_tcp_t *tcp);
@@ -1835,7 +1864,6 @@ WGETAPI bool
 #define WGET_SSL_CHECK_CERTIFICATE 9
 #define WGET_SSL_CHECK_HOSTNAME    10
 #define WGET_SSL_PRINT_INFO        11
-#define WGET_SSL_DIRECT_OPTIONS    12
 #define WGET_SSL_CRL_FILE          13
 #define WGET_SSL_OCSP_STAPLING     14
 #define WGET_SSL_OCSP_SERVER       15
@@ -2006,7 +2034,8 @@ struct wget_http_response_t {
 	size_t
 		content_length; //!< length of the body data
 	size_t
-		cur_downloaded;
+		cur_downloaded,
+		accounted_for;	// reported to bar
 	time_t
 		last_modified;
 	time_t
@@ -2350,7 +2379,7 @@ WGETAPI void
 WGETAPI void
 	wget_bar_printf(wget_bar_t *bar, int slot, const char *fmt, ...) G_GNUC_WGET_PRINTF_FORMAT(3,4) G_GNUC_WGET_NONNULL_ALL;
 WGETAPI void
-	wget_bar_slot_begin(wget_bar_t *bar, int slot, const char *filename, ssize_t filesize) G_GNUC_WGET_NONNULL_ALL;
+	wget_bar_slot_begin(wget_bar_t *bar, int slot, const char *filename, int new_file, ssize_t filesize) G_GNUC_WGET_NONNULL_ALL;
 WGETAPI void
 	wget_bar_slot_downloaded(wget_bar_t *bar, int slot, size_t nbytes);
 WGETAPI void

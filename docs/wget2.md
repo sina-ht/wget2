@@ -1,4 +1,4 @@
-# Wget2
+# Wget2 User Manual
 
 * [Name](#Name)
 * [Synopsis](#Synopsis)
@@ -10,7 +10,7 @@
   * [Download Options](#Download Options)
   * [Directory Options](#Directory Options)
   * [HTTP Options](#HTTP Options)
-  * [HTTPS (SSL/TLS) Options](#HTTPS (SSL/TLS) Options)
+  * [HTTPS (SSL/TLS) Options](#HTTPS Options)
   * [Recursive Retrieval Options](#Recursive Retrieval Options)
   * [Recursive Accept/Reject Options](#Recursive Accept/Reject Options)
   * [Plugin Options](#Plugin Options)
@@ -78,12 +78,12 @@
 
       wget2 -o log -- -x
 
-  The options that accept comma-separated lists all respect the convention that specifying an empty list clears its
+  The options that accept comma-separated lists all respect the convention that prepending `--no-` clears its
   value.  This can be useful to clear the `.wgetrc` settings.  For instance, if your `.wgetrc` sets `exclude-directories`
-  to `/cgi-bin`, the following example will first reset it, and then set it to exclude `/~nobody` and `/~somebody`.  You can
+  to `/cgi-bin`, the following example will first reset it, and then set it to exclude `/priv` and `/trash`.  You can
   also clear the lists in `.wgetrc`.
 
-      wget2 -X '' -X /~nobody,/~somebody
+      wget2 --no-exclude-directories -X /priv,/trash
 
   Most options that do not accept arguments are boolean options, so named because their state can be captured with a
   yes-or-no ("boolean") variable.  A boolean option is either affirmative or negative (beginning with `--no-`).
@@ -354,7 +354,7 @@ Go to background immediately after startup. If no output file is specified via t
 
     `ResponseTime` ms between start of request and first response packet.
 
-    `Encoding` 0,1,2,3,4,5 mean server side compression was 'identity', 'gzip', 'deflate', 'lzma/xz', 'bzip2', 'brotli'
+    `Encoding` 0,1,2,3,4,5 mean server side compression was 'identity', 'gzip', 'deflate', 'lzma/xz', 'bzip2', 'brotli', 'zstd'
 
     `Verification` PGP verification status. 0,1,2,3 mean 'none',  'valid', 'invalid', 'bad', 'missing'.
 
@@ -377,6 +377,17 @@ Go to background immediately after startup. If no output file is specified via t
 
   Set number of tries to number. Specify 0 or inf for infinite retrying.  The default is to retry 20 times, with the exception
   of fatal errors like "connection refused" or "not found" (404), which are not retried.
+
+### `--retry-on-http-status=list`
+
+  Specify a comma-separated list of HTTP codes in which Wget2 will retry the download. The elements of the list may contain
+  wildcards. If an HTTP code starts with the character '!' it won't be downloaded. This is useful when trying to download
+  something with exceptions. For example, retry every failed download if error code is not 404:
+
+      wget2 --retry-on-http-status=*,\!404 https://example.com/
+
+  Please keep in mind that "200" is the only forbidden code. If it is included on the status list Wget2 will ignore it. The
+  max. number of download attempts is given by the `--tries` option.
 
 ### `-O`, `--output-document=file`
 
@@ -409,9 +420,11 @@ Go to background immediately after startup. If no output file is specified via t
 
   When running Wget2 without `-N`, `-nc`, `-r`, or `-p`, downloading the same file in the same directory will result in the
   original copy of file being preserved and the second copy being named file.1.  If that file is downloaded yet
-  again, the third copy will be named file.2, and so on.  (This is also the behavior with -nd, even if -r or -p are
-  in effect.)  When `-nc` is specified, this behavior is suppressed, and Wget2 will refuse to download newer copies of
-  file.  Therefore, ""no-clobber"" is actually a misnomer in this mode---it's not clobbering that's prevented (as
+  again, the third copy will be named file.2, and so on. (This is also the behavior with `-nd`, even if `-r` or `-p` are
+  in effect.) Use `--keep-extension` to use an alternative file naming pattern.
+
+  When `-nc` is specified, this behavior is suppressed, and Wget2 will refuse to download newer copies of
+  file.  Therefore, ""no-clobber"" is actually a misnomer in this mode - it's not clobbering that's prevented (as
   the numeric suffixes were already preventing clobbering), but rather the multiple version saving that's
   prevented.
 
@@ -430,7 +443,7 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `--backups=backups`
 
-  Before (over)writing a file, back up an existing file by adding a .1 suffix (_1 on VMS) to the file name.  Such
+  Before (over)writing a file, back up an existing file by adding a .1 suffix to the file name.  Such
   backup files are rotated to .2, .3, and so on, up to `backups` (and lost beyond that).
 
 ### `-c`, `--continue`
@@ -671,20 +684,6 @@ Go to background immediately after startup. If no output file is specified via t
 
   Setting quota to `0` or to `inf` unlimits the download quota.
 
-### `--no-dns-cache`
-
-  Turn off caching of DNS lookups.  Normally, Wget2 remembers the IP addresses it looked up from DNS so it doesn't
-  have to repeatedly contact the DNS server for the same (typically small) set of hosts it retrieves from.  This
-  cache exists in memory only; a new Wget2 run will contact DNS again.
-
-  However, it has been reported that in some situations it is not desirable to cache host names, even for the
-  duration of a short-running application like Wget2.  With this option Wget2 issues a new DNS lookup (more
-  precisely, a new call to "gethostbyname" or "getaddrinfo") each time it makes a new connection.  Please note that
-  this option will not affect caching that might be performed by the resolving library or by an external caching
-  layer, such as NSCD.
-
-  If you don't understand exactly what this option does, you probably won't need it.
-
 ### `--restrict-file-names=modes`
 
   Change which characters found in remote URLs must be escaped during generation of local filenames.  Characters
@@ -758,11 +757,28 @@ Go to background immediately after startup. If no output file is specified via t
 
   Currently this works on recent Linux and OSX kernels, on HTTP and HTTPS.
 
-### `--dns-caching`
+### `--dns-cache-preload=file`
+
+  Load a list of IP / Name tuples into the DNS cache.
+
+  The format of `file` is like `/etc/hosts`: IP-address whitespace Name
+
+  This allows to save domain name lookup time, which is a bottleneck in some use cases.
+  Also, the use of HOSTALIASES (which is not portable) can be mimiced by this option.
+
+# `--dns-cache`
 
   Enable DNS caching (default: on).
 
-  Keep results of DNS lookups in memory to speed up connections.
+  Normally, Wget2 remembers the IP addresses it looked up from DNS so it doesn't have to
+  repeatedly contact the DNS server for the same (typically small) set of hosts it retrieves from.
+  This cache exists in memory only; a new Wget2 run will contact DNS again.
+
+  However, it has been reported that in some situations it is not desirable to cache host names, even for the
+  duration of a short-running application like Wget2.  With `--no-dns-cache` Wget2 issues a new DNS lookup (more
+  precisely, a new call to "gethostbyname" or "getaddrinfo") each time it makes a new connection.  Please note that
+  this option will not affect caching that might be performed by the resolving library or by an external caching
+  layer, such as NSCD.
 
 ### `--retry-connrefused`
 
@@ -916,6 +932,19 @@ Go to background immediately after startup. If no output file is specified via t
 ### `--http2-request-window=number`
 
   Set max. number of parallel streams per HTTP/2 connection (default: 30).
+
+### `--keep-extension`
+
+  This option changes the behavior for creating a unique filename if a file already exists.
+
+  The standard (default) pattern for file names is `<filename>.<N>`, the new pattern is
+  `<basename>_<N>.<ext>`.
+
+  The idea is to use such files without renaming when the use depends on the
+  extension, like on Windows.
+
+  This option doesn not change the behavior of `--backups`.
+
 
 ## <a name="Directory Options"/>Directory Options
 
@@ -1274,6 +1303,18 @@ Go to background immediately after startup. If no output file is specified via t
   If this is set to on, wget2 will not skip the content when the server responds with a http status code that
   indicates error.
 
+### `--save-content-on`
+
+  This takes a comma-separated list of HTTP status codes to save the content for.
+
+  You can use '*' for ANY. An exclamation mark (!) in front of a code means 'exception'.
+
+  Example 1: `--save-content-on="*,!404"` would save the content on any HTTP status, except for 404.
+
+  Example 2: `--save-content-on=404` would save the content only on HTTP status 404.
+
+  The older `--content-on-error` behaves like `--save-content-on=*`.
+
 ### `--trust-server-names`
 
   If this is set to on, on a redirect the last component of the redirection URL will be used as the local file
@@ -1289,14 +1330,14 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `--compression=TYPE`
 
-  If this TYPE(`identity`, `gzip`, `deflate`, `xz`, `lzma`, `br`, `bzip2` or any combination of it) is given,
+  If this TYPE(`identity`, `gzip`, `deflate`, `xz`, `lzma`, `br`, `bzip2`, `zstd` or any combination of it) is given,
   Wget2 will set "Accept-Encoding" header accordingly. `--no-compression` means no "Accept-Encoding" header at all.
   To set "Accept-Encoding" to a custom value, use `--no-compression` in combination with
   `--header="Accept-Encoding: xxx"`.
 
   Compatibility-Note: `none` type in Wget 1.X has the same meaning as `identity` type in Wget2.
 
-## <a name="HTTPS (SSL/TLS) Options"/>HTTPS (SSL/TLS) Options
+## <a name="HTTPS Options"/>HTTPS (SSL/TLS) Options
 
   To support encrypted HTTP (HTTPS) downloads, Wget2 must be compiled with an external SSL library. The current default
   is GnuTLS.  In addition, Wget2 also supports HSTS (HTTP Strict Transport Security).  If Wget2 is compiled without SSL
@@ -1304,17 +1345,21 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `--secure-protocol=protocol`
 
-  Choose the secure protocol to be used (default: auto).
+  Choose the secure protocol to be used (default: `auto`).
 
-  Legal values are `auto`, `SSLv3`, `TLSv1` and `PFS`.  If auto is used, the TLS library's default is used.
+  Legal values are `auto`, `SSLv3`, `TLSv1`, `TLSv1_1`, `TLSv1_2`, `TLSv1_3` and `PFS`.
 
-  Specifying SSLv3, TLSv1 forces the use of the corresponding protocol. This is useful
-  when talking to old and buggy SSL server implementations that make it hard for the underlying TLS library to
-  choose the correct protocol version.
+  If `auto` is used, the TLS library's default is used.
+
+  Specifying `SSLv3` forces the use of the SSL3. This is useful when talking to old and buggy SSL server
+  implementations that make it hard for the underlying TLS library to choose the correct protocol version.
 
   Specifying `PFS` enforces the use of the so-called Perfect Forward Security cipher suites. In short, PFS adds
   security by creating a one-time key for each TLS connection. It has a bit more CPU impact on client and server.
   We use known to be secure ciphers (e.g. no MD4) and the TLS protocol.
+
+  `TLSv1` enables TLS1.0 or higher. `TLSv1_1` enables TLS1.1 or higher.
+  `TLSv1_2` enables TLS1.2 or higher. `TLSv1_3` enables TLS1.3 or higher.
 
   Any other protocol string is directly given to the TLS library, currently GnuTLS, as a "priority" or
   "cipher" string. This is for users who know what they are doing.
@@ -1465,6 +1510,17 @@ Go to background immediately after startup. If no output file is specified via t
   potential security threats arised from such practice, see section 14 "Security Considerations" of RFC 6797,
   specially section 14.9 "Creative Manipulation of HSTS Policy Store".
 
+### `--hsts-preload`
+
+  Enable loading of a HSTS Preload List as supported by libhsts. (default: on, if built with libhsts).
+
+### `--hsts-preload-file=file`
+
+  If built with libhsts, Wget2 uses the HSTS data provided by the distribution. If there is no such
+  support by the distribution or if you want to load your own file, use this option.
+
+  The data file must be in DAFSA format as generated by libhsts' tool `hsts-make-dafsa`.
+
 ### `--hpkp`
 
   Enable HTTP Public Key Pinning (HPKP) (default: on).
@@ -1528,13 +1584,6 @@ Go to background immediately after startup. If no output file is specified via t
 
   Wget2 requests HTTP/2 via ALPN. If available it is preferred over HTTP/1.1.
   Up to 30 streams are used in parallel within a single connection.
-
-### `--gnutls-options=options`
-
-  Sets the GnuTLS "priority" string (see https://gnutls.org/manual/html_node/Priority-Strings.html).
-
-  This is for experts only. Normally you would use `--secure-protocol` to set predefined
-  priority strings.
 
 ### `--https-enforce=mode`
 
@@ -1757,13 +1806,33 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `-I list`, `--include-directories=list`
 
-  Specify a comma-separated list of directories you wish to follow when downloading.  Elements of list may contain
+  Specify a comma-separated list of directories you wish to follow when downloading.  Elements of the list may contain
   wildcards.
+
+      wget2 -r https://webpage.domain --include-directories=*/pub/*/
+
+  Please keep in mind that `*/pub/*/` is the same as `/*/pub/*/` and that it matches directories, not strings. This means
+  that `*/pub` doesn't affect files contained at e.g. `/directory/something/pub` but `/pub/*` matches every subdir of `/pub`.
 
 ### `-X list`, `--exclude-directories=list`
 
-  Specify a comma-separated list of directories you wish to exclude from download.  Elements of list may contain
+  Specify a comma-separated list of directories you wish to exclude from download.  Elements of the list may contain
   wildcards.
+
+      wget2 -r https://gnu.org --exclude-directories=/software
+
+#### `-I` / `-X` combinations
+
+  Please be aware that the behavior of this combination of flags works slightly different than in wget1.x.
+
+  If -I is given first, the default is 'exclude all'. If -X is given first, the default is 'include all'.
+
+  Multiple -I/-X options are processed 'first to last'. The last match is relevant.
+
+      Example: -I /pub -X /pub/trash would download all from /pub/ except from /pub/trash.
+      Example: -X /pub -I /pub/important would download all except from /pub where only /pub/important would be downloaded.
+
+  To reset the list (e.g. to ignore -I/-X from .wgetrc files) use `--no-include-directories` or `--no-exclude-directories`.
 
 ### `-np`, `--no-parent`
 

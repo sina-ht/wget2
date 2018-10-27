@@ -127,6 +127,7 @@ if test -n "$WARN_CFLAGS"; then
     nw="$nw -Wunsuffixed-float-constants"
     nw="$nw -Wdeclaration-after-statement" # C89 only, messing up gcc < 5
     nw="$nw -Wcast-function-type" # gcc 8, very noisy
+    nw="$nw -Wabi" # gcc 8, very noisy
     nw="$nw -Wunused-macros" # triggers in auto-generated lex css parser, #pragma doesn't work, conflicts with -Werror
     if test "$cross_compiling" = yes; then
       nw="$nw -Wformat"
@@ -478,6 +479,21 @@ AS_IF([test "x$with_libpsl" != xno], [
 ])
 AM_CONDITIONAL([WITH_LIBPSL], [test "x$with_libpsl" = xyes])
 
+AC_ARG_WITH(libhsts, AS_HELP_STRING([--without-libhsts], [disable support for libhsts checking]), with_libhsts=$withval, with_libhsts=yes)
+AS_IF([test "x$with_libhsts" != xno], [
+  PKG_CHECK_MODULES([LIBHSTS], libhsts, [
+    with_libhsts=yes
+    LIBS="$LIBHSTS_LIBS $LIBS"
+    CFLAGS="$LIBHSTS_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_LIBHSTS], [1], [HSTS Preload List support enabled])
+  ], [
+    AC_SEARCH_LIBS(hsts_get_version, hsts,
+      [with_libhsts=yes; AC_DEFINE([WITH_LIBHSTS], [1], [HSTS Preload List support enabled])],
+      [with_libhsts=no;  AC_MSG_WARN(*** libhsts was not found.)])
+  ])
+])
+AM_CONDITIONAL([WITH_LIBHSTS], [test "x$with_libHSTS" = xyes])
+
 AC_ARG_WITH(libnghttp2, AS_HELP_STRING([--without-libnghttp2], [disable support for libnghttp2]), with_libnghttp2=$withval, with_libnghttp2=yes)
 AS_IF([test "x$with_libnghttp2" != xno], [
   PKG_CHECK_MODULES([LIBNGHTTP2], libnghttp2, [
@@ -562,39 +578,41 @@ AS_IF([test "x$with_brotlidec" != xno], [
 ])
 AM_CONDITIONAL([WITH_BROTLIDEC], [test "x$with_brotlidec" = xyes])
 
+AC_ARG_WITH(zstd, AS_HELP_STRING([--without-zstd], [disable Zstandard compression support]), with_zstd=$withval, with_zstd=yes)
+AS_IF([test "x$with_zstd" != xno], [
+  PKG_CHECK_MODULES([ZSTD], libzstd, [
+    with_zstd=yes
+    LIBS="$ZSTD_LIBS $LIBS"
+    CFLAGS="$ZSTD_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_ZSTD], [1], [Use zstd])
+  ], [
+    AC_SEARCH_LIBS(ZSTD_decompressStream, zstd,
+      [with_zstd=yes; AC_DEFINE([WITH_ZSTD], [1], [Use libzstd])],
+      [with_zstd=no;  AC_MSG_WARN(*** libzstd was not found. You will not be able to use Zstandard decompression)])
+  ])
+])
+AM_CONDITIONAL([WITH_ZSTD], [test "x$with_zstd" = xyes])
+
 # Support for internationalized domain names.
 # IDN support in Wget2 is provided in multiple ways:
 #   1. libidn2 >= 0.14.0 (IDNA 2008)
-#   2. libidn2 < 0.14.0 + libunistring (IDNA 2008)
 #   3. libidn (IDNA 2003)
-#
-# Versions of libidn2 prior to 0.14.0 did not provide a pkg-config file. Hence,
-# if detection of libidn2 with pkg-config fails, we assume that either
-# libidn2 is not available or it is an older version. Older versions of libidn2
-# also require libunistring to support IDN2008 on uppercase domain names.
 #
 # If libidn2 is not found at all, we try to fallback to libidn.
 AC_ARG_WITH(libidn2, AS_HELP_STRING([--without-libidn2], [disable IDN2 support]), with_libidn2=$withval, with_libidn2=yes)
 AS_IF([test "x$with_libidn2" != xno], [
-  PKG_CHECK_MODULES([LIBIDN2], libidn2, [
+  PKG_CHECK_MODULES([LIBIDN2], [libidn2 >= 0.14.0], [
     with_libidn2=yes
-	IDNA_INFO="IDNA 2008 (libidn2)"
+    IDNA_INFO="IDNA 2008 (libidn2)"
     LIBS="$LIBIDN2_LIBS $LIBS"
     CFLAGS="$LIBIDN2_CFLAGS $CFLAGS"
     AC_DEFINE([WITH_LIBIDN2], [1], [Use libidn2])
   ], [
-    AC_SEARCH_LIBS(idn2_lookup_u8, idn2,
-      [with_libidn2=yes; AC_DEFINE([WITH_LIBIDN2], [1], [Use libidn2]) IDNA_INFO="IDNA 2008 (libidn2)"],
-      [with_libidn2=no;  AC_MSG_WARN(*** LIBIDN2 was not found. You will not be able to use IDN2008 support)],
-      -lunistring)
-    AS_IF([test "x$with_libidn2" = xyes], [
-      AC_SEARCH_LIBS(u8_tolower, unistring,
-        [with_libunistring=yes; AC_DEFINE([WITH_LIBUNISTRING], [1], [Use libunistring]) IDNA_INFO="IDNA 2008 (libidn2+libunistring)"],
-        [with_libunistring=no;  AC_MSG_WARN(*** LIBUNISTRING was not found. You will not be able to use IDN2008 on uppercase domains)])
+    with_libidn2=no
+    AC_MSG_WARN(*** LIBIDN2 was not found. You will not be able to use IDN2008 support)
     ])
-  ])
 ])
-AM_CONDITIONAL([WITH_LIBUNISTRING], [test "x$with_libunistring" = xyes])
+
 AM_CONDITIONAL([WITH_LIBIDN2], [test "x$with_libidn2" = xyes])
 
 AS_IF([test "x$with_libidn2" != xyes], [
@@ -617,7 +635,7 @@ AM_CONDITIONAL([WITH_LIBIDN], [test "x$with_libidn" = xyes])
 
 AC_ARG_WITH(libpcre2, AS_HELP_STRING([--without-libpcre2], [disable support for libpcre2]), with_libpcre2=$withval, with_libpcre2=yes)
 AS_IF([test "x$with_libpcre2" != xno], [
-  PKG_CHECK_MODULES([LIBPCRE2], libpcre2, [
+  PKG_CHECK_MODULES([LIBPCRE2], libpcre2-8, [
     with_libpcre2=yes
     LIBS="$LIBPCRE2_LIBS $LIBS"
     CFLAGS="$LIBPCRE2_CFLAGS $CFLAGS"
@@ -647,7 +665,7 @@ AS_IF([test "x$with_libpcre2" != xyes], [
 ])
 AM_CONDITIONAL([WITH_LIBPCRE], [test "x$with_libpcre" = xyes])
 
-AS_IF([test "x$with_libpcre" = xyes], [HAVE_PCRE="yes"], [test "x$with_libpcre2" = xyes], [HAVE_PCRE=yes], [HAVE_PCRE=no])
+AS_IF([test "x$with_libpcre" = xyes], [HAVE_PCRE="yes, via libpcre"], [test "x$with_libpcre2" = xyes], [HAVE_PCRE="yes, via libpcre2"], [HAVE_PCRE=no])
 
 AC_ARG_WITH(libmicrohttpd, AS_HELP_STRING([--without-libmicrohttpd], [disable support for libmicrohttpd]), with_libmicrohttpd=$withval, with_libmicrohttpd=yes)
 AS_IF([test "x$with_libmicrohttpd" != xno], [
@@ -675,8 +693,6 @@ AS_IF([test "x$with_libmicrohttpd" != xno], [
   CFLAGS=$old_CFLAGS
 ])
 AM_CONDITIONAL([WITH_MICROHTTPD], [test "x$with_libmicrohttpd" = xyes])
-
-AC_SEARCH_LIBS(getaddrinfo_a, anl)
 
 # Check for plugin support
 AC_CANONICAL_HOST
@@ -732,7 +748,11 @@ AC_CHECK_HEADERS([\
 AC_FUNC_FORK
 AC_FUNC_MMAP
 AC_CHECK_FUNCS([\
- strlcpy getuid fmemopen getaddrinfo_a])
+ strlcpy getuid fmemopen])
+
+# needed for src/version-text.h
+YEAR=`date +%Y`
+AC_SUBST([YEAR], $YEAR)
 
 AC_CONFIG_FILES([Makefile
                  lib/Makefile
@@ -740,6 +760,7 @@ AC_CONFIG_FILES([Makefile
                  include/wget/Makefile
                  libwget/Makefile
                  src/Makefile
+                 src/version-text.h
                  examples/Makefile
                  unit-tests/Makefile
                  tests/Makefile
@@ -765,8 +786,10 @@ AC_MSG_NOTICE([Summary of build options:
   BZIP2 compression:  $with_bzip2
   LZMA compression:   $with_lzma
   Brotli compression: $with_brotlidec
+  Zstd compression:   $with_zstd
   IDNA support:       $IDNA_INFO
   PSL support:        $with_libpsl
+  HSTS support:       $with_libhsts
   HTTP/2.0 support:   $with_libnghttp2
   Documentation:      $DOCS_INFO
   PCRE support:       ${HAVE_PCRE}
