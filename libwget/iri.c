@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -324,7 +324,7 @@ void wget_iri_free(wget_iri_t **iri)
  * \return A libwget IRI (`wget_iri_t`)
  *
  * The host, path, query and fragment parts will be converted to UTF-8 from
- * the encoding given in the paramter \p encoding. GNU libiconv is used
+ * the encoding given in the parameter \p encoding. GNU libiconv is used
  * to perform the conversion, so this value should be the name of a valid character set
  * supported by that library, such as "utf-8" or "iso-8859-1".
  */
@@ -898,7 +898,6 @@ int wget_iri_compare(wget_iri_t *iri1, wget_iri_t *iri2)
 			return 1;
 	}
 */
-
 	if ((n = wget_strcasecmp(iri1->path, iri2->path)))
 		return n;
 

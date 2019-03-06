@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -163,31 +163,12 @@ int wget_stringmap_put(wget_stringmap_t *h, const char *key, const void *value, 
  *
  * Get the value for a given key.
  *
- * If there are %NULL values in the stringmap, you should use this function
- * to distinguish between 'not found' and 'found %NULL value'.
- *
  * Neither \p h nor \p key must be %NULL.
  */
-int wget_stringmap_get_null(const wget_stringmap_t *h, const char *key, void **value)
+#undef wget_stringmap_get
+int wget_stringmap_get(const wget_stringmap_t *h, const char *key, void **value)
 {
-	return wget_hashmap_get_null(h, key, value);
-}
-
-/**
- * \param[in] h Stringmap
- * \param[in] key Key to search for
- * \return Found value or %NULL if not found
- *
- * Get the value for a given key.
- *
- * If there are %NULL values in the stringmap, you should use wget_stringmap_get_null()
- * to distinguish between 'not found' and 'found %NULL value'.
- *
- * Neither \p h nor \p key must be %NULL.
- */
-void *wget_stringmap_get(const wget_stringmap_t *h, const char *key)
-{
-	return wget_hashmap_get(h, key);
+	return wget_hashmap_get(h, key, value);
 }
 
 /**
@@ -349,24 +330,41 @@ void wget_stringmap_set_value_destructor(wget_hashmap_t *h, wget_stringmap_value
  *
  * Default is 0.75.
  */
-void wget_stringmap_setloadfactor(wget_stringmap_t *h, float factor)
+void wget_stringmap_set_load_factor(wget_stringmap_t *h, float factor)
 {
-	wget_hashmap_setloadfactor(h, factor);
+	wget_hashmap_set_load_factor(h, factor);
 }
 
 /**
  * \param[in] h Stringmap
- * \param[in] off Stringmap growth mode:
- *   positive values: increase size by \p off entries on each resize
- *   negative values: increase size by multiplying \p -off, e.g. -2 doubles the size on each resize
+ * \param[in] off Stringmap growth factor
  *
- * Set the growth policy for internal memory.
+ * Set the factor for resizing the stringmap when it's load factor is reached.
  *
- * Default is -2.
+ * The new size is 'factor * oldsize'. If the new size is less or equal 0,
+ * the involved put function will do nothing and the internal state of
+ * the stringmap will not change.
+ *
+ * Default is 2.
  */
-void wget_stringmap_set_growth_policy(wget_stringmap_t *h, int off)
+void wget_stringmap_set_resize_factor(wget_stringmap_t *h, float factor)
 {
-	wget_hashmap_set_growth_policy(h, off);
+	wget_hashmap_set_resize_factor(h, factor);
+}
+
+/**
+ * \param[in] iter Stringmap iterator
+ * \param[out] value Pointer to the value belonging to the returned key
+ * \return Pointer to the key or NULL if no more elements left
+ *
+ * Returns the next key / value in the stringmap. If all key/value pairs have been
+ * iterated over the function returns NULL and \p value is untouched.
+ *
+ * When iterating over a stringmap, the order of returned key/value pairs is not defined.
+ */
+void *wget_stringmap_iterator_next(wget_stringmap_iterator_t *h, char **value)
+{
+	return wget_hashmap_iterator_next(h, (void **) value);
 }
 
 /**@}*/

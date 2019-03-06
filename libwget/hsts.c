@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2014 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -179,13 +179,13 @@ static int impl_hsts_db_host_match(const wget_hsts_db_t *hsts_db, const char *ho
 	// we assume the scheme is HTTP
 	hsts.port = (port == 80 ? 443 : port);
 	hsts.host = host;
-	if ((hstsp = wget_hashmap_get(hsts_db_priv->entries, &hsts)) && hstsp->expires >= now)
+	if (wget_hashmap_get(hsts_db_priv->entries, &hsts, &hstsp) && hstsp->expires >= now)
 		return 1;
 
 	// now look for a valid subdomain match
 	for (p = host; (p = strchr(p, '.')); ) {
 		hsts.host = ++p;
-		if ((hstsp = wget_hashmap_get(hsts_db_priv->entries, &hsts))
+		if (wget_hashmap_get(hsts_db_priv->entries, &hsts, &hstsp)
 				&& hstsp->include_subdomains && hstsp->expires >= now)
 			return 1;
 	}
@@ -227,7 +227,7 @@ void wget_hsts_db_deinit(wget_hsts_db_t *hsts_db)
  *
  * If `hsts_db` or pointer it points to is NULL, then the function does nothing.
  *
- * Newly added entries will be lost unless commited to persistent storage using wget_hsts_db_save().
+ * Newly added entries will be lost unless committed to persistent storage using wget_hsts_db_save().
  */
 void wget_hsts_db_free(wget_hsts_db_t **hsts_db)
 {
@@ -253,9 +253,9 @@ static void _hsts_db_add_entry(_hsts_db_impl_t *hsts_db_priv, _hsts_t *hsts)
 		_free_hsts(hsts);
 		hsts = NULL;
 	} else {
-		_hsts_t *old = wget_hashmap_get(hsts_db_priv->entries, hsts);
+		_hsts_t *old;
 
-		if (old) {
+		if (wget_hashmap_get(hsts_db_priv->entries, hsts, &old)) {
 			if (old->created < hsts->created || old->maxage != hsts->maxage || old->include_subdomains != hsts->include_subdomains) {
 				old->created = hsts->created;
 				old->expires = hsts->expires;
@@ -409,7 +409,7 @@ static int _hsts_db_load(_hsts_db_impl_t *hsts_db_priv, FILE *fp)
 
 /**
  * \param[in] hsts_db An HSTS database
- * \return 0 if the operation succeded, -1 in case of error
+ * \return 0 if the operation succeeded, -1 in case of error
  *
  * Performs all operations necessary to access the HSTS database entries from persistent storage
  * using wget_hsts_host_match() for example.
@@ -470,7 +470,7 @@ static int _hsts_db_save(void *hsts_db_priv, FILE *fp)
 
 /**
  * \param[in] hsts_db HSTS database
- * \return 0 if the operation succeded, -1 otherwise
+ * \return 0 if the operation succeeded, -1 otherwise
  *
  * Saves all changes to the HSTS database (via wget_hsts_db_add() for example) to persistent storage.
  *

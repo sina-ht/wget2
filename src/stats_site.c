@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2018 Free Software Foundation, Inc.
+ * Copyright(c) 2018-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -112,7 +112,8 @@ void stats_site_add(wget_http_response_t *resp, wget_gpg_info_t *gpg_info)
 		if ((p = strrchr(uri, '.')))
 			*p = 0;
 
-		site_stats_t *doc = wget_stringmap_get(docs, uri);
+		site_stats_t *doc;
+		wget_stringmap_get(docs, uri, &doc);
 		xfree(uri);
 
 		if (doc) {

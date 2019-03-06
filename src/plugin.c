@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2017-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2017-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -76,7 +76,7 @@ static int hsts_db_priority;
 // Plugin supplied HPKP database
 static wget_hpkp_db_t *hpkp_db;
 static int hpkp_db_priority;
-// Pluign supplied OCSP database
+// Plugin supplied OCSP database
 static wget_ocsp_db_t *ocsp_db;
 static int ocsp_db_priority;
 
@@ -526,8 +526,7 @@ int plugin_db_forward_option(const char *plugin_option, dl_error_t *e)
 	}
 
 	// Search for plugin
-	plugin = (plugin_t *) wget_stringmap_get(plugin_name_index, plugin_name);
-	if (! plugin) {
+	if (!wget_stringmap_get(plugin_name_index, plugin_name, &plugin)) {
 		dl_error_set_printf(e, "Plugin '%s' is not loaded.", plugin_name);
 		wget_free(plugin_option_copy);
 		return -1;

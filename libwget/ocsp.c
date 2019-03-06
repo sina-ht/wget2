@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2014 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -156,7 +156,7 @@ static bool impl_ocsp_db_fingerprint_in_cache(const wget_ocsp_db_t *ocsp_db, con
 
 	// look for an exact match
 	ocsp.key = fingerprint;
-	if ((ocspp = wget_hashmap_get(ocsp_db_priv->fingerprints, &ocsp)) && ocspp->maxage >= (int64_t) time(NULL)) {
+	if (wget_hashmap_get(ocsp_db_priv->fingerprints, &ocsp, &ocspp) && ocspp->maxage >= (int64_t) time(NULL)) {
 		if (revoked)
 			*revoked = !ocspp->valid;
 		return 1;
@@ -194,7 +194,7 @@ static bool impl_ocsp_db_hostname_is_valid(const wget_ocsp_db_t *ocsp_db, const 
 
 	// look for an exact match
 	ocsp.key = hostname;
-	if ((ocspp = wget_hashmap_get(ocsp_db_priv->hosts, &ocsp)) && ocspp->maxage >= (int64_t) time(NULL)) {
+	if (wget_hashmap_get(ocsp_db_priv->hosts, &ocsp, &ocspp) && ocspp->maxage >= (int64_t) time(NULL)) {
 		return 1;
 	}
 
@@ -233,7 +233,7 @@ void wget_ocsp_db_deinit(wget_ocsp_db_t *ocsp_db)
  * A double pointer is required because this function will set the handle (pointer) to the HPKP database to NULL
  * to prevent potential use-after-free conditions.
  *
- * New entries added to the database will be lost unless commited to the persistent storage using
+ * New entries added to the database will be lost unless committed to the persistent storage using
  * wget_ocsp_db_save().
  *
  * If `ocsp_db` or the pointer it points to is NULL, then this function does nothing.
@@ -271,9 +271,9 @@ static void _ocsp_db_add_fingerprint_entry(_ocsp_db_impl_t *ocsp_db_priv, _ocsp_
 			debug_printf("removed OCSP cert %s\n", ocsp->key);
 		_free_ocsp(ocsp);
 	} else {
-		_ocsp_t *old = wget_hashmap_get(ocsp_db_priv->fingerprints, ocsp);
+		_ocsp_t *old;
 
-		if (old) {
+		if (wget_hashmap_get(ocsp_db_priv->fingerprints, ocsp, &old)) {
 			if (old->mtime < ocsp->mtime) {
 				old->mtime = ocsp->mtime;
 				old->maxage = ocsp->maxage;
@@ -338,9 +338,9 @@ static void _ocsp_db_add_host_entry(_ocsp_db_impl_t *ocsp_db_priv, _ocsp_t *ocsp
 			debug_printf("removed OCSP host %s\n", ocsp->key);
 		_free_ocsp(ocsp);
 	} else {
-		_ocsp_t *old = wget_hashmap_get(ocsp_db_priv->hosts, ocsp);
+		_ocsp_t *old;
 
-		if (old) {
+		if (wget_hashmap_get(ocsp_db_priv->hosts, ocsp, &old)) {
 			if (old->mtime < ocsp->mtime) {
 				old->mtime = ocsp->mtime;
 				old->maxage = ocsp->maxage;

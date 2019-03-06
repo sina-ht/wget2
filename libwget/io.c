@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -482,7 +482,7 @@ int wget_update_file(const char *fname,
 
 	if (save_func) {
 		int fd;
-		// creat & open temp file to write data into with 0600 - rely on Gnulib to set correct
+		// create & open temp file to write data into with 0600 - rely on Gnulib to set correct
 		// ownership instead of using umask() here.
 		if ((fd = mkstemp(tmpfile)) == -1) {
 			close(lockfd);

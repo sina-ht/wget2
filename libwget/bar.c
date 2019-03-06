@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2014 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -509,7 +509,7 @@ void wget_bar_slot_begin(wget_bar_t *bar, int slot, const char *filename, int ne
 /**
  * \param[in] bar Pointer to a wget_bar_t object
  * \param[in] slot The slot number to use
- * \param[in] nbytes The number of bytes downloaded since the last invokation of this function
+ * \param[in] nbytes The number of bytes downloaded since the last invocation of this function
  *
  * Set the current number of bytes for \p slot for the next update of
  * the bar/slot.

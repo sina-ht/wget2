@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -132,9 +132,7 @@ HOST *host_get(wget_iri_t *iri)
 
 	wget_thread_mutex_lock(hosts_mutex);
 
-	if (hosts)
-		hostp = wget_hashmap_get(hosts, &host);
-	else
+	if (!hosts || !wget_hashmap_get(hosts, &host, &hostp))
 		hostp = NULL;
 
 	wget_thread_mutex_unlock(hosts_mutex);

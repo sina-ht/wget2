@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -72,7 +72,7 @@ void set_exit_status(exit_status_t status)
 	// use Wget exit status scheme:
 	// - error code 0 is default
 	// - error code 1 is used directly by exit() (fatal errors)
-	// - error codes 2... : lower numbers preceed higher numbers
+	// - error codes 2... : lower numbers precede higher numbers
 	if (exit_status) {
 		if (status < exit_status) {
 			debug_printf("%s(%d)\n", __func__, (int) status);
@@ -950,7 +950,7 @@ static int parse_verify_sig(option_t opt, const char *val, const char invert)
 	if (opt->var) {
 		if (invert) {
 			if (val) {
-				error_printf(_("no-verify-sig cannot take additional arugments\n"));
+				error_printf(_("no-verify-sig cannot take additional arguments\n"));
 				return -1;
 			} else {
 				*((char *)opt->var) = WGET_GPG_VERIFY_DISABLED;
@@ -1135,7 +1135,6 @@ struct config config = {
 #ifdef _WIN32
 	.restrict_file_names = WGET_RESTRICT_NAMES_WINDOWS,
 #endif
-	.xattr = 1,
 	.local_db = 1,
 	.report_speed = WGET_REPORT_SPEED_BYTES
 };
@@ -2143,7 +2142,7 @@ static const struct optionw options[] = {
 	},
 	{ "xattr", &config.xattr, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
-		{ "Save extended file attributes. (default: on)\n"\
+		{ "Save extended file attributes. (default: off)\n"\
 		}
 	}
 };
@@ -3152,7 +3151,7 @@ int init(int argc, const char **argv)
 			wget_stringmap_t *set = wget_stringmap_create(start_len);
 			for (int i = 0; i < start_len; i++) {
 				const char *nxt = wget_vector_get(config.sig_ext, i);
-				if (!wget_stringmap_get_null(set, nxt, NULL)) {
+				if (!wget_stringmap_contains(set, nxt)) {
 					wget_vector_add_str(new_sig_ext, nxt);
 					wget_stringmap_put_noalloc(set, wget_strdup(nxt), NULL);
 				}

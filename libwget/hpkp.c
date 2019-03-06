@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -249,7 +249,7 @@ size_t wget_hpkp_get_n_pins(wget_hpkp_t *hpkp)
  *
  * Gets all the public key hashes added to the given HPKP database entry.
  *
- * The size of the arrays used must be atleast one returned by \ref wget_hpkp_get_n_pins "wget_hpkp_get_n_pins()".
+ * The size of the arrays used must be at least one returned by \ref wget_hpkp_get_n_pins "wget_hpkp_get_n_pins()".
  */
 void wget_hpkp_get_pins_b64(wget_hpkp_t *hpkp, const char **pin_types, const char **pins_b64)
 {
@@ -272,7 +272,7 @@ void wget_hpkp_get_pins_b64(wget_hpkp_t *hpkp, const char **pin_types, const cha
  *
  * Gets all the public key hashes added to the given HPKP database entry.
  *
- * The size of the arrays used must be atleast one returned by \ref wget_hpkp_get_n_pins "wget_hpkp_get_n_pins()".
+ * The size of the arrays used must be at least one returned by \ref wget_hpkp_get_n_pins "wget_hpkp_get_n_pins()".
  */
 void wget_hpkp_get_pins(wget_hpkp_t *hpkp, const char **pin_types, size_t *sizes, const void **pins)
 {
@@ -351,7 +351,7 @@ void wget_hpkp_db_deinit(wget_hpkp_db_t *hpkp_db)
  * Closes and frees the HPKP database. A double pointer is required because this function will
  * set the handle (pointer) to the HPKP database to NULL to prevent potential use-after-free conditions.
  *
- * Newly added entries will be lost unless commited to persistent storage using wget_hsts_db_save().
+ * Newly added entries will be lost unless committed to persistent storage using wget_hsts_db_save().
  *
  * If \p hpkp_db or the pointer it points to is NULL then this function does nothing.
  */
@@ -403,9 +403,8 @@ static int impl_hpkp_db_check_pubkey(wget_hpkp_db_t *hpkp_db, const char *host, 
 			domain++;
 
 		key.host = domain;
-		hpkp = wget_hashmap_get(hpkp_db_priv->entries, &key);
 
-		if (!hpkp)
+		if (!wget_hashmap_get(hpkp_db_priv->entries, &key, &hpkp))
 			subdomain = 1;
 	}
 
@@ -459,9 +458,9 @@ static void impl_hpkp_db_add(wget_hpkp_db_t *hpkp_db, wget_hpkp_t *hpkp)
 			debug_printf("removed HPKP %s\n", hpkp->host);
 		wget_hpkp_free(hpkp);
 	} else {
-		wget_hpkp_t *old = wget_hashmap_get(hpkp_db_priv->entries, hpkp);
+		wget_hpkp_t *old;
 
-		if (old) {
+		if (wget_hashmap_get(hpkp_db_priv->entries, hpkp, &old)) {
 			old->created = hpkp->created;
 			old->maxage = hpkp->maxage;
 			old->expires = hpkp->expires;

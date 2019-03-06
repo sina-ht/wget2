@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -38,6 +38,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <c-ctype.h>
 
 #include <wget.h>
 #include "../libwget/private.h"
@@ -1830,7 +1831,8 @@ static unsigned int hash_txt(G_GNUC_WGET_UNUSED const char *key)
 static void test_stringmap(void)
 {
 	wget_stringmap_t *m;
-	char key[128], value[128], *val;
+	wget_stringmap_iterator_t *iter;
+	char key[128], value[128], *val, *skey;
 	int run, it;
 	size_t valuesize;
 
@@ -1858,11 +1860,27 @@ static void test_stringmap(void)
 			info_printf("stringmap_size() returned %d (expected %d)\n", it, 26);
 		} else ok++;
 
+		iter = wget_stringmap_iterator_alloc(m);
+		for (it = 0; (skey = wget_stringmap_iterator_next(iter, &val)); it++) {
+			int x = atoi(skey + 30), y = atoi(val);
+
+			if (!(c_isdigit(*val) && x >= 0 && x == y)) {
+				failed++;
+				info_printf("key/value don't match (%s | %s)\n", key, val);
+			} else ok++;
+		}
+		wget_stringmap_iterator_free(&iter);
+
+		if (it != wget_stringmap_size(m)) {
+			failed++;
+			info_printf("stringmap iterator just found %d items (expected %d)\n", it, wget_stringmap_size(m));
+		} else ok++;
+
 		// now, look up every single entry
 		for (it = 0; it < 26; it++) {
 			snprintf(key, sizeof(key), "http://www.example.com/subdir/%d.html", it);
 			snprintf(value, sizeof(value), "%d.html", it);
-			if (!(val = wget_stringmap_get(m, key))) {
+			if (!wget_stringmap_get(m, key, &val)) {
 				failed++;
 				info_printf("stringmap_get(%s) didn't find entry\n", key);
 			} else if (strcmp(val, value)) {

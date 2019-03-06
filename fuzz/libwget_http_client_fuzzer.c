@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2017-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2017-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -70,7 +70,11 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
 	return libc_getaddrinfo(node, service, hints, res);
 }
 
+#ifdef __OpenBSD__
+int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host, size_t hostlen, char *serv, size_t servlen, int flags)
+#else
 int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags)
+#endif
 {
 	if (fuzzing)
 		return -1;

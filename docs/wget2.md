@@ -524,7 +524,7 @@ Go to background immediately after startup. If no output file is specified via t
   With `--progress=bar`, there are currently two possible parameters, `force` and `noscroll`.
 
   When the output is not a TTY, the progress bar always falls back to "dot", even if `--progress=bar` was passed to
-  Wget2 during invokation. This behaviour can be overridden and the "bar" output forced by using the "force"
+  Wget2 during invocation. This behaviour can be overridden and the "bar" output forced by using the "force"
   parameter as `--progress=bar:force`.
 
   By default, the bar style progress bar scroll the name of the file from left to right for the file being
@@ -545,7 +545,7 @@ Go to background immediately after startup. If no output file is specified via t
   a desired a property when invoking Wget2 to download several small/large files.  In such a case, Wget2 could simply
   be invoked with this parameter to get a much cleaner output on the screen.
 
-  This option will also force the progress bar to be printed to stderr when used alongside the --logfile option.
+  This option will also force the progress bar to be printed to stderr when used alongside the `--output-file` option.
 
 ### `-N`, `--timestamping`
 
@@ -663,7 +663,7 @@ Go to background immediately after startup. If no output file is specified via t
   don't use proxies, even if the appropriate *_proxy environment variable is defined.
 
   If a comma-separated list of exceptions (domains/IPs) is given, these exceptions are accessed without
-  usign a proxy. It overrides the 'no_proxy' environment variable.
+  using a proxy. It overrides the 'no_proxy' environment variable.
 
 ### `-Q quota`, `--quota=quota`
 
@@ -766,7 +766,7 @@ Go to background immediately after startup. If no output file is specified via t
   This allows to save domain name lookup time, which is a bottleneck in some use cases.
   Also, the use of HOSTALIASES (which is not portable) can be mimiced by this option.
 
-# `--dns-cache`
+### `--dns-cache`
 
   Enable DNS caching (default: on).
 
@@ -927,7 +927,7 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `--fsync-policy`
 
-  Enables disk synching after each write (default: off).
+  Enables disk syncing after each write (default: off).
 
 ### `--http2-request-window=number`
 
@@ -1071,9 +1071,9 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `--no-cache`
 
-  Disable server-side cache.  In this case, Wget2 will send the remote server an appropriate directive (Pragma: no-
-  cache) to get the file from the remote service, rather than returning the cached version.  This is especially
-  useful for retrieving and flushing out-of-date documents on proxy servers.
+  Disable server-side cache.  In this case, Wget2 will send the remote server appropriate directives (Cache-Control: no-
+  cache and Pragma: no-cache) to get the file from the remote service, rather than returning the cached version.  This is
+  especially useful for retrieving and flushing out-of-date documents on proxy servers.
 
   Caching is allowed by default.
 
@@ -1495,7 +1495,7 @@ Go to background immediately after startup. If no output file is specified via t
   database.
 
   If you supply your own HSTS database via --hsts-file, be aware that Wget2 may modify the provided file if any
-  change occurs between the HSTS policies requested by the remote servers and those in the file. When Wget2 exists,
+  change occurs between the HSTS policies requested by the remote servers and those in the file. When Wget2 exits,
   it effectively updates the HSTS database by rewriting the database file with the new entries.
 
   If the supplied file does not exist, Wget2 will create one. This file will contain the new HSTS entries. If no
@@ -1507,7 +1507,7 @@ Go to background immediately after startup. If no output file is specified via t
   database. Before dumping the updated HSTS entries on the file, Wget2 will re-read it and merge the changes.
 
   Using a custom HSTS database and/or modifying an existing one is discouraged.  For more information about the
-  potential security threats arised from such practice, see section 14 "Security Considerations" of RFC 6797,
+  potential security threats arose from such practice, see section 14 "Security Considerations" of RFC 6797,
   specially section 14.9 "Creative Manipulation of HSTS Policy Store".
 
 ### `--hsts-preload`
@@ -1964,7 +1964,7 @@ Go to background immediately after startup. If no output file is specified via t
   Note: please make sure to remove any potentially sensitive information from the debug log before sending it to
   the bug address.  The `-d` won't go out of its way to collect sensitive information, but the log will contain a
   fairly complete transcript of Wget2's communication with the server, which may include passwords and pieces of
-  downloaded data.  Since the bug address is publically archived, you may assume that all bug reports are visible
+  downloaded data.  Since the bug address is publicly archived, you may assume that all bug reports are visible
   to the public.
 
   4.  If Wget2 has crashed, try to run it in a debugger, e.g. ```gdb `which wget` core``` and type "where" to get the
@@ -1988,7 +1988,7 @@ Go to background immediately after startup. If no output file is specified via t
 
   Copyright (C) 2012-2015 Tim Rühsen
 
-  Copyright (C) 2015-2018 Free Software Foundation, Inc.
+  Copyright (C) 2015-2019 Free Software Foundation, Inc.
 
   Permission is granted to copy, distribute and/or modify this document under the terms of the GNU Free Documentation
   License, Version 1.3 or any later version published by the Free Software Foundation; with no Invariant Sections, with

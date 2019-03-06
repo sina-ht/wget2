@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012-2014 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -123,7 +123,7 @@ typedef struct {
 static _statistics_t stats;
 
 static int G_GNUC_WGET_NONNULL((1)) _prepare_file(wget_http_response_t *resp, const char *fname, int flag,
-		const char *uri, const char *original_url, int ignore_patterns, wget_buffer_t *partial_content,
+		wget_iri_t *uri, wget_iri_t *original_url, int ignore_patterns, wget_buffer_t *partial_content,
 		size_t max_partial_content, char **actual_file_name, const char *path);
 
 static void
@@ -146,7 +146,7 @@ static int
 	read_xattr_metadata(const char *name, char *value, size_t size, int fd),
 	write_xattr_metadata(const char *name, const char *value, int fd),
 	write_xattr_last_modified(time_t last_modified, int fd),
-	set_file_metadata(const char *origin_url, const char *referrer_url, const char *mime_type, const char *charset, time_t last_modified, FILE *fp),
+	set_file_metadata(wget_iri_t *origin_url, wget_iri_t *referrer_url, const char *mime_type, const char *charset, time_t last_modified, FILE *fp),
 	http_send_request(wget_iri_t *iri, wget_iri_t *original_url, DOWNLOADER *downloader);
 wget_http_response_t
 	*http_receive_response(wget_http_connection_t *conn);
@@ -695,16 +695,6 @@ static void add_url_to_queue(const char *url, wget_iri_t *base, const char *enco
 		return;
 	}
 
-	if (!iri->path || !*iri->path) {
-		if (iri->path_allocated) {
-			xfree(iri->path);
-			iri->path_allocated=0;
-		}
-		iri->path = config.default_page;
-	}
-
-	wget_debug_printf(_("Adding URL: %s path=%s\n"), url, iri->path);
-
 	// Allow plugins to intercept URLs
 	plugin_db_forward_url(iri, &plugin_verdict);
 	if (plugin_verdict.reject) {
@@ -857,14 +847,6 @@ static void add_url(JOB *job, const char *encoding, const char *url, int flags)
 	if (!iri) {
 		error_printf(_("Cannot resolve URI '%s'\n"), url);
 		return;
-	}
-
-	if (!iri->path || !*iri->path) {
-		if (iri->path_allocated) {
-			xfree(iri->path);
-			iri->path_allocated=0;
-		}
-		iri->path = config.default_page;
 	}
 
 	// Allow plugins to intercept URL
@@ -3043,7 +3025,7 @@ static bool check_mime_list(wget_vector_t *list, const char *mime)
 }
 
 static int G_GNUC_WGET_NONNULL((1)) _prepare_file(wget_http_response_t *resp, const char *fname, int flag,
-		const char *uri, const char *original_url, int ignore_patterns, wget_buffer_t *partial_content,
+		wget_iri_t *uri, wget_iri_t *original_url, int ignore_patterns, wget_buffer_t *partial_content,
 		size_t max_partial_content, char **actual_file_name, const char *path)
 {
 	char *alloced_fname = NULL;
@@ -3213,20 +3195,20 @@ static int G_GNUC_WGET_NONNULL((1)) _prepare_file(wget_http_response_t *resp, co
 				rc = safe_read(fd, partial_content->data, size);
 				if (rc == SAFE_READ_ERROR || (long long) rc != size) {
 					error_printf(_("Failed to load partial content from '%s' (errno=%d): %s\n"),
-							fname, errno, strerror(errno));
+						fname, errno, strerror(errno));
 					set_exit_status(WG_EXIT_STATUS_IO);
 				}
 				close(fd);
 			} else {
 				error_printf(_("Failed to load partial content from '%s' (errno=%d): %s\n"),
-						fname, errno, strerror(errno));
+					fname, errno, strerror(errno));
 				set_exit_status(WG_EXIT_STATUS_IO);
 			}
 		}
 	}
 
 	fd = _open_unique(fname, O_WRONLY | flag | O_CREAT | O_NONBLOCK | O_BINARY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH,
-			multiple, unique, sizeof(unique));
+		multiple, unique, sizeof(unique));
 	// debug_printf("1 fd=%d flag=%02x (%02x %02x %02x) errno=%d %s\n",fd,flag,O_EXCL,O_TRUNC,O_APPEND,errno,fname);
 	// Store the "actual" file name (with any extensions that were added present)
 	wget_asprintf(actual_file_name, "%s", unique[0] ? unique : fname);
@@ -3234,11 +3216,11 @@ static int G_GNUC_WGET_NONNULL((1)) _prepare_file(wget_http_response_t *resp, co
 	if (fd >= 0) {
 		ssize_t rc;
 
-		info_printf(_("Saving '%s'\n"), unique[0] ? unique : fname);
+		info_printf(_("Saving '%s'\n"), *actual_file_name);
 
 		if (config.save_headers) {
 			if ((rc = write(fd, resp->header->data, resp->header->length)) != (ssize_t)resp->header->length) {
-				error_printf(_("Failed to write file %s (%zd, errno=%d)\n"), unique[0] ? unique : fname, rc, errno);
+				error_printf(_("Failed to write file %s (%zd, errno=%d)\n"), *actual_file_name, rc, errno);
 				set_exit_status(WG_EXIT_STATUS_IO);
 			}
 		}
@@ -3258,12 +3240,11 @@ static int G_GNUC_WGET_NONNULL((1)) _prepare_file(wget_http_response_t *resp, co
 
 	if (config.xattr) {
 		FILE *fp;
-		fname = unique[0] ? unique : fname;
-		if ((fp = fopen(fname, "ab"))) {
+		if ((fp = fopen(*actual_file_name, "ab"))) {
 			set_file_metadata(uri, original_url, resp->content_type, resp->content_type_encoding, resp->last_modified ? resp->last_modified - 1 : 0, fp);
 			fclose(fp);
 		} else {
-			error_printf(_("Failed to save extended attribute %s\n"), fname);
+			error_printf(_("Failed to save extended attribute %s\n"), *actual_file_name);
 			set_exit_status(WG_EXIT_STATUS_IO);
 		}
 	}
@@ -3337,8 +3318,8 @@ static int _get_header(wget_http_response_t *resp, void *context)
 
 		ctx->outfd = _prepare_file(resp, dest,
 			resp->code == 206 ? O_APPEND : O_TRUNC,
-			ctx->job->iri->uri,
-			ctx->job->original_url->uri,
+			ctx->job->iri,
+			ctx->job->original_url,
 			ctx->job->ignore_patterns,
 			resp->code == 206 ? ctx->body : NULL,
 			ctx->max_memory,
@@ -3879,7 +3860,7 @@ static int write_xattr_last_modified(time_t last_modified, int fd)
 #endif /* USE_XATTR */
 
 /* Store metadata name/value attributes against fp. */
-static int set_file_metadata(const char *origin_url, const char *referrer_url,
+static int set_file_metadata(wget_iri_t *origin_iri, wget_iri_t *referrer_iri,
 					  const char *mime_type, const char *charset,
 					  time_t last_modified, FILE *fp)
 {
@@ -3892,18 +3873,29 @@ static int set_file_metadata(const char *origin_url, const char *referrer_url,
 	 * [http://freedesktop.org/wiki/CommonExtendedAttributes] and
 	 * [http://0pointer.de/lennart/projects/mod_mime_xattr/].
 	 */
-	if (!origin_url || !fp)
+	if (!origin_iri || !fp)
 		return -1;
 
 	if ((fd = fileno(fp)) < 0)
 		return -1;
 
-	if (write_xattr_metadata("user.xdg.origin.url", origin_url, fd) < 0 && errno == ENOTSUP)
+	if (write_xattr_metadata("user.mime_type", mime_type, fd) < 0 && errno == ENOTSUP)
 		return -1; // give up early if file system doesn't support extended attributes
 
-	write_xattr_metadata("user.xdg.referrer.url", referrer_url, fd);
-	write_xattr_metadata("user.mime_type", mime_type, fd);
 	write_xattr_metadata("user.charset", charset, fd);
+
+	char sbuf[256];
+	wget_buffer_t buf;
+	wget_buffer_init(&buf, sbuf, sizeof(sbuf));
+
+	wget_buffer_printf(&buf, "%s/", wget_iri_get_connection_part(origin_iri));
+	wget_iri_get_escaped_resource(origin_iri, &buf);
+
+	write_xattr_metadata("user.xdg.origin.url", buf.data, fd);
+
+	wget_buffer_deinit(&buf);
+
+	write_xattr_metadata("user.xdg.referrer.url", wget_iri_get_connection_part(referrer_iri), fd);
 
 	return write_xattr_last_modified(last_modified, fd);
 }

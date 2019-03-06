@@ -1,6 +1,6 @@
 /*
  * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2018 Free Software Foundation, Inc.
+ * Copyright(c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -57,14 +57,23 @@ struct _wget_hashmap_st {
 	wget_hashmap_value_destructor_t
 		value_destructor; // value destructor function
 	_entry_t
-		**entry; // pointer to array of pointers to entries
+		**entry;   // pointer to array of pointers to entries
 	int
-		max,     // allocated entries
-		cur,     // number of entries in use
-		off,     // resize strategy: >0: resize = max + off, <0: resize = -off * max
+		max,       // allocated entries
+		cur,       // number of entries in use
 		threshold; // resize when max reaches threshold
 	float
-		factor;
+		resize_factor, // resize strategy: >0: resize = off * max, <0: resize = max + (-off)
+		load_factor;
+};
+
+struct _wget_hashmap_iterator_st {
+	struct _wget_hashmap_st
+		*h;
+	_entry_t
+		*entry;
+	int
+		pos;
 };
 
 /**
@@ -75,6 +84,70 @@ struct _wget_hashmap_st {
  *
  * Hashmaps are key/value stores that perform at O(1) for insertion, searching and removing.
  */
+
+/**
+ * \param[in] h Hashmap
+ * \return New iterator instance for \p h
+ *
+ * Creates a hashmap iterator for \p.
+ */
+wget_hashmap_iterator_t *wget_hashmap_iterator_alloc(wget_hashmap_t *h)
+{
+	struct _wget_hashmap_iterator_st *iter = wget_calloc(1, sizeof(struct _wget_hashmap_iterator_st));
+
+	iter->h = h;
+
+	return (wget_hashmap_iterator_t *) iter;
+}
+
+/**
+ * \param[in] iter Hashmap iterator
+ *
+ * Free the given iterator \p iter.
+ */
+void wget_hashmap_iterator_free(wget_hashmap_iterator_t **iter)
+{
+	if (iter)
+		xfree(*iter);
+}
+
+/**
+ * \param[in] iter Hashmap iterator
+ * \param[out] value Pointer to the value belonging to the returned key
+ * \return Pointer to the key or NULL if no more elements left
+ *
+ * Returns the next key / value in the hashmap. If all key/value pairs have been
+ * iterated over the function returns NULL and \p value is untouched.
+ *
+ * When iterating over a hashmap, the order of returned key/value pairs is not defined.
+ */
+void *wget_hashmap_iterator_next(wget_hashmap_iterator_t *iter, void **value)
+{
+	struct _wget_hashmap_iterator_st *_iter = (struct _wget_hashmap_iterator_st *) iter;
+	struct _wget_hashmap_st	*h = _iter->h;
+
+	if (_iter->entry) {
+		if ((_iter->entry = _iter->entry->next)) {
+found:
+			if (value)
+				*value = _iter->entry->value;
+			return _iter->entry->key;
+		}
+
+		_iter->pos++;
+	}
+
+	if (!_iter->entry) {
+		for (; _iter->pos < h->max; _iter->pos++) {
+			if (h->entry[_iter->pos]) {
+				_iter->entry = h->entry[_iter->pos];
+				goto found;
+			}
+		}
+	}
+
+	return NULL;
+}
 
 /**
  * \param[in] max Initial number of pre-allocated entries
@@ -97,21 +170,21 @@ wget_hashmap_t *wget_hashmap_create(int max, wget_hashmap_hash_t hash, wget_hash
 	h->entry = xcalloc(max, sizeof(_entry_t *));
 	h->max = max;
 	h->cur = 0;
-	h->off = -2;
+	h->resize_factor = 2;
 	h->hash = hash;
 	h->cmp = cmp;
 	h->key_destructor = free;
 	h->value_destructor = free;
-	h->factor = 0.75;
-	h->threshold = (int)(max * h->factor);
+	h->load_factor = 0.75;
+	h->threshold = (int)(max * h->load_factor);
 
 	return h;
 }
 
 G_GNUC_WGET_NONNULL_ALL
-static _entry_t * hashmap_find_entry(const wget_hashmap_t *h, const char *key, unsigned int hash, int pos)
+static _entry_t * hashmap_find_entry(const wget_hashmap_t *h, const char *key, unsigned int hash)
 {
-	for (_entry_t * e = h->entry[pos]; e; e = e->next) {
+	for (_entry_t * e = h->entry[hash % h->max]; e; e = e->next) {
 		if (hash == e->hash && (key == e->key || !h->cmp(key, e->key))) {
 			return e;
 		}
@@ -148,7 +221,7 @@ static void hashmap_rehash(wget_hashmap_t *h, int newmax, int recalc_hash)
 		xfree(h->entry);
 		h->entry = new_entry;
 		h->max = newmax;
-		h->threshold = (int)(newmax * h->factor);
+		h->threshold = (int)(newmax * h->load_factor);
 	}
 }
 
@@ -166,13 +239,10 @@ static void hashmap_new_entry(wget_hashmap_t *h, unsigned int hash, const char *
 	h->entry[pos] = entry;
 
 	if (++h->cur >= h->threshold) {
-		if (h->off > 0) {
-			hashmap_rehash(h, h->max + h->off, 0);
-		} else if (h->off<-1) {
-			hashmap_rehash(h, h->max * -h->off, 0);
-		} else {
-			// no resizing occurs
-		}
+		int newsize = (int) (h->max * h->resize_factor);
+
+		if (newsize > 0)
+			hashmap_rehash(h, newsize, 0);
 	}
 }
 
@@ -198,9 +268,8 @@ int wget_hashmap_put_noalloc(wget_hashmap_t *h, const void *key, const void *val
 	if (h && key) {
 		_entry_t *entry;
 		unsigned int hash = h->hash(key);
-		int pos = hash % h->max;
 
-		if ((entry = hashmap_find_entry(h, key, hash, pos))) {
+		if ((entry = hashmap_find_entry(h, key, hash))) {
 			if (entry->key != key && entry->key != value) {
 				if (h->key_destructor)
 					h->key_destructor(entry->key);
@@ -249,9 +318,8 @@ int wget_hashmap_put(wget_hashmap_t *h, const void *key, size_t keysize, const v
 	if (h && key) {
 		_entry_t *entry;
 		unsigned int hash = h->hash(key);
-		int pos = hash % h->max;
 
-		if ((entry = hashmap_find_entry(h, key, hash, pos))) {
+		if ((entry = hashmap_find_entry(h, key, hash))) {
 			if (h->value_destructor)
 				h->value_destructor(entry->value);
 
@@ -270,64 +338,39 @@ int wget_hashmap_put(wget_hashmap_t *h, const void *key, size_t keysize, const v
 /**
  * \param[in] h Hashmap
  * \param[in] key Key to search for
- * \param[out] value Value to be returned
- * \return 1 if \p key has been found, 0 if not found
- *
- * Get the value for a given key.
- *
- * If there are %NULL values in the hashmap, you should use this function
- * to distinguish between 'not found' and 'found %NULL value'.
- *
- * Neither \p h nor \p key must be %NULL.
- */
-int wget_hashmap_get_null(const wget_hashmap_t *h, const void *key, void **value)
-{
-	if (h && key) {
-		_entry_t *entry;
-		unsigned int hash = h->hash(key);
-		int pos = hash % h->max;
-
-		if ((entry = hashmap_find_entry(h, key, hash, pos))) {
-			if (value) *value = entry->value;
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
-/**
- * \param[in] h Hashmap
- * \param[in] key Key to search for
- * \return Found value or %NULL if not found
- *
- * Get the value for a given key.
- *
- * If there are %NULL values in the hashmap, you should use wget_hashmap_get_null()
- * to distinguish between 'not found' and 'found %NULL value'.
- *
- * Neither \p h nor \p key must be %NULL.
- */
-void *wget_hashmap_get(const wget_hashmap_t *h, const void *key)
-{
-	void *value;
-
-	if (wget_hashmap_get_null(h, key, &value))
-		return value;
-
-	return NULL;
-}
-
-/**
- * \param[in] h Hashmap
- * \param[in] key Key to search for
  * \return 1 if \p key has been found, 0 if not found
  *
  * Check if \p key exists in \p h.
  */
 int wget_hashmap_contains(const wget_hashmap_t *h, const void *key)
 {
-	return wget_hashmap_get_null(h, key, NULL);
+	return wget_hashmap_get(h, key, NULL);
+}
+
+/**
+ * \param[in] h Hashmap
+ * \param[in] key Key to search for
+ * \param[out] value Value to be returned
+ * \return 1 if \p key has been found, 0 if not found
+ *
+ * Get the value for a given key.
+ *
+ * Neither \p h nor \p key must be %NULL.
+ */
+#undef wget_hashmap_get
+int wget_hashmap_get(const wget_hashmap_t *h, const void *key, void **value)
+{
+	if (h && key) {
+		_entry_t *entry;
+
+		if ((entry = hashmap_find_entry(h, key, h->hash(key)))) {
+			if (value)
+				*value = entry->value;
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 G_GNUC_WGET_NONNULL_ALL
@@ -567,29 +610,31 @@ void wget_hashmap_set_value_destructor(wget_hashmap_t *h, wget_hashmap_value_des
  *
  * Default is 0.75.
  */
-void wget_hashmap_setloadfactor(wget_hashmap_t *h, float factor)
+void wget_hashmap_set_load_factor(wget_hashmap_t *h, float factor)
 {
 	if (h) {
-		h->factor = factor;
-		h->threshold = (int)(h->max * h->factor);
+		h->load_factor = factor;
+		h->threshold = (int)(h->max * h->load_factor);
 		// rehashing occurs earliest on next put()
 	}
 }
 
 /**
  * \param[in] h Hashmap
- * \param[in] off Hashmap growth mode:
- *   positive values: increase size by \p off entries on each resize
- *   negative values: increase size by multiplying \p -off, e.g. -2 doubles the size on each resize
+ * \param[in] factor Hashmap growth factor
  *
- * Set the growth policy for internal memory.
+ * Set the factor for resizing the hashmap when it's load factor is reached.
  *
- * Default is -2.
+ * The new size is 'factor * oldsize'. If the new size is less or equal 0,
+ * the involved put function will do nothing and the internal state of
+ * the hashmap will not change.
+ *
+ * Default is 2.
  */
-void wget_hashmap_set_growth_policy(wget_hashmap_t *h, int off)
+void wget_hashmap_set_resize_factor(wget_hashmap_t *h, float factor)
 {
 	if (h)
-		h->off = off;
+		h->resize_factor = factor;
 }
 
 /**@}*/
