@@ -79,17 +79,19 @@
 #include "wget_plugin.h"
 #include "wget_stats.h"
 #include "wget_testing.h"
+#include "wget_utils.h"
 
 #ifdef WITH_GPGME
 #  include "wget_gpgme.h"
 #endif
 
 // flags for add_url()
-#define URL_FLG_REDIRECTION   (1<<0)
-#define URL_FLG_SITEMAP       (1<<1)
-#define URL_FLG_SKIPFALLBACK  (1<<2)
-#define URL_FLG_REQUISITE     (1<<3)
-#define URL_FLG_SIGNATURE_REQ (1<<4)
+#define URL_FLG_REDIRECTION     (1<<0)
+#define URL_FLG_SITEMAP         (1<<1)
+#define URL_FLG_SKIPFALLBACK    (1<<2)
+#define URL_FLG_REQUISITE       (1<<3)
+#define URL_FLG_SIGNATURE_REQ   (1<<4)
+#define URL_FLG_NO_BLACKLISTING (1<<5)
 
 #define _CONTENT_TYPE_HTML 1
 typedef struct {
@@ -171,59 +173,6 @@ static volatile bool
 	terminate;
 static int
 	nthreads;
-
-// this function should be called protected by a mutex - else race conditions will happen
-static void mkdir_path(char *fname)
-{
-	char *p1, *p2;
-	int rc;
-
-	for (p1 = fname + 1; *p1 && (p2 = strchr(p1, '/')); p1 = p2 + 1) {
-		*p2 = 0; // replace path separator
-
-		// relative paths should have been normalized earlier,
-		// but for security reasons, don't trust myself...
-		if (*p1 == '.' && p1[1] == '.')
-			error_printf_exit(_("Internal error: Unexpected relative path: '%s'\n"), fname);
-
-		rc = mkdir(fname, 0755);
-
-		debug_printf("mkdir(%s)=%d errno=%d\n",fname,rc,errno);
-		if (rc) {
-			struct stat st;
-
-			if (errno == EEXIST && stat(fname, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG) {
-				// we have a file in the way... move it away and retry
-				int renamed = 0;
-
-				for (int fnum = 1; fnum <= 999 && !renamed; fnum++) {
-					char dst[strlen(fname) + 1 + 32];
-
-					wget_snprintf(dst, sizeof(dst), "%s.%d", fname, fnum);
-					if (access(dst, F_OK) != 0 && rename(fname, dst) == 0)
-						renamed = 1;
-				}
-
-				if (renamed) {
-					rc = mkdir(fname, 0755);
-
-					if (rc) {
-						error_printf(_("Failed to make directory '%s' (errno=%d)\n"), fname, errno);
-						*p2 = '/'; // restore path separator
-						break;
-					}
-				} else
-					error_printf(_("Failed to rename '%s' (errno=%d)\n"), fname, errno);
-			} else if (errno != EEXIST) {
-				error_printf(_("Failed to make directory '%s' (errno=%d)\n"), fname, errno);
-				*p2 = '/'; // restore path separator
-				break;
-			}
-		} else debug_printf("created dir %s\n", fname);
-
-		*p2 = '/'; // restore path separator
-	}
-}
 
 // generate the local filename corresponding to an URI
 // respect the following options:
@@ -680,7 +629,7 @@ static int regex_match(const char *string, const char *pattern)
 
 // Add URLs given by user (command line, file or -i option).
 // Needs to be thread-save.
-static void add_url_to_queue(const char *url, wget_iri_t *base, const char *encoding)
+static void add_url_to_queue(const char *url, wget_iri_t *base, const char *encoding, int flags)
 {
 	wget_iri_t *iri;
 	JOB *new_job = NULL, job_buf;
@@ -724,10 +673,12 @@ static void add_url_to_queue(const char *url, wget_iri_t *base, const char *enco
 	}
 
 	if (!blacklist_add(iri)) {
-		// we know this URL already
-		wget_thread_mutex_unlock(downloader_mutex);
-		plugin_db_forward_url_verdict_free(&plugin_verdict);
-		return;
+		if (!(flags & URL_FLG_NO_BLACKLISTING)) {
+			// we know this URL already
+			wget_thread_mutex_unlock(downloader_mutex);
+			plugin_db_forward_url_verdict_free(&plugin_verdict);
+			return;
+		}
 	}
 
 	// only download content from hosts given on the command line or from input file
@@ -1240,7 +1191,7 @@ int main(int argc, const char **argv)
 	set_exit_status(WG_EXIT_STATUS_NO_ERROR);
 
 	for (; n < argc; n++) {
-		add_url_to_queue(argv[n], config.base, config.local_encoding);
+		add_url_to_queue(argv[n], config.base, config.local_encoding, 0);
 	}
 
 	if (config.input_file) {
@@ -1284,7 +1235,7 @@ int main(int argc, const char **argv)
 					// debug_printf("len=%zd url=%s\n", len, buf);
 
 					url[len] = 0;
-					add_url_to_queue(buf, config.base, config.input_encoding);
+					add_url_to_queue(buf, config.base, config.input_encoding, 0);
 				}
 				xfree(buf);
 			} else {
@@ -1308,7 +1259,7 @@ int main(int argc, const char **argv)
 					// debug_printf("len=%zd url=%s\n", len, buf);
 
 					url[len] = 0;
-					add_url_to_queue(url, config.base, config.input_encoding);
+					add_url_to_queue(url, config.base, config.input_encoding, 0);
 				}
 				xfree(buf);
 				close(fd);
@@ -1465,6 +1416,19 @@ int main(int argc, const char **argv)
 	return get_exit_status();
 }
 
+/*
+ * This thread reads IRIs/URIs asynchronously from STDIN.
+ *
+ *  Wget2 starts working immediately after the first input since we have to be ready
+ * for slow input (e.g. user typing or input from scripts with sleeps in between).
+ *
+ * We allow downloading of the same resource as often as a user likes to, so no
+ * blacklisting is done in add_url_to_queue(). This makes it possible to use interactive
+ * web services like a Tetris game by Igor Chubin:
+ *
+ * (b="http://te.ttr.is:8003"; echo $b; while read -sN1 a; do echo "$b/$a"; done) | wget2 --input-file=- -qO-
+ *   h,j,k,l = left, down, turn, right; ctrl-c = stop
+ */
 void *input_thread(void *p G_GNUC_WGET_UNUSED)
 {
 	ssize_t len;
@@ -1472,13 +1436,23 @@ void *input_thread(void *p G_GNUC_WGET_UNUSED)
 	char *buf = NULL;
 
 	while ((len = wget_fdgetline(&buf, &bufsize, STDIN_FILENO)) >= 0) {
-		add_url_to_queue(buf, config.base, config.local_encoding);
-		wget_thread_cond_signal(worker_cond);
+		add_url_to_queue(buf, config.base, config.local_encoding, URL_FLG_NO_BLACKLISTING);
+
+		if (nthreads < config.max_threads && nthreads < queue_size())
+			// wake up main thread to recalculate # of workers
+			wget_thread_cond_signal(main_cond);
+		else
+			// wake up all workers to check for
+			wget_thread_cond_signal(worker_cond);
 	}
 	xfree(buf);
 
 	// input closed, don't read from it any more
 	debug_printf("input closed\n");
+
+	// wake up main thread to take control (e.g. checking if we are done)
+	wget_thread_cond_signal(main_cond);
+
 	input_tid = 0;
 	return NULL;
 }
@@ -3177,7 +3151,7 @@ static int G_GNUC_WGET_NONNULL((1)) _prepare_file(wget_http_response_t *resp, co
 	}
 
 	// create the complete directory path
-	mkdir_path((char *) fname);
+	mkdir_path((char *) fname, true);
 
 	char unique[fname_length + 1];
 	*unique = 0;

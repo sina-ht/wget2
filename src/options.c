@@ -1116,6 +1116,7 @@ struct config config = {
 	.hsts = 1,
 	.hsts_preload = 1,
 	.hpkp = 1,
+	.system_config = SYSCONFDIR"wget2rc",
 
 #if defined WITH_LIBNGHTTP2
 	.http2 = 1,
@@ -1260,9 +1261,9 @@ static const struct optionw options[] = {
 		   "no-compression means no Accept-Encoding\n"
 		}
 	},
-	{ "config", &config.config_files, parse_filenames, 1, 0,
+	{ "config", &config.user_config, parse_filename, 1, 0,
 		SECTION_STARTUP,
-		{  "List of config files. (default: ~/.wget2rc)\n"
+		{  "Path to initialization file (default: ~/.config/wget/wget2rc)\n"
 		}
 	}, // for backward compatibility only
 	{ "connect-timeout", &config.connect_timeout, parse_timeout, 1, 0,
@@ -2580,14 +2581,15 @@ static int G_GNUC_WGET_NONNULL((1)) _read_config(const char *cfgfile, int expand
 	return ret;
 }
 
-static int read_config(void)
+static bool read_config(void)
 {
-	int ret = 0;
+	bool ret = true;
 
-	for (int it = 0; it < wget_vector_size(config.config_files) && ret == 0; it++) {
-		const char *cfgfile = wget_vector_get(config.config_files, it);
-		ret = _read_config(cfgfile, 1);
-	}
+	if (config.system_config)
+		ret = _read_config(config.system_config, 1);
+
+	if (config.user_config)
+		ret &= _read_config(config.user_config, 1);
 
 	return ret;
 }
@@ -2689,7 +2691,6 @@ static int _no_memory(void)
 
 
 // Return the user's home directory (strdup-ed), or NULL if none is found.
-// TODO: Read the XDG Base Directory variables first
 static char *get_home_dir(void)
 {
 	char *home;
@@ -2849,6 +2850,94 @@ static int _preload_dns_cache(const char *fname)
 	return 0;
 }
 
+static inline void G_GNUC_WGET_NONNULL_ALL get_config_files(const char *config_home, const char *user_home)
+{
+	const char *env;
+
+	// First add the Global Wget2rc file.
+	if ((env = getenv ("SYSTEM_WGET2RC")) && *env) {
+		config.system_config = wget_strdup(env);
+	} else {
+		if (config.system_config && access(config.system_config, R_OK) != 0)
+			config.system_config = NULL;
+	}
+
+	if ((env = getenv("WGET2RC")) && *env) {
+		// If the WGET2RC variable is set, then load that file
+		config.user_config = wget_strdup(env);
+	} else {
+		const char *path = wget_aprintf("%s/wget2rc", config_home);
+		if (access(path, R_OK) == 0)
+			config.user_config = wget_strdup(path);
+		else
+			xfree(path);
+	}
+
+	// XXX: This is a compatibility shim and should be removed by the next
+	// release.
+	if (!config.user_config) {
+		const char *path = wget_aprintf("%s/.wget2rc", user_home);
+		if (access(path, R_OK) == 0) {
+			config.user_config = wget_strdup(path);
+			error_printf(_("~/.wget2rc is deprecated. Please move it to %s/wget2rc\n"), config_home);
+		} else {
+			xfree(path);
+		}
+	}
+}
+
+static const char *get_xdg_data_home(const char *user_home)
+{
+	static const char *data_home = NULL;
+	const char *env;
+
+	if (data_home)
+		return data_home;
+
+#ifdef _WIN32
+	if ((env = getenv("LOCALAPPDATA")) && *env)
+		data_home = wget_aprintf("%s/wget", env);
+	else
+		data_home = wget_strdup(user_home);
+#else
+	if ((env = getenv("XDG_DATA_HOME")) && *env)
+		data_home = wget_aprintf("%s/wget", env);
+	else {
+		data_home = wget_aprintf("%s/.local/share/wget", user_home);
+	}
+#endif
+	mkdir_path(data_home, false);
+	return data_home;
+}
+
+static const char *get_xdg_config_home(const char *user_home)
+{
+	// According to the XDG Basedir Spec, configuration data goes into
+	// $XDG_CONFIG_HOME, or ~/.config. On Windows, the closest alternative is
+	// %LOCALAPPDATA%. We would like to store the Wget2 configuration files
+	// within a separate wget directory.
+	static const char *home_dir = NULL;
+	const char *env;
+
+	if (home_dir)
+		return home_dir;
+
+#ifdef _WIN32
+	if ((env = getenv("LOCALAPPDATA")) && *env)
+		home_dir = wget_aprintf("%s/wget", env);
+	else
+		home_dir = wget_strdup(user_home);
+	return home_dir;
+#endif
+
+	if ((env = getenv("XDG_CONFIG_HOME")) && *env)
+		home_dir = wget_aprintf("%s/wget", env);
+	else
+		home_dir = wget_aprintf("%s/.config/wget", user_home);
+
+	return home_dir;
+}
+
 // read config, parse CLI options, check values, set module options
 // and return the number of arguments consumed
 
@@ -2871,6 +2960,8 @@ int init(int argc, const char **argv)
 
 	// Initialize some configuration values which depend on the Runtime environment
 	char *home_dir = get_home_dir();
+	const char *xdg_config_home = get_xdg_config_home(home_dir);
+	const char *xdg_data_home = get_xdg_data_home(home_dir);
 
 	// We need these because the parse_string() method will attempt to free the
 	// value before setting a new one. Hence, these must be dynamically
@@ -2880,23 +2971,10 @@ int init(int argc, const char **argv)
 	config.ca_directory = wget_strdup(config.ca_directory);
 	config.default_page = wget_strdup(config.default_page);
 
-	// create list of default config file names
-	const char *env;
-	config.config_files = wget_vector_create(8, NULL);
-	if ((env = getenv ("SYSTEM_WGET2RC")) && *env)
-		wget_vector_add_str(config.config_files, env);
-	if ((env = getenv ("WGET2RC")) && *env)
-		wget_vector_add_str(config.config_files, env);
-	else {
-		// we don't want to complain about missing home .wget2rc
-		const char *cfgfile = wget_aprintf("%s/.wget2rc", home_dir);
-		if (access(cfgfile, R_OK) == 0)
-			wget_vector_insert_noalloc(config.config_files, cfgfile, 0);
-		else
-			xfree(cfgfile);
-	}
-
 	log_init();
+
+	get_config_files(xdg_config_home, home_dir);
+
 
 	// first processing, to respect options that might influence output
 	// while read_config() (e.g. -d, -q, -a, -o)
@@ -2920,16 +2998,16 @@ int init(int argc, const char **argv)
 	log_init();
 
 	if (config.hsts && !config.hsts_file)
-		config.hsts_file = wget_aprintf("%s/.wget-hsts", home_dir);
+		config.hsts_file = wget_aprintf("%s/.wget-hsts", xdg_data_home);
 
 	if (config.hpkp && !config.hpkp_file)
-		config.hpkp_file = wget_aprintf("%s/.wget-hpkp", home_dir);
+		config.hpkp_file = wget_aprintf("%s/.wget-hpkp", xdg_data_home);
 
 	if (config.tls_resume && !config.tls_session_file)
-		config.tls_session_file = wget_aprintf("%s/.wget-session", home_dir);
+		config.tls_session_file = wget_aprintf("%s/.wget-session", xdg_data_home);
 
 	if (config.ocsp && !config.ocsp_file)
-		config.ocsp_file = wget_aprintf("%s/.wget-ocsp", home_dir);
+		config.ocsp_file = wget_aprintf("%s/.wget-ocsp", xdg_data_home);
 
 	if (config.netrc && !config.netrc_file)
 		config.netrc_file = wget_aprintf("%s/.netrc", home_dir);
@@ -3316,6 +3394,8 @@ void deinit(void)
 	xfree(config.stats_server);
 	xfree(config.stats_site);
 	xfree(config.stats_tls);
+	xfree(config.user_config);
+	xfree(config.system_config);
 
 	wget_iri_free(&config.base);
 
@@ -3330,7 +3410,6 @@ void deinit(void)
 	wget_vector_free(&config.accept_patterns);
 	wget_vector_free(&config.reject_patterns);
 	wget_vector_free(&config.headers);
-	wget_vector_free(&config.config_files);
 	wget_vector_free(&config.default_challenges);
 	wget_vector_free(&config.compression);
 #ifdef WITH_GPGME
