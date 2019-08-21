@@ -6,14 +6,16 @@ lib/w32spawn.h
 lib/wait-process.c
 lib/xalloc-die.c
 libwget/cookie.c
+libwget/cookie_parse.c
 libwget/css.c
 libwget/css_url.c
 libwget/decompressor.c
+libwget/dns.c
 libwget/encoding.c
 libwget/error.c
 libwget/hash_printf.c
 libwget/hashfile.c
-libwget/hpkp.c
+libwget/hpkp_db.c
 libwget/hsts.c
 libwget/http.c
 libwget/http_highlevel.c
@@ -22,11 +24,11 @@ libwget/init.c
 libwget/io.c
 libwget/iri.c
 libwget/net.c
-libwget/netrc.c
 libwget/metalink.c
 libwget/ocsp.c
 libwget/pipe.c
 libwget/ssl_gnutls.c
+libwget/ssl_wolfssl.c
 libwget/tls_session.c
 libwget/xml.c
 src/bar.c
@@ -37,5 +39,4 @@ src/job.c
 src/options.c
 src/plugin.c
 src/utils.c
-src/stats.c
 src/wget.c

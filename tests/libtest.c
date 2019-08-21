@@ -41,9 +41,13 @@
 #include <sys/wait.h>
 
 #include <wget.h>
+#include "../src/wget_utils.h"
 #include "libtest.h"
 
 #include <microhttpd.h>
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+#  include <microhttpd_http2.h>
+#endif
 #ifndef HAVE_MHD_FREE
 #  define MHD_free wget_free
 #endif
@@ -59,12 +63,25 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+#ifdef HAVE_GNUTLS_OCSP_H
+#  include <gnutls/ocsp.h>
+#  include <gnutls/x509.h>
+#  include <gnutls/abstract.h>
+#endif
+
+#ifdef WITH_GNUTLS
+#  include <gnutls/gnutls.h>
+#  define file_load_err(fname, msg) wget_error_printf_exit("Couldn't load '%s' : %s\n", fname, msg)
+#endif
+
 static int
 	http_server_port,
 	https_server_port,
+	ocsp_server_port,
+	h2_server_port,
 	keep_tmpfiles,
 	reject_https_connection;
-static wget_vector_t
+static wget_vector
 	*request_urls;
 static wget_test_url_t
 	*urls;
@@ -75,14 +92,44 @@ static char
 static char
 	server_send_content_length = 1;
 
+#if MHD_VERSION >= 0x00096302 && GNUTLS_VERSION_NUMBER >= 0x030603
+static enum CHECK_POST_HANDSHAKE_AUTH {
+	CHECK_ENABLED,
+	CHECK_PASSED,
+	CHECK_FAILED
+} *post_handshake_auth;
+#endif
+
 // MHD_Daemon instance
 static struct MHD_Daemon
 	*httpdaemon,
-	*httpsdaemon;
+	*httpsdaemon,
+	*ocspdaemon,
+	*h2daemon;
+
+#ifdef HAVE_GNUTLS_OCSP_H
+static gnutls_pcert_st *pcrt;
+static gnutls_privkey_t *privkey;
+
+static struct ocsp_resp_t {
+	char
+		*data;
+	size_t
+		size;
+} *ocsp_resp;
+#endif
+
+#ifdef HAVE_GNUTLS_OCSP_H
+#if MHD_VERSION >= 0x00096502 && GNUTLS_VERSION_NUMBER >= 0x030603
+static gnutls_pcert_st *pcrt_stap;
+static gnutls_privkey_t *privkey_stap;
+static gnutls_ocsp_data_st *ocsp_stap_resp;
+#endif
+#endif
 
 // for passing URL query string
 struct query_string {
-	wget_buffer_t
+	wget_buffer
 		*params;
 	int
 		it;
@@ -94,24 +141,38 @@ static char
 
 enum SERVER_MODE {
 	HTTP_MODE,
-	HTTPS_MODE
+	HTTPS_MODE,
+	OCSP_MODE,
+	OCSP_STAP_MODE,
+	H2_MODE
 };
+
+static enum PASS {
+	HTTP_1_1_PASS,
+	H2_PASS,
+	END_PASS
+} proto_pass;
 
 static char *_scan_directory(const char* data)
 {
 	return strchr(data, '/');
 }
 
-static char *_parse_hostname(const char* data)
+
+static const char *_parse_hostname(const char* data)
 {
-	if (!wget_strncasecmp_ascii(data, "http://", 7)) {
-		return strchr(data += 7, '/');
+	if (data) {
+		if (!wget_strncasecmp_ascii(data, "http://", 7)) {
+			return strchr(data += 7, '/');
+		} else if (!wget_strncasecmp_ascii(data, "https://", 8)) {
+			return strchr(data += 8, '/');
+		}
 	}
 
-	return NULL;
+	return data;
 }
 
-static void _replace_space_with_plus(wget_buffer_t *buf, const char *data)
+static void _replace_space_with_plus(wget_buffer *buf, const char *data)
 {
 	for (; *data; data++)
 		wget_buffer_memcat(buf, *data == ' ' ? "+" : data, 1);
@@ -119,7 +180,7 @@ static void _replace_space_with_plus(wget_buffer_t *buf, const char *data)
 
 static int _print_query_string(
 	void *cls,
-	enum MHD_ValueKind kind G_GNUC_WGET_UNUSED,
+	enum MHD_ValueKind kind WGET_GCC_UNUSED,
 	const char *key,
 	const char *value)
 {
@@ -148,13 +209,13 @@ static int _print_query_string(
 
 static int _print_header_range(
 	void *cls,
-	enum MHD_ValueKind kind G_GNUC_WGET_UNUSED,
+	enum MHD_ValueKind kind WGET_GCC_UNUSED,
 	const char *key,
 	const char *value)
 {
-	wget_buffer_t *header_range = cls;
+	wget_buffer *header_range = cls;
 
-	if (!strcmp(key, MHD_HTTP_HEADER_RANGE)) {
+	if (!strcasecmp(key, MHD_HTTP_HEADER_RANGE)) {
 		wget_buffer_strcpy(header_range, key);
 		if (value) {
 			wget_buffer_strcat(header_range, value);
@@ -196,16 +257,114 @@ static void _free_callback_param(void *cls)
 	wget_free(cls);
 }
 
+#ifdef HAVE_GNUTLS_OCSP_H
+static int _ocsp_ahc(
+	void *cls WGET_GCC_UNUSED,
+	struct MHD_Connection *connection,
+	const char *url WGET_GCC_UNUSED,
+	const char *method WGET_GCC_UNUSED,
+	const char *version WGET_GCC_UNUSED,
+	const char *upload_data,
+	size_t *upload_data_size,
+	void **con_cls WGET_GCC_UNUSED)
+{
+	static bool first = true;
+
+	if (first && upload_data == NULL) {
+		first = false;
+
+		return MHD_YES;
+	} else if (!first && upload_data == NULL) {
+		int ret = 0;
+
+		if (ocsp_resp->data) {
+			struct MHD_Response *response = MHD_create_response_from_buffer (ocsp_resp->size, ocsp_resp->data, MHD_RESPMEM_MUST_COPY);
+
+			ret = MHD_queue_response (connection, MHD_HTTP_OK, response);
+
+			MHD_destroy_response (response);
+
+			wget_xfree(ocsp_resp->data);
+		}
+
+		return ret;
+	}
+
+	*upload_data_size = 0;
+
+	return MHD_YES;
+}
+
+static int _ocsp_cert_callback(
+	gnutls_session_t session WGET_GCC_UNUSED,
+	const gnutls_datum_t* req_ca_dn WGET_GCC_UNUSED,
+	int nreqs WGET_GCC_UNUSED,
+	const gnutls_pk_algorithm_t* pk_algos WGET_GCC_UNUSED,
+	int pk_algos_length WGET_GCC_UNUSED,
+	gnutls_pcert_st** pcert,
+	unsigned int *pcert_length,
+	gnutls_privkey_t *pkey)
+{
+	*pcert = pcrt;
+	*(pcert+1) = pcrt+1;
+	*pkey = *privkey;
+	*pcert_length = 2;
+
+	return 0;
+}
+
+#if MHD_VERSION >= 0x00096502 && GNUTLS_VERSION_NUMBER >= 0x030603
+static gnutls_certificate_retrieve_function3 _ocsp_stap_cert_callback;
+static int _ocsp_stap_cert_callback(
+	gnutls_session_t session WGET_GCC_UNUSED,
+	const struct gnutls_cert_retr_st *info WGET_GCC_UNUSED,
+	gnutls_pcert_st **pcert,
+	unsigned int *pcert_length,
+	gnutls_ocsp_data_st **ocsp,
+	unsigned int *ocsp_length,
+	gnutls_privkey_t *pkey,
+	unsigned int *flags WGET_GCC_UNUSED)
+{
+	*pcert = pcrt_stap;
+	*pkey = *privkey_stap;
+	*pcert_length = 1;
+
+	*ocsp = ocsp_stap_resp;
+	*ocsp_length = 1;
+
+	return 0;
+}
+#endif
+#endif
+
 static int _answer_to_connection(
-	void *cls G_GNUC_WGET_UNUSED,
+	void *cls WGET_GCC_UNUSED,
 	struct MHD_Connection *connection,
 	const char *url,
 	const char *method,
-	const char *version G_GNUC_WGET_UNUSED,
-	const char *upload_data G_GNUC_WGET_UNUSED,
-	size_t *upload_data_size G_GNUC_WGET_UNUSED,
-	void **con_cls G_GNUC_WGET_UNUSED)
+	const char *version WGET_GCC_UNUSED,
+	const char *upload_data WGET_GCC_UNUSED,
+	size_t *upload_data_size WGET_GCC_UNUSED,
+	void **con_cls WGET_GCC_UNUSED)
 {
+#if MHD_VERSION >= 0x00096302 && GNUTLS_VERSION_NUMBER >= 0x030603
+	if (post_handshake_auth != NULL) {
+		gnutls_session_t tls_sess;
+		const union MHD_ConnectionInfo *conn_info = MHD_get_connection_info (connection, MHD_CONNECTION_INFO_GNUTLS_SESSION);
+
+		if (conn_info) {
+			int check_auth;
+			tls_sess = conn_info->tls_session;
+			gnutls_certificate_server_set_request(tls_sess, GNUTLS_CERT_REQUEST);
+			do
+				check_auth = gnutls_reauth(tls_sess, 0);
+			while (check_auth == GNUTLS_E_AGAIN);
+
+			*post_handshake_auth = (check_auth == GNUTLS_E_SUCCESS) ? CHECK_PASSED : CHECK_FAILED;
+		}
+	}
+#endif
+
 	struct MHD_Response *response = NULL;
 	struct query_string query;
 	int ret = 0;
@@ -231,7 +390,7 @@ static int _answer_to_connection(
 		modified = wget_http_parse_full_date(modified_val);
 
 	// get header range
-	wget_buffer_t *header_range = wget_buffer_alloc(1024);
+	wget_buffer *header_range = wget_buffer_alloc(1024);
 	if (!strcmp(method, "GET"))
 		MHD_get_connection_values(connection, MHD_HEADER_KIND, &_print_header_range, header_range);
 
@@ -249,7 +408,7 @@ static int _answer_to_connection(
 	}
 
 	// append query string into URL
-	wget_buffer_t *url_full = wget_buffer_alloc(1024);
+	wget_buffer *url_full = wget_buffer_alloc(1024);
 	wget_buffer_strcpy(url_full, url);
 	if (query.params->data)
 		wget_buffer_strcat(url_full, query.params->data);
@@ -278,12 +437,11 @@ static int _answer_to_connection(
 			wget_buffer_strcat(url_full, "index.html");
 
 		// convert remote url into escaped char for iri encoding
-		wget_buffer_t *url_iri = wget_buffer_alloc(1024);
+		wget_buffer *url_iri = wget_buffer_alloc(1024);
 		wget_buffer_strcpy(url_iri, urls[it1].name);
 		MHD_http_unescape(url_iri->data);
 
-
-		if (!strcmp(url_full->data, url_iri->data)) {
+		if (!strcmp(_parse_hostname(url_full->data), _parse_hostname(url_iri->data))) {
 			size_t body_length =
 				urls[it1].body_len ? urls[it1].body_len
 				: (urls[it1].body ? strlen(urls[it1].body) : 0);
@@ -459,9 +617,9 @@ static int _answer_to_connection(
 					response = MHD_create_response_from_buffer(body_len,
 						(void *) (urls[it1].body + from_bytes), MHD_RESPMEM_MUST_COPY);
 					MHD_add_response_header(response, MHD_HTTP_HEADER_ACCEPT_RANGES, "bytes");
-					snprintf(content_range, sizeof(content_range), "%zd-%zd/%zu", from_bytes, to_bytes, body_len);
+					wget_snprintf(content_range, sizeof(content_range), "%zd-%zd/%zu", from_bytes, to_bytes, body_len);
 					MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_RANGE, content_range);
-					snprintf(content_len, sizeof(content_len), "%zu", body_len);
+					wget_snprintf(content_len, sizeof(content_len), "%zu", body_len);
 					MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_LENGTH, content_len);
 					ret = MHD_queue_response(connection, MHD_HTTP_PARTIAL_CONTENT, response);
 				}
@@ -499,7 +657,7 @@ static int _answer_to_connection(
 	wget_buffer_free(&url_full);
 	wget_buffer_free(&header_range);
 	char server_version[50];
-	snprintf(server_version, sizeof(server_version), "Libmicrohttpd/%08x", (unsigned int) MHD_VERSION);
+	wget_snprintf(server_version, sizeof(server_version), "Libmicrohttpd/%08x", (unsigned int) MHD_VERSION);
 	MHD_add_response_header(response, "Server", server_version);
 	MHD_destroy_response(response);
 	return ret;
@@ -509,15 +667,26 @@ static void _http_server_stop(void)
 {
 	MHD_stop_daemon(httpdaemon);
 	MHD_stop_daemon(httpsdaemon);
+	MHD_stop_daemon(ocspdaemon);
+	MHD_stop_daemon(h2daemon);
 
 	wget_xfree(key_pem);
 	wget_xfree(cert_pem);
+
+#ifdef HAVE_GNUTLS_OCSP_H
+	gnutls_global_deinit();
+
+	if(ocsp_resp)
+		wget_free(ocsp_resp->data);
+
+	wget_xfree(ocsp_resp);
+#endif
 }
 
 static int _check_to_accept(
-	G_GNUC_WGET_UNUSED void *cls,
-	G_GNUC_WGET_UNUSED const struct sockaddr *addr,
-	G_GNUC_WGET_UNUSED socklen_t addrlen)
+	WGET_GCC_UNUSED void *cls,
+	WGET_GCC_UNUSED const struct sockaddr *addr,
+	WGET_GCC_UNUSED socklen_t addrlen)
 {
 	return reject_https_connection ? MHD_NO : MHD_YES;
 }
@@ -540,32 +709,177 @@ static int _http_server_start(int SERVER_MODE)
 
 		if (!httpdaemon)
 			return 1;
-	} else if (SERVER_MODE == HTTPS_MODE) {
+	} else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == H2_MODE) {
 		size_t size;
 
-		key_pem = wget_read_file(SRCDIR "/certs/x509-server-key.pem", &size);
-		cert_pem = wget_read_file(SRCDIR "/certs/x509-server-cert.pem", &size);
+		if (!ocspdaemon) {
+			key_pem = wget_read_file(SRCDIR "/certs/x509-server-key.pem", &size);
+			cert_pem = wget_read_file(SRCDIR "/certs/x509-server-cert.pem", &size);
 
-		if ((key_pem == NULL) || (cert_pem == NULL))
-		{
-			wget_error_printf(_("The key/certificate files could not be read.\n"));
-			return 1;
+			if ((key_pem == NULL) || (cert_pem == NULL))
+			{
+				wget_error_printf(_("The key/certificate files could not be read.\n"));
+				return 1;
+			}
+
+			if (SERVER_MODE == HTTPS_MODE) {
+				httpsdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS
+#if MHD_VERSION >= 0x00096302
+						| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
+#endif
+					,
+					port_num, _check_to_accept, NULL, &_answer_to_connection, NULL,
+					MHD_OPTION_HTTPS_MEM_KEY, key_pem,
+					MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
+#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+					MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+				MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
+				MHD_OPTION_END);
+
+				if (!httpsdaemon) {
+					wget_error_printf(_("Cannot start the HTTPS server.\n"));
+					return 1;
+				}
+			}
+			else {
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+				h2daemon = MHD_start_daemon(MHD_USE_HTTP2 | MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS
+#if MHD_VERSION >= 0x00096302
+						| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
+#endif
+					,
+					port_num, _check_to_accept, NULL, &_answer_to_connection, NULL,
+					MHD_OPTION_HTTPS_MEM_KEY, key_pem,
+					MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
+#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+					MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+					//Enough to send 1MB files through
+					MHD_OPTION_CONNECTION_MEMORY_LIMIT, 1*1024*1024,
+					MHD_OPTION_END);
+#endif
+
+				if (!h2daemon) {
+					wget_error_printf(_("Cannot start the h2 server.\n"));
+					wget_error_printf(_("HTTP/2 support for MHD not found.\n"));
+					return 1;
+				}
+			}
 		}
+#ifdef HAVE_GNUTLS_OCSP_H
+		else {
+			httpsdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS
+#if MHD_VERSION >= 0x00096302
+					| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
+#endif
+				,
+				port_num, _check_to_accept, NULL, &_answer_to_connection, NULL,
+				MHD_OPTION_HTTPS_CERT_CALLBACK, &_ocsp_cert_callback,
+#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+				MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+				MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
+				MHD_OPTION_END);
 
-		httpsdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS,
-			port_num, _check_to_accept, NULL, _answer_to_connection, NULL,
-			MHD_OPTION_HTTPS_MEM_KEY, key_pem,
-			MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
+			int rc;
+			gnutls_datum_t data;
+
+			privkey = wget_malloc(sizeof(gnutls_privkey_t));
+			gnutls_privkey_init(privkey);
+
+			if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-server-key.pem", &data)) < 0)
+				file_load_err(SRCDIR "/certs/ocsp/x509-server-key.pem", gnutls_strerror(rc));
+
+			gnutls_privkey_import_x509_raw(*privkey, &data, GNUTLS_X509_FMT_PEM, NULL, 0);
+			gnutls_free(data.data);
+
+			pcrt = wget_malloc(sizeof(gnutls_pcert_st)*2);
+
+			if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-server-cert.pem", &data)) < 0)
+				file_load_err(SRCDIR "/certs/ocsp/x509-server-cert.pem", gnutls_strerror(rc));
+
+			gnutls_pcert_import_x509_raw(pcrt, &data, GNUTLS_X509_FMT_PEM, 0);
+			gnutls_free(data.data);
+
+			if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-interm-cert.pem", &data)) < 0)
+				file_load_err(SRCDIR "/certs/ocsp/x509-interm-cert.pem", gnutls_strerror(rc));
+
+			gnutls_pcert_import_x509_raw(pcrt+1, &data, GNUTLS_X509_FMT_PEM, 0);
+			gnutls_free(data.data);
+
+			if (!httpsdaemon) {
+				wget_error_printf(_("Cannot start the HTTPS server.\n"));
+				return 1;
+			}
+
+		}
+#endif
+	} else if (SERVER_MODE == OCSP_MODE) {
+#ifdef HAVE_GNUTLS_OCSP_H
+		static char rnd[8] = "realrnd"; // fixed 'random' value
+
+		ocspdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY,
+			port_num, NULL, NULL, &_ocsp_ahc, NULL,
+			MHD_OPTION_DIGEST_AUTH_RANDOM, sizeof(rnd), rnd,
+			MHD_OPTION_NONCE_NC_SIZE, 300,
 #ifdef MHD_OPTION_STRICT_FOR_CLIENT
 			MHD_OPTION_STRICT_FOR_CLIENT, 1,
 #endif
+			MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
 			MHD_OPTION_END);
 
-		if (!httpsdaemon) {
-			wget_error_printf(_("Cannot start the HTTPS server.\n"));
+		ocsp_resp = wget_malloc(sizeof(struct ocsp_resp_t));
+#endif
+
+		if (!ocspdaemon)
 			return 1;
-		}
 	}
+#ifdef HAVE_GNUTLS_OCSP_H
+#if MHD_VERSION >= 0x00096502 && GNUTLS_VERSION_NUMBER >= 0x030603
+	else if (SERVER_MODE == OCSP_STAP_MODE) {
+		int rc;
+
+		gnutls_datum_t data;
+
+		pcrt_stap = wget_malloc(sizeof(gnutls_pcert_st));
+		ocsp_stap_resp = wget_malloc(sizeof(gnutls_ocsp_data_st));
+		privkey_stap = wget_malloc(sizeof(gnutls_privkey_t));
+
+		gnutls_privkey_init(privkey_stap);
+
+		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-server-key.pem", &data)) < 0)
+			file_load_err(SRCDIR "/certs/ocsp/x509-server-key.pem", gnutls_strerror(rc));
+
+		gnutls_privkey_import_x509_raw(*privkey_stap, &data, GNUTLS_X509_FMT_PEM, NULL, 0);
+		gnutls_free(data.data);
+
+		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-server-cert.pem", &data)) < 0)
+			file_load_err(SRCDIR "/certs/ocsp/x509-server-cert.pem", gnutls_strerror(rc));
+
+		gnutls_pcert_import_x509_raw(pcrt_stap, &data, GNUTLS_X509_FMT_PEM, 0);
+		gnutls_free(data.data);
+
+		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/ocsp_stapled_resp.der", &data)) < 0)
+			file_load_err(SRCDIR "/certs/ocsp/ocsp_stapled_resp.der", gnutls_strerror(rc));
+
+		ocsp_stap_resp->response.data = data.data;
+		ocsp_stap_resp->response.size = data.size;
+		ocsp_stap_resp->exptime = 0;
+
+		httpsdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS
+				| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
+			,
+			port_num, _check_to_accept, NULL, &_answer_to_connection, NULL,
+			MHD_OPTION_HTTPS_CERT_CALLBACK2, _ocsp_stap_cert_callback,
+#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+				MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+			MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
+			MHD_OPTION_END);
+	}
+#endif
+#endif
 
 	// get open random port number
 	if (0) {}
@@ -575,8 +889,16 @@ static int _http_server_start(int SERVER_MODE)
 		const union MHD_DaemonInfo *dinfo = NULL;
 		if (SERVER_MODE == HTTP_MODE)
 			dinfo = MHD_get_daemon_info(httpdaemon, MHD_DAEMON_INFO_BIND_PORT);
-		else if (SERVER_MODE == HTTPS_MODE)
+		else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 			dinfo = MHD_get_daemon_info(httpsdaemon, MHD_DAEMON_INFO_BIND_PORT);
+#ifdef HAVE_GNUTLS_OCSP_H
+		else if (SERVER_MODE == OCSP_MODE)
+			dinfo = MHD_get_daemon_info(ocspdaemon, MHD_DAEMON_INFO_BIND_PORT);
+#endif
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+		else if (SERVER_MODE == H2_MODE)
+			dinfo = MHD_get_daemon_info(h2daemon, MHD_DAEMON_INFO_BIND_PORT);
+#endif
 
 		if (!dinfo || dinfo->port == 0)
 			return 1;
@@ -584,8 +906,17 @@ static int _http_server_start(int SERVER_MODE)
 		port_num = dinfo->port;
 		if (SERVER_MODE == HTTP_MODE)
 			http_server_port = port_num;
-		else if (SERVER_MODE == HTTPS_MODE)
+		else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 			https_server_port = port_num;
+#ifdef HAVE_GNUTLS_OCSP_H
+		else if (SERVER_MODE == OCSP_MODE)
+			ocsp_server_port = port_num;
+#endif
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+		else if (SERVER_MODE == H2_MODE) {
+			h2_server_port = port_num;
+		}
+#endif
 	}
 #endif /* MHD_VERSION >= 0x00095501 */
 	else
@@ -595,8 +926,16 @@ static int _http_server_start(int SERVER_MODE)
 
 		if (SERVER_MODE == HTTP_MODE)
 			dinfo = MHD_get_daemon_info(httpdaemon, MHD_DAEMON_INFO_LISTEN_FD);
-		else if (SERVER_MODE == HTTPS_MODE)
+		else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 			dinfo = MHD_get_daemon_info(httpsdaemon, MHD_DAEMON_INFO_LISTEN_FD);
+#ifdef HAVE_GNUTLS_OCSP_H
+		else if (SERVER_MODE == OCSP_MODE)
+			dinfo = MHD_get_daemon_info(ocspdaemon, MHD_DAEMON_INFO_LISTEN_FD);
+#endif
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+		else if (SERVER_MODE == H2_MODE)
+			dinfo = MHD_get_daemon_info(h2daemon, MHD_DAEMON_INFO_LISTEN_FD);
+#endif
 
 		if (!dinfo)
 			return 1;
@@ -618,8 +957,17 @@ static int _http_server_start(int SERVER_MODE)
 				port_num = (uint16_t)atoi(s_port);
 				if (SERVER_MODE == HTTP_MODE)
 					http_server_port = port_num;
-				else if (SERVER_MODE == HTTPS_MODE)
+				else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 					https_server_port = port_num;
+#ifdef HAVE_GNUTLS_OCSP_H
+				else if (SERVER_MODE == OCSP_MODE)
+					ocsp_server_port = port_num;
+#endif
+
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+				else if (SERVER_MODE == H2_MODE)
+					h2_server_port = port_num;
+#endif
 			}
 		}
 	}
@@ -635,7 +983,7 @@ static void _remove_directory(const char *dirname)
 {
 	char cmd[strlen(dirname) + 16];
 
-	snprintf(cmd, sizeof(cmd), "rm -rf %s", dirname);
+	wget_snprintf(cmd, sizeof(cmd), "rm -rf %s", dirname);
 	system(cmd);
 }
 static void _empty_directory(const char *dirname)
@@ -662,7 +1010,7 @@ static void _empty_directory(const char *dirname)
 				continue;
 
 			char fname[dirlen + 1 + strlen(dp->d_name) + 1];
-			snprintf(fname, sizeof(fname), "%s/%s", dirname, dp->d_name);
+			wget_snprintf(fname, sizeof(fname), "%s/%s", dirname, dp->d_name);
 
 			if (unlink(fname) == -1) {
 				// in case fname is a directory glibc returns EISDIR but correct POSIX value would be EPERM.
@@ -695,15 +1043,15 @@ void wget_test_stop_server(void)
 	wget_vector_free(&request_urls);
 
 	for (wget_test_url_t *url = urls; url < urls + nurls; url++) {
-		if (url->body_alloc) {
+		if (url->body_original) {
 			wget_xfree(url->body);
-			url->body_alloc = 0;
+			url->body_original = NULL;
 		}
 
 		for (size_t it = 0; it < countof(url->headers); it++) {
-			if (url->header_alloc[it]) {
+			if (url->headers_original[it]) {
 				wget_xfree(url->headers[it]);
-				url->header_alloc[it] = 0;
+				url->headers_original[it] = NULL;
 			}
 		}
 	}
@@ -720,7 +1068,7 @@ void wget_test_stop_server(void)
 
 static char *_insert_ports(const char *src)
 {
-	if (!src || (!strstr(src, "{{port}}") && !strstr(src, "{{sslport}}")))
+	if (!src || (!strstr(src, "{{port}}") && !strstr(src, "{{sslport}}") && !strstr(src, "{{ocspport}}")))
 		return NULL;
 
 	size_t srclen = strlen(src) + 1;
@@ -730,16 +1078,36 @@ static char *_insert_ports(const char *src)
 	while (*src) {
 		if (*src == '{') {
 			if (!strncmp(src, "{{port}}", 8)) {
-				dst += snprintf(dst, srclen - (dst - ret), "%d", http_server_port);
+				if (proto_pass == HTTP_1_1_PASS) {
+					dst += wget_snprintf(dst, srclen - (dst - ret), "%d", http_server_port);
+				}
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+				else {
+					dst += wget_snprintf(dst, srclen - (dst - ret), "%d", h2_server_port);
+				}
+#endif
 				src += 8;
 				continue;
 			}
 			else if (!strncmp(src, "{{sslport}}", 11)) {
-				dst += snprintf(dst, srclen - (dst - ret), "%d", https_server_port);
+				if (proto_pass == HTTP_1_1_PASS) {
+					dst += wget_snprintf(dst, srclen - (dst - ret), "%d", https_server_port);
+				}
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+				else {
+					dst += wget_snprintf(dst, srclen - (dst - ret), "%d", h2_server_port);
+				}
+#endif
 				src += 11;
 				continue;
 			}
+			else if (!strncmp(src, "{{ocspport}}", 12)) {
+				dst += wget_snprintf(dst, srclen - (dst - ret), "%d", ocsp_server_port);
+				src += 12;
+				continue;
+			}
 		}
+
 		*dst++ = *src++;
 	}
 	*dst = 0;
@@ -756,7 +1124,7 @@ static void _write_msg(const char *msg, size_t len)
 		if (len && msg[len - 1] == '\n')
 			len--;
 
-		fprintf(stderr, "\033[33m%.*s\033[m\n", (int) len, msg);
+		wget_fprintf(stderr, "\033[33m%.*s\033[m\n", (int) len, msg);
 	} else
 		fwrite(msg, 1, len, stderr);
 #endif
@@ -767,8 +1135,15 @@ void wget_test_start_server(int first_key, ...)
 	int rc, key;
 	va_list args;
 	bool start_http = 1;
-#ifdef WITH_GNUTLS
+#ifdef WITH_TLS
+	bool ocsp_stap = 0;
 	bool start_https = 1;
+#ifdef HAVE_GNUTLS_OCSP_H
+	bool start_ocsp = 0;
+#endif
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+	bool start_h2 = 1;
+#endif
 #endif
 
 	wget_global_init(
@@ -802,7 +1177,16 @@ void wget_test_start_server(int first_key, ...)
 			start_http = 0;
 			break;
 		case WGET_TEST_HTTP_ONLY:
-#ifdef WITH_GNUTLS
+#ifdef WITH_TLS
+			start_https = 0;
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+			start_h2 = 0;
+#endif
+#endif
+			break;
+		case WGET_TEST_H2_ONLY:
+			start_http = 0;
+#ifdef WITH_TLS
 			start_https = 0;
 #endif
 			break;
@@ -812,7 +1196,7 @@ void wget_test_start_server(int first_key, ...)
 		case WGET_TEST_FEATURE_MHD:
 			break;
 		case WGET_TEST_FEATURE_TLS:
-#ifndef WITH_GNUTLS
+#if !defined WITH_TLS
 			wget_error_printf(_("Test requires TLS. Skipping\n"));
 			exit(WGET_TEST_EXIT_SKIP);
 #endif
@@ -829,6 +1213,36 @@ void wget_test_start_server(int first_key, ...)
 			exit(WGET_TEST_EXIT_SKIP);
 #endif
 			break;
+		case WGET_TEST_FEATURE_OCSP:
+#if !defined HAVE_GNUTLS_OCSP_H
+			wget_error_printf(_("Test requires GnuTLS with OCSP support. Skipping\n"));
+			exit(WGET_TEST_EXIT_SKIP);
+#else
+			start_http = 0;
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+			start_h2 = 0;
+#endif
+			start_ocsp = 1;
+#endif
+			break;
+		case WGET_TEST_FEATURE_OCSP_STAPLING:
+#if !defined HAVE_GNUTLS_OCSP_H || MHD_VERSION < 0x00096502 || GNUTLS_VERSION_NUMBER < 0x030603
+			wget_error_printf(_("MHD or GnuTLS version insufficient. Skipping\n"));
+			exit(WGET_TEST_EXIT_SKIP);
+#else
+			start_http = 0;
+			start_https = 0;
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+			start_h2 = 0;
+#endif
+			ocsp_stap = 1;
+			break;
+#endif
+		case WGET_TEST_SKIP_H2:
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+			start_h2 = 0;
+#endif
+			break;
 		default:
 			wget_error_printf(_("Unknown option %d\n"), key);
 		}
@@ -837,7 +1251,7 @@ void wget_test_start_server(int first_key, ...)
 
 	atexit(wget_test_stop_server);
 
-	snprintf(tmpdir, sizeof(tmpdir), ".test_%d", (int) getpid());
+	wget_snprintf(tmpdir, sizeof(tmpdir), ".test_%d", (int) getpid());
 
 	// remove tmpdir if exists from previous tests
 	_remove_directory(tmpdir);
@@ -854,32 +1268,35 @@ void wget_test_start_server(int first_key, ...)
 			wget_error_printf_exit(_("Failed to start HTTP server, error %d\n"), rc);
 	}
 
-#ifdef WITH_GNUTLS
+#ifdef WITH_TLS
+#ifdef HAVE_GNUTLS_OCSP_H
+	// start OCSP responder
+	if (start_ocsp) {
+		if ((rc = _http_server_start(OCSP_MODE)) != 0)
+			wget_error_printf_exit(_("Failed to start OCSP server, error %d\n"), rc);
+	}
+
+	// start OCSP server (stapling)
+	if (ocsp_stap) {
+		if ((rc = _http_server_start(OCSP_STAP_MODE)) != 0)
+			wget_error_printf_exit(_("Failed to start OCSP Stapling server, error %d\n"), rc);
+	}
+#endif
+
 	// start HTTPS server
 	if (start_https) {
 		if ((rc = _http_server_start(HTTPS_MODE)) != 0)
 			wget_error_printf_exit(_("Failed to start HTTPS server, error %d\n"), rc);
 	}
-#endif
 
-	// now replace {{port}} in the body by the actual server port
-	for (wget_test_url_t *url = urls; url < urls + nurls; url++) {
-		char *p = _insert_ports(url->body);
-
-		if (p) {
-			url->body = p;
-			url->body_alloc = 1;
-		}
-
-		for (unsigned it = 0; it < countof(url->headers) && url->headers[it]; it++) {
-			p = _insert_ports(url->headers[it]);
-
-			if (p) {
-				url->headers[it] = p;
-				url->header_alloc[it] = 1;
-			}
-		}
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+	// start h2 server
+	if (start_h2) {
+		if ((rc = _http_server_start(H2_MODE)) != 0)
+			wget_error_printf_exit(_("Failed to start h2 server, error %d\n"), rc);
 	}
+#endif
+#endif
 }
 
 static void _scan_for_unexpected(const char *dirname, const wget_test_file_t *expected_files)
@@ -900,9 +1317,9 @@ static void _scan_for_unexpected(const char *dirname, const wget_test_file_t *ex
 				continue;
 
 			if (*dirname == '.' && dirname[1] == 0)
-				snprintf(fname, sizeof(fname), "%s", dp->d_name);
+				wget_snprintf(fname, sizeof(fname), "%s", dp->d_name);
 			else
-				snprintf(fname, sizeof(fname), "%s/%s", dirname, dp->d_name);
+				wget_snprintf(fname, sizeof(fname), "%s/%s", dirname, dp->d_name);
 
 			wget_info_printf(" - %s/%s\n", dirname, dp->d_name);
 			if (stat(fname, &st) == 0 && S_ISDIR(st.st_mode)) {
@@ -956,231 +1373,378 @@ static void _scan_for_unexpected(const char *dirname, const wget_test_file_t *ex
 
 void wget_test(int first_key, ...)
 {
-	const char
-		*request_url,
-		*options = "",
-#ifdef _WIN32
-		*executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
-#else
-		*executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
+#if !defined WITH_LIBNGHTTP2 || !defined HAVE_MICROHTTPD_HTTP2_H
+	if (!httpdaemon && !httpsdaemon)
+		exit(WGET_TEST_EXIT_SKIP);
 #endif
-	const wget_test_file_t
-		*expected_files = NULL,
-		*existing_files = NULL;
-	wget_buffer_t
-		*cmd = wget_buffer_alloc(1024);
-	unsigned
-		it;
-	int
-		key,
-		fd,
-		rc,
-		expected_error_code = 0;
-	va_list
-		args;
-	char
-		server_send_content_length_old = server_send_content_length;
-	bool
-		options_alloc = 0;
 
-	keep_tmpfiles = 0;
+	for (proto_pass = 0; proto_pass < END_PASS; proto_pass++) {
+		if (proto_pass == HTTP_1_1_PASS && !httpdaemon && !httpsdaemon)
+			continue;
 
-	if (!request_urls)
-		request_urls = wget_vector_create(8, NULL);
+		if (proto_pass == H2_PASS) {
+#ifndef WITH_LIBNGHTTP2
+			continue;
+#endif
+			if (!h2daemon)
+				continue;
+		}
 
-	va_start (args, first_key);
-	for (key = first_key; key; key = va_arg(args, int)) {
-		switch (key) {
-		case WGET_TEST_REQUEST_URL:
-			if ((request_url = va_arg(args, const char *)))
-				wget_vector_add_str(request_urls, request_url);
-			break;
-		case WGET_TEST_REQUEST_URLS:
-			while ((request_url = va_arg(args, const char *)))
-				wget_vector_add_str(request_urls, request_url);
-			break;
-		case WGET_TEST_EXPECTED_ERROR_CODE:
-			expected_error_code = va_arg(args, int);
-			break;
-		case WGET_TEST_EXPECTED_FILES:
-			expected_files = va_arg(args, const wget_test_file_t *);
-			break;
-		case WGET_TEST_EXISTING_FILES:
-			existing_files = va_arg(args, const wget_test_file_t *);
-			break;
-		case WGET_TEST_OPTIONS:
-		{
-			options = va_arg(args, const char *);
-			const char *tmp = _insert_ports(options);
-			if (tmp) {
-				options = tmp;
-				options_alloc = 1;
+		// now replace {{port}} in the body by the actual server port
+		for (wget_test_url_t *url = urls; url < urls + nurls; url++) {
+			char *p = _insert_ports(url->body);
+
+			if (p) {
+				url->body_original = url->body;
+				url->body = p;
 			}
-			break;
-		}
-		case WGET_TEST_KEEP_TMPFILES:
-			keep_tmpfiles = va_arg(args, int);
-			break;
-		case WGET_TEST_EXECUTABLE:
-			executable = va_arg(args, const char *);
-			break;
-		case WGET_TEST_SERVER_SEND_CONTENT_LENGTH:
-			server_send_content_length = !!va_arg(args, int);
-			break;
-		default:
-			wget_error_printf_exit(_("Unknown option %d [%s]\n"), key, options);
-		}
-	}
-	va_end(args);
 
-	// clean directory
-	wget_buffer_printf(cmd, "../%s", tmpdir);
-	_empty_directory(cmd->data);
+			for (unsigned it = 0; it < countof(url->headers) && url->headers[it]; it++) {
+				p = _insert_ports(url->headers[it]);
 
-	// create files
-	if (existing_files) {
-		for (it = 0; existing_files[it].name; it++) {
-			if ((fd = open(existing_files[it].name, O_CREAT|O_WRONLY|O_TRUNC|O_BINARY, 0644)) != -1) {
-				ssize_t nbytes = write(fd, existing_files[it].content, strlen(existing_files[it].content));
-				close(fd);
-
-				if (nbytes != (ssize_t)strlen(existing_files[it].content))
-					wget_error_printf_exit(_("Failed to write %zu bytes to file %s/%s [%s]\n"),
-						strlen(existing_files[it].content), tmpdir, existing_files[it].name, options);
-
-				if (existing_files[it].timestamp) {
-					// take the old utime() instead of utimes()
-					if (utime(existing_files[it].name, &(struct utimbuf){ 0, existing_files[it].timestamp }))
-						wget_error_printf_exit(_("Failed to set mtime of %s/%s [%s]\n"),
-							tmpdir, existing_files[it].name, options);
+				if (p) {
+					url->headers_original[it] = url->headers[it];
+					url->headers[it] = p;
 				}
-
-			} else {
-				wget_error_printf_exit(_("Failed to write open file %s/%s [%s] (%d,%s)\n"),
-					tmpdir, *existing_files[it].name == '/' ? existing_files[it].name + 1 : existing_files[it].name , options,
-					errno, strerror(errno));
 			}
 		}
-	}
 
-	const char *valgrind = getenv("VALGRIND_TESTS");
-	if (!valgrind || !*valgrind || !strcmp(valgrind, "0")) {
-		// On some system we get random IP order (v4, v6) for localhost, so we need --prefer-family for testing since
-		// the test servers will listen only on the first IP and also prefers IPv4
-		const char *emulator = getenv("EMULATOR");
-		if (emulator && *emulator)
-			wget_buffer_printf(cmd, "%s %s %s", emulator, executable, options);
-		else
-			wget_buffer_printf(cmd, "%s %s", executable, options);
-	} else if (!strcmp(valgrind, "1")) {
-		wget_buffer_printf(cmd, "valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes --child-silent-after-fork=yes --suppressions=" SRCDIR "/valgrind-suppressions %s %s", executable, options);
-	} else
-		wget_buffer_printf(cmd, "%s %s %s", valgrind, executable, options);
+		const char
+			*request_url,
+			*options = "",
+#ifdef HAVE_GNUTLS_OCSP_H
+			*ocsp_resp_file = NULL,
+#endif
+			*executable;
+		const wget_test_file_t
+			*expected_files = NULL,
+			*existing_files = NULL;
+		wget_buffer
+			*cmd = wget_buffer_alloc(1024);
+		unsigned
+			it;
+		int
+			key,
+			fd,
+			rc,
+			expected_error_code = 0;
+		va_list
+			args;
+		char
+			server_send_content_length_old = server_send_content_length;
+		bool
+			options_alloc = 0;
 
-	for (it = 0; it < (size_t)wget_vector_size(request_urls); it++) {
-		request_url = wget_vector_get(request_urls, it);
-
-		if (!wget_strncasecmp_ascii(request_url, "http://", 7)
-			|| !wget_strncasecmp_ascii(request_url, "https://", 8))
-		{
-			char *tmp = _insert_ports(request_url);
-			wget_buffer_printf_append(cmd, " \"%s\"", tmp ? tmp : request_url);
-			wget_xfree(tmp);
-		} else {
-			wget_buffer_printf_append(cmd, " \"http://localhost:%d/%s\"",
-				http_server_port, request_url);
-		}
-	}
-	wget_buffer_strcat(cmd, " 2>&1");
-
-	wget_info_printf("cmd=%s\n", cmd->data);
-	wget_error_printf(_("\n  Testing '%s'\n"), cmd->data);
-
-	// catch stdout and write to stderr so all output is in sync
-	FILE *pp;
-	if ((pp = popen(cmd->data, "r"))) {
-		char buf[4096];
-
-		while (fgets(buf, sizeof(buf), pp)) {
-			fputs(buf, stderr);
-			fflush(stderr);
-		}
-
-		rc = pclose(pp);
-	} else
-		wget_error_printf_exit(_("Failed to execute test (%d) [%s]\n"), errno, options);
-/*
-	rc = system(cmd->data);
-*/
-	if (!WIFEXITED(rc)) {
-		wget_error_printf_exit(_("Unexpected error code %d, expected %d [%s]\n"), rc, expected_error_code, options);
-	}
-	else if (WEXITSTATUS(rc) != expected_error_code) {
-		wget_error_printf_exit(_("Unexpected error code %d, expected %d [%s]\n"),
-			WEXITSTATUS(rc), expected_error_code, options);
-	}
-
-	if (expected_files) {
-		for (it = 0; expected_files[it].name; it++) {
-			struct stat st;
 #ifdef _WIN32
-			char buf[strlen(expected_files[it].name) * 3 + 1];
-			const char *fname = wget_restrict_file_name(expected_files[it].name, buf,
-				expected_files[it].restricted_mode ? expected_files[it].restricted_mode : WGET_RESTRICT_NAMES_WINDOWS);
+		if (proto_pass == H2_PASS)
+			executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
+		else
+			executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
 #else
-			const char *fname = expected_files[it].name;
+		if (proto_pass == H2_PASS)
+			executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
+		else
+			executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
 #endif
 
-			if (stat(fname, &st) != 0)
-				wget_error_printf_exit(_("Missing expected file '%s/%s' [%s]\n"), tmpdir, fname, options);
+		keep_tmpfiles = 0;
 
-			if (expected_files[it].content) {
-				char *content = wget_malloc(st.st_size ? st.st_size : 1);
+		if (!request_urls) {
+			request_urls = wget_vector_create(8, NULL);
+			wget_vector_set_destructor(request_urls, NULL);
+		}
 
-				if ((fd = open(fname, O_RDONLY | O_BINARY)) != -1) {
-					ssize_t nbytes = read(fd, content, st.st_size);
+		va_start (args, first_key);
+		for (key = first_key; key; key = va_arg(args, int)) {
+			switch (key) {
+			case WGET_TEST_REQUEST_URL:
+				if ((request_url = va_arg(args, const char *)))
+					wget_vector_add(request_urls, request_url);
+				break;
+			case WGET_TEST_REQUEST_URLS:
+				while ((request_url = va_arg(args, const char *)))
+					wget_vector_add(request_urls, request_url);
+				break;
+			case WGET_TEST_EXPECTED_ERROR_CODE:
+				expected_error_code = va_arg(args, int);
+				break;
+			case WGET_TEST_EXPECTED_FILES:
+				expected_files = va_arg(args, const wget_test_file_t *);
+				break;
+			case WGET_TEST_EXISTING_FILES:
+				existing_files = va_arg(args, const wget_test_file_t *);
+				break;
+			case WGET_TEST_OPTIONS:
+			{
+				options = va_arg(args, const char *);
+				const char *tmp = _insert_ports(options);
+				if (tmp) {
+					options = tmp;
+					options_alloc = 1;
+				}
+				break;
+			}
+			case WGET_TEST_KEEP_TMPFILES:
+				keep_tmpfiles = va_arg(args, int);
+				break;
+			case WGET_TEST_EXECUTABLE:
+				executable = va_arg(args, const char *);
+				break;
+			case WGET_TEST_SERVER_SEND_CONTENT_LENGTH:
+				server_send_content_length = !!va_arg(args, int);
+				break;
+			case WGET_TEST_POST_HANDSHAKE_AUTH:
+				if (va_arg(args, int)) {
+#if MHD_VERSION >= 0x00096302 && GNUTLS_VERSION_NUMBER >= 0x030603
+					post_handshake_auth = wget_malloc(sizeof(enum CHECK_POST_HANDSHAKE_AUTH));
+#endif
+				}
+				break;
+			case WGET_TEST_OCSP_RESP_FILE:
+#ifdef HAVE_GNUTLS_OCSP_H
+				ocsp_resp_file = va_arg(args, const char *);
+#endif
+				break;
+			default:
+				wget_error_printf_exit(_("Unknown option %d [%s]\n"), key, options);
+			}
+		}
+		va_end(args);
+
+		// clean directory
+		wget_buffer_printf(cmd, "../%s", tmpdir);
+		_empty_directory(cmd->data);
+
+#ifdef HAVE_GNUTLS_OCSP_H
+		if (ocspdaemon) {
+			if (ocsp_resp_file) {
+				ocsp_resp->data = wget_read_file(ocsp_resp_file, &(ocsp_resp->size));
+				if (ocsp_resp->data == NULL) {
+					wget_error_printf_exit(_("Couldn't read the response.\n"));
+				}
+			} else {
+				wget_error_printf_exit(_("Need value for option WGET_TEST_OCSP_RESP_FILE.\n"));
+			}
+		}
+#endif
+
+		// create files
+		if (existing_files) {
+			for (it = 0; existing_files[it].name; it++) {
+				if (existing_files[it].hardlink) {
+					if (link(existing_files[it].hardlink, existing_files[it].name) != 0) {
+						wget_error_printf_exit(_("Failed to link %s/%s -> %s/%s [%s]\n"),
+							tmpdir, existing_files[it].hardlink,
+							tmpdir, existing_files[it].name, options);
+					}
+				}
+				else if ((fd = open(existing_files[it].name, O_CREAT|O_WRONLY|O_TRUNC|O_BINARY, 0644)) != -1) {
+					const char *existing_content = _insert_ports(existing_files[it].content);
+					if (!existing_content)
+						existing_content = existing_files[it].content;
+
+					ssize_t nbytes = write(fd, existing_content, strlen(existing_content));
 					close(fd);
 
-					if (nbytes != st.st_size)
-						wget_error_printf_exit(_("Failed to read %lld bytes from file '%s/%s', just got %zd [%s]\n"),
-							(long long)st.st_size, tmpdir, fname, nbytes, options);
+					if (nbytes != (ssize_t)strlen(existing_content))
+						wget_error_printf_exit(_("Failed to write %zu bytes to file %s/%s [%s]\n"),
+							strlen(existing_content), tmpdir, existing_files[it].name, options);
 
-					size_t content_length = expected_files[it].content_length ? expected_files[it].content_length : strlen(expected_files[it].content);
+					if (existing_files[it].timestamp) {
+						// take the old utime() instead of utimes()
+						if (utime(existing_files[it].name, &(struct utimbuf){ 0, existing_files[it].timestamp }))
+							wget_error_printf_exit(_("Failed to set mtime of %s/%s [%s]\n"),
+								tmpdir, existing_files[it].name, options);
+					}
 
-					if (content_length != (size_t) nbytes || memcmp(expected_files[it].content, content, nbytes) != 0)
-						wget_error_printf_exit(_("Unexpected content in %s [%s]\n"), fname, options);
+					if (existing_content != existing_files[it].content)
+						wget_xfree(existing_content);
+
+				} else {
+					wget_error_printf_exit(_("Failed to write open file %s/%s [%s] (%d,%s)\n"),
+						tmpdir, *existing_files[it].name == '/' ? existing_files[it].name + 1 : existing_files[it].name , options,
+						errno, strerror(errno));
 				}
+			}
+		}
 
-				wget_xfree(content);
+		const char *valgrind = getenv("VALGRIND_TESTS");
+		if (!valgrind || !*valgrind || !strcmp(valgrind, "0")) {
+			// On some system we get random IP order (v4, v6) for localhost, so we need --prefer-family for testing since
+			// the test servers will listen only on the first IP and also prefers IPv4
+			const char *emulator = getenv("EMULATOR");
+			if (emulator && *emulator)
+				wget_buffer_printf(cmd, "%s %s %s", emulator, executable, options);
+			else
+				wget_buffer_printf(cmd, "%s %s", executable, options);
+		} else if (!strcmp(valgrind, "1")) {
+			wget_buffer_printf(cmd, "valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes --child-silent-after-fork=yes --suppressions=" SRCDIR "/valgrind-suppressions %s %s", executable, options);
+		} else
+			wget_buffer_printf(cmd, "%s %s %s", valgrind, executable, options);
+
+		for (it = 0; it < (size_t)wget_vector_size(request_urls); it++) {
+			request_url = wget_vector_get(request_urls, it);
+
+			if (!wget_strncasecmp_ascii(request_url, "http://", 7)
+				|| !wget_strncasecmp_ascii(request_url, "https://", 8))
+			{
+				char *tmp = _insert_ports(request_url);
+				wget_buffer_printf_append(cmd, " \"%s\"", tmp ? tmp : request_url);
+				wget_xfree(tmp);
+			} else {
+				if (proto_pass == HTTP_1_1_PASS) {
+					wget_buffer_printf_append(cmd, " \"http://localhost:%d/%s\"",
+					http_server_port, request_url);
+				}
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+				else {
+					wget_buffer_printf_append(cmd, " \"https://localhost:%d/%s\"",
+					h2_server_port, request_url);
+				}
+#endif
+			}
+		}
+
+		wget_buffer_strcat(cmd, " 2>&1");
+
+		wget_info_printf("cmd=%s\n", cmd->data);
+		wget_error_printf(_("\n  Testing '%s'\n"), cmd->data);
+
+		// catch stdout and write to stderr so all output is in sync
+		FILE *pp;
+		if ((pp = popen(cmd->data, "r"))) {
+			char buf[4096];
+
+			while (fgets(buf, sizeof(buf), pp)) {
+				fputs(buf, stderr);
+				fflush(stderr);
 			}
 
-			if (expected_files[it].timestamp && st.st_mtime != expected_files[it].timestamp)
-				wget_error_printf_exit(_("Unexpected timestamp '%s/%s' [%s]\n"), tmpdir, fname, options);
+			rc = pclose(pp);
+		} else
+			wget_error_printf_exit(_("Failed to execute test (%d) [%s]\n"), errno, options);
+		/*
+			rc = system(cmd->data);
+		*/
+		if (!WIFEXITED(rc)) {
+			wget_error_printf_exit(_("Unexpected error code %d, expected %d [%s]\n"), rc, expected_error_code, options);
+		}
+		else if (WEXITSTATUS(rc) != expected_error_code) {
+			wget_error_printf_exit(_("Unexpected error code %d, expected %d [%s]\n"),
+				WEXITSTATUS(rc), expected_error_code, options);
+		}
+
+		if (expected_files) {
+			for (it = 0; expected_files[it].name; it++) {
+				struct stat st;
+#ifdef _WIN32
+				char buf[strlen(expected_files[it].name) * 3 + 1];
+				const char *fname = wget_restrict_file_name(expected_files[it].name, buf,
+					expected_files[it].restricted_mode ? expected_files[it].restricted_mode : WGET_RESTRICT_NAMES_WINDOWS);
+#else
+				const char *fname = expected_files[it].name;
+#endif
+
+				if (stat(fname, &st) != 0)
+					wget_error_printf_exit(_("Missing expected file '%s/%s' [%s]\n"), tmpdir, fname, options);
+
+				if (expected_files[it].content) {
+					char *content = wget_malloc(st.st_size ? st.st_size : 1);
+
+					if ((fd = open(fname, O_RDONLY | O_BINARY)) != -1) {
+						ssize_t nbytes = read(fd, content, st.st_size);
+						close(fd);
+
+						if (nbytes != st.st_size)
+							wget_error_printf_exit(_("Failed to read %lld bytes from file '%s/%s', just got %zd [%s]\n"),
+								(long long)st.st_size, tmpdir, fname, nbytes, options);
+
+						const char *expected_content = _insert_ports(expected_files[it].content);
+						bool expected_content_alloc = 0;
+						if (!expected_content)
+							expected_content = expected_files[it].content;
+						else
+							expected_content_alloc = 1;
+
+						size_t content_length = expected_files[it].content_length ? expected_files[it].content_length : strlen(expected_content);
+
+						if (content_length != (size_t) nbytes || memcmp(expected_content, content, nbytes) != 0)
+							wget_error_printf_exit(_("Unexpected content in %s [%s]\n"), fname, options);
+
+						if (expected_content_alloc)
+							wget_xfree(expected_content);
+					}
+
+					wget_xfree(content);
+				}
+
+				if (expected_files[it].timestamp && st.st_mtime != expected_files[it].timestamp)
+					wget_error_printf_exit(_("Unexpected timestamp '%s/%s' [%s]\n"), tmpdir, fname, options);
+			}
+		}
+
+		// look if there are unexpected files in our working dir
+		_scan_for_unexpected(".", expected_files);
+
+#if MHD_VERSION >= 0x00096302 && GNUTLS_VERSION_NUMBER >= 0x030603
+		if (post_handshake_auth && *post_handshake_auth == CHECK_FAILED) {
+			wget_free(post_handshake_auth);
+			wget_error_printf_exit(_("Post-handshake authentication failed\n"));
+		} else if (post_handshake_auth)
+			wget_free(post_handshake_auth);
+#endif
+
+		wget_vector_clear(request_urls);
+		wget_buffer_free(&cmd);
+
+		if (options_alloc)
+			wget_xfree(options);
+
+		server_send_content_length = server_send_content_length_old;
+
+		// system("ls -la");
+
+		// cleanup for next iteration
+		for (wget_test_url_t *url = urls; url < urls + nurls; url++) {
+			if (url->body_original) {
+				wget_xfree(url->body);
+				url->body = url->body_original;
+				url->body_original = NULL;
+			}
+
+			for (it = 0; it < countof(url->headers) && url->headers[it]; it++) {
+				if (url->headers_original[it]) {
+					wget_xfree(url->headers[it]);
+					url->headers[it] = url->headers_original[it];
+					url->headers_original[it] = NULL;
+				}
+			}
 		}
 	}
-
-	// look if there are unexpected files in our working dir
-	_scan_for_unexpected(".", expected_files);
-
-	wget_vector_clear(request_urls);
-	wget_buffer_free(&cmd);
-
-	if (options_alloc)
-		wget_xfree(options);
-
-	server_send_content_length = server_send_content_length_old;
-
-	// system("ls -la");
 }
 
 int wget_test_get_http_server_port(void)
 {
-	return http_server_port;
+	return proto_pass == H2_PASS ? h2_server_port : http_server_port;
 }
 
 int wget_test_get_https_server_port(void)
 {
-	return https_server_port;
+	return proto_pass == H2_PASS ? h2_server_port : https_server_port;
+}
+
+int wget_test_get_h2_server_port(void)
+{
+#ifndef HAVE_MICROHTTPD_HTTP2_H
+	return -1;
+#else
+	return h2_server_port;
+#endif
+}
+
+int wget_test_get_ocsp_server_port(void)
+{
+	return ocsp_server_port;
 }
 
 // assume that we are in 'tmpdir'

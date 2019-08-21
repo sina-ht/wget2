@@ -198,19 +198,19 @@ int dl_supported(void)
 	return 0;
 }
 
-dl_file_t *dl_file_open(G_GNUC_WGET_UNUSED const char *filename, dl_error_t *e)
+dl_file_t *dl_file_open(WGET_GCC_UNUSED const char *filename, dl_error_t *e)
 {
 	dl_error_set(e, dl_unsupported);
 	return NULL;
 }
 
-void *dl_file_lookup(G_GNUC_WGET_UNUSED dl_file_t *dm, G_GNUC_WGET_UNUSED const char *symbol, dl_error_t *e)
+void *dl_file_lookup(WGET_GCC_UNUSED dl_file_t *dm, WGET_GCC_UNUSED const char *symbol, dl_error_t *e)
 {
 	dl_error_set(e, dl_unsupported);
 	return NULL;
 }
 
-void dl_file_close(G_GNUC_WGET_UNUSED dl_file_t *dm)
+void dl_file_close(WGET_GCC_UNUSED dl_file_t *dm)
 {
 }
 
@@ -294,7 +294,7 @@ char *dl_get_name_from_path(const char *path, int strict)
 		return wget_strmemdup(path + start, len);
 }
 
-char *dl_search(const char *name, const wget_vector_t *dirs)
+char *dl_search(const char *name, const wget_vector *dirs)
 {
 	int n_dirs = wget_vector_size(dirs);
 
@@ -326,7 +326,7 @@ char *dl_search(const char *name, const wget_vector_t *dirs)
 	return NULL;
 }
 
-void dl_list(const wget_vector_t *dirs, wget_vector_t *names_out)
+void dl_list(const wget_vector *dirs, wget_vector *names_out)
 {
 	int n_dirs = wget_vector_size(dirs);
 
@@ -362,7 +362,7 @@ void dl_list(const wget_vector_t *dirs, wget_vector_t *names_out)
 			}
 
 			// Add to the list
-			wget_vector_add_noalloc(names_out, name);
+			wget_vector_add(names_out, name);
 		}
 
 		closedir(dirp);

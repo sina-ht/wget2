@@ -9,12 +9,13 @@ noinst_PROGRAMS = \
  print_html_urls\
  websequencediagram\
  websequencediagram_high\
- check_url_types
+ check_url_types\
+ relative_to_absolute_url
 
 
-AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS)
+AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) -DMALLOC_RETURNS_NONNULL
 AM_CPPFLAGS = -I$(top_srcdir)/include/wget \
- -DWGETVER_FILE=\"$(top_builddir)/include/wget/wgetver.h\"
+ -DWGETVER_FILE=\"$(top_builddir)/include/wget/wgetver.h\" -DMALLOC_RETURNS_NONNULL
 AM_LDFLAGS = -no-install
 LDADD = ../libwget/libwget.la\
  $(LIBOBJS) $(GETADDRINFO_LIB) $(HOSTENT_LIB) $(INET_NTOP_LIB)\

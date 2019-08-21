@@ -30,11 +30,11 @@
 
 static void test(char *in, size_t len, const char *encoding)
 {
-	wget_iri_t *base;
+	wget_iri *base;
 	base = wget_iri_parse("http://x.org", encoding);
 	assert(base != NULL);
 
-	wget_iri_t *iri, *iri2;
+	wget_iri *iri, *iri2;
 	iri = wget_iri_parse(in, encoding);
 	iri2 = wget_iri_clone(iri);
 	wget_iri_free(&iri2);
@@ -45,7 +45,7 @@ static void test(char *in, size_t len, const char *encoding)
 	wget_iri_free(&iri2);
 	wget_iri_get_connection_part(iri);
 
-	wget_buffer_t buf;
+	wget_buffer buf;
 	wget_buffer_init(&buf, NULL, 32);
 	wget_buffer_printf(&buf, "%d", x); // use x to avoid optimization (removal of call to wget_iri_compare)
 
@@ -55,7 +55,7 @@ static void test(char *in, size_t len, const char *encoding)
 	wget_iri_escape_query(in, &buf);
 	if (iri) {
 		if (wget_iri_supported(iri))
-			wget_iri_set_scheme(iri, "https");
+			wget_iri_set_scheme(iri, WGET_IRI_SCHEME_HTTPS);
 		wget_iri_get_escaped_host(iri, &buf);
 		wget_iri_get_escaped_resource(iri, &buf);
 		wget_iri_get_path(iri, &buf, encoding);

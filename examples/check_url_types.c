@@ -60,7 +60,7 @@ static void write_stats(void)
 /*
  * helper function: percent-unescape, convert to utf-8, create URL string using base
  */
-static int _normalize_uri(wget_iri_t *base, wget_string_t *url, const char *encoding, wget_buffer_t *buf)
+static int _normalize_uri(wget_iri *base, wget_string *url, const char *encoding, wget_buffer *buf)
 {
 	char *urlpart_encoded;
 	size_t urlpart_encoded_length;
@@ -70,28 +70,30 @@ static int _normalize_uri(wget_iri_t *base, wget_string_t *url, const char *enco
 		return -1;
 
 	char *urlpart = wget_strmemdup(url->p, url->len);
+	if (!urlpart)
+		return -2;
 
 	wget_iri_unescape_url_inline(urlpart);
 	rc = wget_memiconv(encoding, urlpart, strlen(urlpart), "utf-8", &urlpart_encoded, &urlpart_encoded_length);
 	wget_xfree(urlpart);
 
 	if (rc)
-		return -2;
+		return -3;
 
 	rc = !wget_iri_relative_to_abs(base, urlpart_encoded, urlpart_encoded_length, buf);
 	wget_xfree(urlpart_encoded);
 
 	if (rc)
-		return -3;
+		return -4;
 
 	return 0;
 }
 
 static char *_normalize_location(const char *base, const char *url)
 {
-	wget_buffer_t buf;
-	wget_string_t url_s = { .p = url, .len = strlen(url) };
-	wget_iri_t *base_iri = wget_iri_parse(base, "utf-8");
+	wget_buffer buf;
+	wget_string url_s = { .p = url, .len = strlen(url) };
+	wget_iri *base_iri = wget_iri_parse(base, "utf-8");
 	char sbuf[1024], *norm_url = NULL;
 	int rc;
 
@@ -111,11 +113,11 @@ static char *_normalize_location(const char *base, const char *url)
 
 static void html_parse(const char *html, size_t html_len, const char *encoding, const char *hosturl)
 {
-	wget_iri_t *base = wget_iri_parse(hosturl, "utf-8");
-	wget_iri_t *allocated_base = NULL;
+	wget_iri *base = wget_iri_parse(hosturl, "utf-8");
+	wget_iri *allocated_base = NULL;
 	const char *reason;
 	char *utf8 = NULL;
-	wget_buffer_t buf;
+	wget_buffer buf;
 	char sbuf[1024];
 
 	// https://html.spec.whatwg.org/#determining-the-character-encoding
@@ -158,7 +160,7 @@ static void html_parse(const char *html, size_t html_len, const char *encoding, 
 		return;
 	}
 
-	wget_html_parsed_result_t *parsed  = wget_html_get_urls_inline(html, NULL, NULL);
+	wget_html_parsed_result *parsed  = wget_html_get_urls_inline(html, NULL, NULL);
 
 	if (!encoding) {
 		if (parsed->encoding) {
@@ -178,7 +180,7 @@ static void html_parse(const char *html, size_t html_len, const char *encoding, 
 		wget_info_printf("  base='%.*s'\n", (int) parsed->base.len, parsed->base.p);
 		if (_normalize_uri(base, &parsed->base, encoding, &buf) == 0) {
 			if (buf.length) {
-				wget_iri_t *newbase = wget_iri_parse(buf.data, "utf-8");
+				wget_iri *newbase = wget_iri_parse(buf.data, "utf-8");
 				if (newbase) {
 					wget_iri_free(&base);
 					base = newbase;
@@ -188,23 +190,23 @@ static void html_parse(const char *html, size_t html_len, const char *encoding, 
 	}
 
 	for (int it = 0; it < wget_vector_size(parsed->uris); it++) {
-		wget_html_parsed_url_t *html_url = wget_vector_get(parsed->uris, it);
-		wget_string_t *url = &html_url->url;
+		wget_html_parsed_url *html_url = wget_vector_get(parsed->uris, it);
+		wget_string *url = &html_url->url;
 
 		if (_normalize_uri(base, url, encoding, &buf) || buf.length == 0)
 			continue;
 
-		wget_iri_t *canon_url = wget_iri_parse(buf.data, "utf-8");
+		wget_iri *canon_url = wget_iri_parse(buf.data, "utf-8");
 		if (!canon_url)
 			continue;
 
 		int same_host = !wget_strcasecmp(canon_url->host, base->host);
 
-		if (!wget_strcasecmp(canon_url->scheme, "https")) {
+		if (canon_url->scheme == WGET_IRI_SCHEME_HTTPS) {
 			stats.https_links++;
 			stats.https_links_same_host += same_host;
 		}
-		else if (!wget_strcasecmp(canon_url->scheme, "http")) {
+		else if (canon_url->scheme == WGET_IRI_SCHEME_HTTP) {
 			stats.http_links++;
 			stats.http_links_same_host += same_host;
 //			if (same_host)
@@ -224,10 +226,10 @@ static void html_parse(const char *html, size_t html_len, const char *encoding, 
 	wget_info_printf("      total: http=%d https=%d\n", stats.http_links, stats.https_links);
 }
 
-int main(int argc G_GNUC_WGET_UNUSED, const char *const *argv G_GNUC_WGET_UNUSED)
+int main(int argc WGET_GCC_UNUSED, const char *const *argv WGET_GCC_UNUSED)
 {
-//	wget_http_connection_t *conn = NULL;
-	wget_http_response_t *resp = NULL;
+//	wget_http_connection *conn = NULL;
+	wget_http_response *resp = NULL;
 	char *url = NULL;
 
 	// set up libwget global configuration
@@ -248,8 +250,7 @@ int main(int argc G_GNUC_WGET_UNUSED, const char *const *argv G_GNUC_WGET_UNUSED
 	// set global timeouts to 5s
 	wget_tcp_set_timeout(NULL, 5000);
 	wget_tcp_set_connect_timeout(NULL, 5000);
-	wget_tcp_set_dns_timeout(NULL, 5000);
-	wget_tcp_set_dns_caching(NULL, 5000);
+	wget_dns_set_timeout(NULL, 5000);
 
 	// OCSP off
 	wget_ssl_set_config_int(WGET_SSL_OCSP, 0);

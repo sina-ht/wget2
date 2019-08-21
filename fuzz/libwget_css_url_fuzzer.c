@@ -40,15 +40,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	memcpy(in, data, size);
 	in[size] = in[size + 1] = 0;
 
-	wget_iri_t *base;
+	wget_iri *base;
 	base = wget_iri_parse("http://x.org", "iso-8859-1");
 	assert(base != NULL);
 
 	const char *encoding = NULL;
-	wget_vector_t *urls;
+	wget_vector *urls;
 	urls = wget_css_get_urls(in, size, base, &encoding);
 	wget_vector_free(&urls);
-	free((void *) encoding);
+	wget_free((void *) encoding);
 
 	wget_iri_free(&base);
 

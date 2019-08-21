@@ -37,10 +37,7 @@
 // #define error_printf       wget_error_printf
 #define error_printf_exit  wget_error_printf_exit
 
-// I try to never leave freed pointers hanging around
-// #define xfree(a) do { if (a) { free((void *)(a)); a=NULL; } } while (0)
-
-static void G_GNUC_WGET_NORETURN usage(const char *myname)
+static void WGET_GCC_NORETURN usage(const char *myname)
 {
 	error_printf_exit(
 		"\nUsage: %s [options] file...\n"\
@@ -68,7 +65,7 @@ int main(int argc, const char **argv)
 		local_encoding = wget_local_charset_encoding();
 
 	// parsed 'base'
-	wget_iri_t
+	wget_iri
 		*base_uri;
 
 	// Character encoding of CSS file content
@@ -110,13 +107,13 @@ int main(int argc, const char **argv)
 
 	for (;argpos < argc; argpos++) {
 		// use '-' as filename for STDIN
-		wget_vector_t *css_urls = wget_css_get_urls_from_localfile(argv[argpos], base_uri, &css_encoding);
+		wget_vector *css_urls = wget_css_get_urls_from_localfile(argv[argpos], base_uri, &css_encoding);
 
 		if (wget_vector_size(css_urls) > 0) {
 			info_printf("URL encoding for %s is '%s':\n", argv[argpos], css_encoding ? css_encoding : "UTF-8");
 
 			for (int it = 0; it < wget_vector_size(css_urls); it++) {
-				wget_css_parsed_url_t *css_url = wget_vector_get(css_urls, it);
+				wget_css_parsed_url *css_url = wget_vector_get(css_urls, it);
 				if (css_url->abs_url)
 					info_printf("  %s -> %s\n", css_url->url, css_url->abs_url);
 				else

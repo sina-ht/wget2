@@ -24,12 +24,12 @@
 
 static int
 	cond_value = 0;
-static wget_thread_mutex_t
+static wget_thread_mutex
 	lockcond;
-static wget_thread_cond_t
+static wget_thread_cond
 	condtest;
 
-static void *cond_routine(G_GNUC_WGET_UNUSED void *arg)
+static void *cond_routine(WGET_GCC_UNUSED void *arg)
 {
 	wget_thread_mutex_lock(lockcond);
 	while (!cond_value)
@@ -44,7 +44,7 @@ static void *cond_routine(G_GNUC_WGET_UNUSED void *arg)
 static void test_cond(void)
 {
 	int remain = 1;
-	wget_thread_t thread;
+	wget_thread thread;
 
 	cond_value = 0;
 

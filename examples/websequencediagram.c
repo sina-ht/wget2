@@ -27,12 +27,12 @@
 #include <string.h>
 #include <wget.h>
 
-int main(int argc G_GNUC_WGET_UNUSED, const char *const *argv G_GNUC_WGET_UNUSED)
+int main(int argc WGET_GCC_UNUSED, const char *const *argv WGET_GCC_UNUSED)
 {
-	wget_http_connection_t *conn = NULL;
-	wget_http_request_t *req;
-	wget_http_response_t *resp;
-	wget_iri_t *iri;
+	wget_http_connection *conn = NULL;
+	wget_http_request *req;
+	wget_http_response *resp;
+	wget_iri *iri;
 
 	// set up libwget global configuration
 	wget_global_init(
@@ -44,8 +44,8 @@ int main(int argc G_GNUC_WGET_UNUSED, const char *const *argv G_GNUC_WGET_UNUSED
 	// This is the text that we want to convert into a GFX
 	const char *text = "alice->bob: authentication request\nbob-->alice: response";
 	const char *style = "qsd";
-	wget_buffer_t *url = wget_buffer_alloc(128);
-	wget_buffer_t *body = wget_buffer_alloc(128);
+	wget_buffer *url = wget_buffer_alloc(128);
+	wget_buffer *body = wget_buffer_alloc(128);
 
 
 	wget_buffer_strcpy(body, "message=");

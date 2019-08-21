@@ -45,7 +45,7 @@
 #endif
 
 // I try to never leave freed pointers hanging around
-#define xfree(a) do { if (a) { free((void *)(a)); a=NULL; } } while (0)
+#define xfree(a) do { if (a) { wget_free((void *)(a)); a=NULL; } } while (0)
 
 // number of elements within an array
 #define countof(a) (sizeof(a)/sizeof(*(a)))
@@ -56,10 +56,6 @@
 //#define _WGET_CONCAT2(a,b) _WGET_CONCAT(a,b)
 // #define _GET_ADDPREFIX(a) _WGET_CONCAT2(_WGET_PREFIX,a)
 // #define xmalloc _WGET_ADDPREFIX(xmalloc)
-
-#define xmalloc wget_malloc
-#define xcalloc wget_calloc
-#define xrealloc wget_realloc
 
 #define info_printf wget_info_printf
 #define error_printf wget_error_printf

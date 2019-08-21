@@ -28,25 +28,25 @@
 #endif
 
 //wget_http_connection_t abstract type
-struct _wget_http_connection_st {
-	wget_tcp_t *
+struct wget_http_connection_st {
+	wget_tcp *
 		tcp;
 	const char *
 		esc_host;
-	const char *
-		scheme;
-	wget_buffer_t *
+	wget_buffer *
 		buf;
 #ifdef WITH_LIBNGHTTP2
 	nghttp2_session *
 		http2_session;
 #endif
-	wget_vector_t
+	wget_vector
 		*pending_requests; // List of unresponsed requests (HTTP1 only)
-	wget_vector_t
+	wget_vector
 		*received_http2_responses; // List of received (but yet unprocessed) responses (HTTP2 only)
 	int
 		pending_http2_requests; // Number of unresponsed requests (HTTP2 only)
+	wget_iri_scheme
+		scheme;
 	uint16_t
 		port;
 	char

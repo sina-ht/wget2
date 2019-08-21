@@ -95,9 +95,8 @@ int main(void)
 		0);
 
 	char options[128];
-	snprintf(options, sizeof(options),
-		"--force-css --base http://localhost:%d -i main.css",
-		wget_test_get_http_server_port());
+	wget_snprintf(options, sizeof(options),
+		"--force-css --base http://localhost:{{port}} -i main.css");
 
 	// test--parse-css from file
 	wget_test(

@@ -30,8 +30,8 @@
 #include <wget.h>
 
 #if defined TEST_SELECT_NAME
-WGET_EXPORT int wget_plugin_initializer(wget_plugin_t *plugin);
-int wget_plugin_initializer(wget_plugin_t *plugin)
+WGET_EXPORT int wget_plugin_initializer(wget_plugin *plugin);
+int wget_plugin_initializer(wget_plugin *plugin)
 {
 	const char *name = wget_plugin_get_name(plugin);
 	if (strcmp(name, "pluginname") != 0) {
@@ -42,22 +42,22 @@ int wget_plugin_initializer(wget_plugin_t *plugin)
 	FILE *stream = fopen("plugin-loaded.txt", "wb");
 	if (! stream)
 		wget_error_printf_exit("Cannot open plugin-loaded.txt: %s", strerror(errno));
-	fprintf(stream, "Plugin loaded\n");
+	wget_fprintf(stream, "Plugin loaded\n");
 	fclose(stream);
 
 	return 0;
 }
 #elif defined TEST_SELECT_EXITSTATUS
-static void finalizer(G_GNUC_WGET_UNUSED wget_plugin_t *plugin, int exit_status)
+static void finalizer(WGET_GCC_UNUSED wget_plugin *plugin, int exit_status)
 {
 	FILE *stream = fopen("exit-status.txt", "wb");
 	if (! stream)
 		wget_error_printf_exit("Cannot open exit-status.txt: %s", strerror(errno));
-	fprintf(stream, "exit(%d)\n", exit_status);
+	wget_fprintf(stream, "exit(%d)\n", exit_status);
 	fclose(stream);
 }
-WGET_EXPORT int wget_plugin_initializer(wget_plugin_t *plugin);
-int wget_plugin_initializer(wget_plugin_t *plugin)
+WGET_EXPORT int wget_plugin_initializer(wget_plugin *plugin);
+int wget_plugin_initializer(wget_plugin *plugin)
 {
 	wget_plugin_register_finalizer(plugin, finalizer);
 	return 0;
@@ -68,16 +68,16 @@ void irrelevant(void)
 {
 }
 #elif defined TEST_SELECT_FAULTY2
-static void finalizer(G_GNUC_WGET_UNUSED wget_plugin_t *plugin, int exit_status)
+static void finalizer(WGET_GCC_UNUSED wget_plugin *plugin, int exit_status)
 {
 	FILE *stream = fopen("exit-status.txt", "wb");
 	if (! stream)
 		wget_error_printf_exit("Cannot open exit-status.txt: %s", strerror(errno));
-	fprintf(stream, "exit(%d)\n", exit_status);
+	wget_fprintf(stream, "exit(%d)\n", exit_status);
 	fclose(stream);
 }
-WGET_EXPORT int wget_plugin_initializer(wget_plugin_t *plugin);
-int wget_plugin_initializer(wget_plugin_t *plugin)
+WGET_EXPORT int wget_plugin_initializer(wget_plugin *plugin);
+int wget_plugin_initializer(wget_plugin *plugin)
 {
 	wget_plugin_register_finalizer(plugin, finalizer);
 	wget_error_printf("Plugin failed to initialize, intentionally\n");
@@ -99,7 +99,7 @@ static struct option_filter {
 	{"gamma", 0, 1},
 	{NULL, 0, 0}
 };
-static int argp_fn(wget_plugin_t *plugin, const char *option, const char *value)
+static int argp_fn(wget_plugin *plugin, const char *option, const char *value)
 {
 	// List of options the plugin accepts
 	int i;
@@ -143,17 +143,17 @@ static int argp_fn(wget_plugin_t *plugin, const char *option, const char *value)
 	if (! stream)
 		wget_error_printf_exit("Cannot open options.txt: %s", strerror(errno));
 	if (value)
-		fprintf(stream, "%s=%s\n", option, value);
+		wget_fprintf(stream, "%s=%s\n", option, value);
 	else
-		fprintf(stream, "%s\n", option);
+		wget_fprintf(stream, "%s\n", option);
 	fclose(stream);
 
 	return 0;
 }
-WGET_EXPORT int wget_plugin_initializer(wget_plugin_t *plugin);
-int wget_plugin_initializer(wget_plugin_t *plugin)
+WGET_EXPORT int wget_plugin_initializer(wget_plugin *plugin);
+int wget_plugin_initializer(wget_plugin *plugin)
 {
-	wget_plugin_register_argp(plugin, argp_fn);
+	wget_plugin_register_option_callback(plugin, argp_fn);
 	return 0;
 }
 #elif defined TEST_SELECT_API
@@ -175,7 +175,7 @@ struct option {
 	option_parser fn;
 	void *lptr;
 };
-static int parse_option(const struct option *options, wget_plugin_t *plugin, const char *option, const char *value)
+static int parse_option(const struct option *options, wget_plugin *plugin, const char *option, const char *value)
 {
 	size_t i;
 
@@ -260,7 +260,7 @@ static int parse_pair(const struct option *option, const char *value)
 }
 
 typedef struct {
-	wget_vector_t *files_processed;
+	wget_vector *files_processed;
 
 	char *reject;
 	char *accept;
@@ -271,7 +271,7 @@ typedef struct {
 	int test_pp;
 } plugin_data_t;
 
-static int argp_fn(wget_plugin_t *plugin, const char *option, const char *value)
+static int argp_fn(wget_plugin *plugin, const char *option, const char *value)
 {
 	plugin_data_t *d = (plugin_data_t *) plugin->plugin_data;
 	struct option options[] = {
@@ -295,7 +295,7 @@ static int argp_fn(wget_plugin_t *plugin, const char *option, const char *value)
 	return parse_option(options, plugin, option, value);
 }
 
-static void finalizer(wget_plugin_t *plugin, G_GNUC_WGET_UNUSED int exit_status)
+static void finalizer(wget_plugin *plugin, WGET_GCC_UNUSED int exit_status)
 {
 	plugin_data_t *d = (plugin_data_t *) plugin->plugin_data;
 
@@ -306,7 +306,7 @@ static void finalizer(wget_plugin_t *plugin, G_GNUC_WGET_UNUSED int exit_status)
 		wget_vector_sort(d->files_processed);
 		test_assert((stream = fopen("files_processed.txt", "wb")));
 		for (i = 0; i < wget_vector_size(d->files_processed); i++)
-			fprintf(stream, "%s\n", (const char *) wget_vector_get(d->files_processed, i));
+			wget_fprintf(stream, "%s\n", (const char *) wget_vector_get(d->files_processed, i));
 		fclose(stream);
 	}
 	wget_vector_free(&d->files_processed);
@@ -319,7 +319,7 @@ static void finalizer(wget_plugin_t *plugin, G_GNUC_WGET_UNUSED int exit_status)
 	wget_xfree(plugin->plugin_data);
 }
 
-static void url_filter(wget_plugin_t *plugin, const wget_iri_t *iri, wget_intercept_action_t *action)
+static void url_filter(wget_plugin *plugin, const wget_iri *iri, wget_intercept_action *action)
 {
 	plugin_data_t *d = (plugin_data_t *) plugin->plugin_data;
 
@@ -332,8 +332,8 @@ static void url_filter(wget_plugin_t *plugin, const wget_iri_t *iri, wget_interc
 	if (d->replace.l) {
 		const char *ptr, *find;
 		size_t find_len;
-		wget_buffer_t buf[1];
-		wget_iri_t *alt_iri;
+		wget_buffer buf[1];
+		wget_iri *alt_iri;
 
 		wget_buffer_init(buf, NULL, 0);
 		find_len = strlen(d->replace.l);
@@ -346,7 +346,7 @@ static void url_filter(wget_plugin_t *plugin, const wget_iri_t *iri, wget_interc
 
 		alt_iri = wget_iri_parse(buf->data, "utf-8");
 		if (! alt_iri) {
-			fprintf(stderr, "Cannot parse URL after replacement (%s)\n", buf->data);
+			wget_fprintf(stderr, "Cannot parse URL after replacement (%s)\n", buf->data);
 		}
 		wget_intercept_action_set_alt_url(action, alt_iri);
 
@@ -355,7 +355,7 @@ static void url_filter(wget_plugin_t *plugin, const wget_iri_t *iri, wget_interc
 	}
 }
 
-static int post_processor(wget_plugin_t *plugin, wget_downloaded_file_t *file)
+static int post_processor(wget_plugin *plugin, wget_downloaded_file *file)
 {
 	plugin_data_t *d = (plugin_data_t *) plugin->plugin_data;
 
@@ -384,7 +384,7 @@ static int post_processor(wget_plugin_t *plugin, wget_downloaded_file_t *file)
 					// Obfuscated URL found, now deobfuscate and add it
 					char *url = wget_malloc(end - i + 1);
 					size_t k;
-					wget_iri_t *iri;
+					wget_iri *iri;
 
 					for (k = 0; k < end - i; k++) {
 						char c = data[i + k];
@@ -411,7 +411,7 @@ static int post_processor(wget_plugin_t *plugin, wget_downloaded_file_t *file)
 	}
 
 	if (d->test_pp) {
-		const wget_iri_t *iri = wget_downloaded_file_get_source_url(file);
+		const wget_iri *iri = wget_downloaded_file_get_source_url(file);
 		const char *data;
 		size_t size;
 		FILE *stream;
@@ -447,25 +447,25 @@ static int post_processor(wget_plugin_t *plugin, wget_downloaded_file_t *file)
 		{
 			const char *basename = strrchr(iri->uri, '/');
 			if (basename)
-				wget_vector_add_str(d->files_processed, basename + 1);
+				wget_vector_add(d->files_processed, wget_strdup(basename + 1));
 		}
 	}
 
 	return d->only_rot13 ? 0 : 1;
 }
 
-WGET_EXPORT int wget_plugin_initializer(wget_plugin_t *plugin);
-int wget_plugin_initializer(wget_plugin_t *plugin)
+WGET_EXPORT int wget_plugin_initializer(wget_plugin *plugin);
+int wget_plugin_initializer(wget_plugin *plugin)
 {
 	plugin_data_t *d = (plugin_data_t *) wget_calloc(1, sizeof(plugin_data_t));
 
-	d->files_processed = wget_vector_create(4, (wget_vector_compare_t) strcmp);
+	d->files_processed = wget_vector_create(4, (wget_vector_compare_fn *) strcmp);
 
 	plugin->plugin_data = d;
-	wget_plugin_register_argp(plugin, argp_fn);
+	wget_plugin_register_option_callback(plugin, argp_fn);
 	wget_plugin_register_finalizer(plugin, finalizer);
 
-	wget_plugin_register_url_filter(plugin, url_filter);
+	wget_plugin_register_url_filter_callback(plugin, url_filter);
 	wget_plugin_register_post_processor(plugin, post_processor);
 
 	return 0;
@@ -475,236 +475,240 @@ int wget_plugin_initializer(wget_plugin_t *plugin)
 
 // HPKP database for testing
 static int hpkp_db_load_counter = 0;
+
+// this is a dummy hpkp db implementation for the plugin
 typedef struct {
-	wget_hpkp_db_t parent;
-	wget_hpkp_db_t *backend_db;
-} test_hpkp_db_t;
-static int test_hpkp_db_load(wget_hpkp_db_t *p_hpkp_db)
+	int dummy;
+} test_hpkp_db;
+
+static wget_hpkp_db *test_hpkp_db_init(wget_hpkp_db *hpkp_db, const char *fname)
 {
-	test_hpkp_db_t *hpkp_db = (test_hpkp_db_t *) p_hpkp_db;
+	(void) fname;
 
-	if (! hpkp_db->backend_db)
-		wget_error_printf_exit("wget using wrong HPKP database\n");
+	if (!hpkp_db)
+		hpkp_db = wget_calloc(1, sizeof(test_hpkp_db));
+	else
+		memset(hpkp_db, 0, sizeof(test_hpkp_db));
 
+	return hpkp_db;
+}
+
+static void test_hpkp_db_deinit(wget_hpkp_db *hpkp_db)
+{
+	if (hpkp_db) {
+		memset(hpkp_db, 0, sizeof(test_hpkp_db));
+	}
+}
+
+static void test_hpkp_db_free(wget_hpkp_db **hpkp_db)
+{
+	wget_free(*hpkp_db);
+	*hpkp_db = NULL;
+}
+
+static int test_hpkp_db_check_pubkey(wget_hpkp_db *hpkp_db, const char *host, const void *pubkey, size_t pubkeysize)
+{
+	(void) hpkp_db;
+	wget_debug_printf("%s: host %s pubkey %p pksize %zu\n", __func__,
+		host, pubkey, pubkeysize);
+
+	return 0;
+}
+
+static void test_hpkp_db_add(wget_hpkp_db *hpkp_db, wget_hpkp **hpkp)
+{
+	(void) hpkp_db;
+	wget_debug_printf("%s: hpkp %p\n", __func__, (void *) hpkp);
+}
+
+static int test_hpkp_db_load(wget_hpkp_db *hpkp_db)
+{
+	(void) hpkp_db;
 	hpkp_db_load_counter++;
-	return wget_hpkp_db_load(hpkp_db->backend_db);
+	return 0;
 }
-static int test_hpkp_db_save(wget_hpkp_db_t *p_hpkp_db)
+
+static int test_hpkp_db_save(wget_hpkp_db *hpkp_db)
 {
-	test_hpkp_db_t *hpkp_db = (test_hpkp_db_t *) p_hpkp_db;
-
-	if (! hpkp_db->backend_db)
-		wget_error_printf_exit("wget using wrong HPKP database\n");
-
-	return wget_hpkp_db_save(hpkp_db->backend_db);
+	(void) hpkp_db;
+	return 0;
 }
-static void test_hpkp_db_free(wget_hpkp_db_t *p_hpkp_db)
-{
-	test_hpkp_db_t *hpkp_db = (test_hpkp_db_t *) p_hpkp_db;
 
-	if (hpkp_db->backend_db)
-		wget_hpkp_db_free(&hpkp_db->backend_db);
-	wget_free(hpkp_db);
-}
-static void test_hpkp_db_add(wget_hpkp_db_t *p_hpkp_db, wget_hpkp_t *hpkp)
-{
-	test_hpkp_db_t *hpkp_db = (test_hpkp_db_t *) p_hpkp_db;
-
-	if (! hpkp_db->backend_db)
-		wget_error_printf_exit("wget using wrong HPKP database\n");
-
-	wget_hpkp_db_add(hpkp_db->backend_db, &hpkp);
-}
-static int test_hpkp_db_check_pubkey(wget_hpkp_db_t *p_hpkp_db, const char *host, const void *pubkey, size_t pubkeysize)
-{
-	test_hpkp_db_t *hpkp_db = (test_hpkp_db_t *) p_hpkp_db;
-
-	if (! hpkp_db->backend_db)
-		wget_error_printf_exit("wget using wrong HPKP database\n");
-
-	return wget_hpkp_db_check_pubkey(hpkp_db->backend_db, host, pubkey, pubkeysize);
-}
-static struct wget_hpkp_db_vtable test_hpkp_db_vtable = {
+static wget_hpkp_db_vtable test_hpkp_db_vtable = {
+	.init = test_hpkp_db_init,
+	.deinit = test_hpkp_db_deinit,
+	.free = test_hpkp_db_free,
+	.check_pubkey = test_hpkp_db_check_pubkey,
+	.add = test_hpkp_db_add,
 	.load = test_hpkp_db_load,
 	.save = test_hpkp_db_save,
-	.free = test_hpkp_db_free,
-	.add = test_hpkp_db_add,
-	.check_pubkey = test_hpkp_db_check_pubkey
 };
-static wget_hpkp_db_t *test_hpkp_db_new(int usable) {
-	test_hpkp_db_t *hpkp_db = wget_malloc(sizeof(test_hpkp_db_t));
 
-	hpkp_db->parent.vtable = &test_hpkp_db_vtable;
-	if (usable)
-		hpkp_db->backend_db = wget_hpkp_db_init(NULL, NULL);
-	else
-		hpkp_db->backend_db = NULL;
-
-	return (wget_hpkp_db_t *) hpkp_db;
-}
 
 // HSTS database for testing
 static int hsts_db_load_counter = 0;
+
+// this is a dummy hsts db implementation for the plugin
 typedef struct {
-	wget_hsts_db_t parent;
-	wget_hsts_db_t *backend_db;
+	int dummy;
 } test_hsts_db_t;
-static int test_hsts_db_load(wget_hsts_db_t *p_hsts_db)
+
+static int test_hsts_db_host_match(const wget_hsts_db *hsts_db, const char *host, uint16_t port)
 {
-	test_hsts_db_t *hsts_db = (test_hsts_db_t *) p_hsts_db;
+	(void) hsts_db;
 
-	if (! hsts_db->backend_db)
-		wget_error_printf_exit("wget using wrong HSTS database\n");
+	wget_debug_printf("%s: host %s port %hu\n", __func__,
+		host, port);
 
+	return 0;
+}
+
+static wget_hsts_db *test_hsts_db_init(wget_hsts_db *hsts_db, const char *fname)
+{
+	(void) fname;
+
+	if (!hsts_db)
+		hsts_db = wget_calloc(1, sizeof(test_hsts_db_t));
+	else
+		memset(hsts_db, 0, sizeof(test_hsts_db_t));
+
+	return hsts_db;
+}
+
+static void test_hsts_db_deinit(wget_hsts_db *hsts_db)
+{
+	if (hsts_db) {
+		memset(hsts_db, 0, sizeof(test_hsts_db_t));
+	}
+}
+
+static void test_hsts_db_free(wget_hsts_db **hsts_db)
+{
+	wget_free(*hsts_db);
+	*hsts_db = NULL;
+}
+
+static void test_hsts_db_add(wget_hsts_db *hsts_db, const char *host, uint16_t port, time_t maxage, int include_subdomains)
+{
+	(void) hsts_db;
+	wget_debug_printf("%s: host %s port %hu maxage %lld include_subdomains %d\n", __func__,
+		host, port, (long long) maxage, include_subdomains);
+}
+
+static int test_hsts_db_load(wget_hsts_db *hsts_db)
+{
+	(void) hsts_db;
 	hsts_db_load_counter++;
-	return wget_hsts_db_load(hsts_db->backend_db);
+	return 0;
 }
-static int test_hsts_db_save(wget_hsts_db_t *p_hsts_db)
+
+static int test_hsts_db_save(wget_hsts_db *hsts_db)
 {
-	test_hsts_db_t *hsts_db = (test_hsts_db_t *) p_hsts_db;
-
-	if (! hsts_db->backend_db)
-		wget_error_printf_exit("wget using wrong HSTS database\n");
-
-	return wget_hsts_db_save(hsts_db->backend_db);
+	(void) hsts_db;
+	return 0;
 }
-static void test_hsts_db_free(wget_hsts_db_t *p_hsts_db)
-{
-	test_hsts_db_t *hsts_db = (test_hsts_db_t *) p_hsts_db;
 
-	if (hsts_db->backend_db)
-		wget_hsts_db_free(&hsts_db->backend_db);
-	wget_free(hsts_db);
-}
-static void test_hsts_db_add(wget_hsts_db_t *p_hsts_db, const char *host, uint16_t port, time_t maxage, int include_subdomains)
-{
-	test_hsts_db_t *hsts_db = (test_hsts_db_t *) p_hsts_db;
-
-	if (! hsts_db->backend_db)
-		wget_error_printf_exit("wget using wrong HSTS database\n");
-
-	wget_hsts_db_add(hsts_db->backend_db, host, port, maxage, include_subdomains);
-}
-static int test_hsts_db_host_match(const wget_hsts_db_t *p_hsts_db, const char *host, uint16_t port)
-{
-	const test_hsts_db_t *hsts_db = (test_hsts_db_t *) p_hsts_db;
-
-	if (! hsts_db->backend_db)
-		wget_error_printf_exit("wget using wrong HSTS database\n");
-
-	return wget_hsts_host_match(hsts_db->backend_db, host, port);
-}
-static struct wget_hsts_db_vtable test_hsts_db_vtable = {
-	.load = test_hsts_db_load,
-	.save = test_hsts_db_save,
+static const wget_hsts_db_vtable test_hsts_db_vtable = {
+	.host_match = test_hsts_db_host_match,
+	.init = test_hsts_db_init,
+	.deinit = test_hsts_db_deinit,
 	.free = test_hsts_db_free,
 	.add = test_hsts_db_add,
-	.host_match = test_hsts_db_host_match
+	.load = test_hsts_db_load,
+	.save = test_hsts_db_save,
 };
-static wget_hsts_db_t *test_hsts_db_new(int usable)
-{
-	test_hsts_db_t *hsts_db = wget_malloc(sizeof(test_hsts_db_t));
-
-	hsts_db->parent.vtable = &test_hsts_db_vtable;
-	if (usable)
-		hsts_db->backend_db = wget_hsts_db_init(NULL, NULL);
-	else
-		hsts_db->backend_db = NULL;
-
-	return (wget_hsts_db_t *) hsts_db;
-}
 
 // OCSP database for testing
 static int ocsp_db_load_counter = 0;
+
+// this is a dummy ocsp db implementation for the plugin
 typedef struct {
-	wget_ocsp_db_t parent;
-	wget_ocsp_db_t *backend_db;
-} test_ocsp_db_t;
-static int test_ocsp_db_load(wget_ocsp_db_t *p_ocsp_db)
+	int dummy;
+} test_ocsp_db;
+
+static wget_ocsp_db *test_ocsp_db_init(wget_ocsp_db *ocsp_db, const char *fname)
 {
-	test_ocsp_db_t *ocsp_db = (test_ocsp_db_t *) p_ocsp_db;
+	(void) fname;
 
-	if (! ocsp_db->backend_db)
-		wget_error_printf_exit("wget using wrong OCSP database\n");
+	if (!ocsp_db)
+		ocsp_db = wget_calloc(1, sizeof(test_ocsp_db));
+	else
+		memset(ocsp_db, 0, sizeof(test_ocsp_db));
 
+	return ocsp_db;
+}
+
+static void test_ocsp_db_deinit(wget_ocsp_db *ocsp_db)
+{
+	if (ocsp_db) {
+		memset(ocsp_db, 0, sizeof(test_ocsp_db));
+	}
+}
+
+static void test_ocsp_db_free(wget_ocsp_db **ocsp_db)
+{
+	wget_free(*ocsp_db);
+	*ocsp_db = NULL;
+}
+
+static bool test_ocsp_db_fingerprint_in_cache(const wget_ocsp_db *ocsp_db, const char *fingerprint, int *valid)
+{
+	(void) ocsp_db; (void) valid;
+
+	wget_debug_printf("%s: fingerprint %s\n", __func__, fingerprint);
+
+	return false;
+}
+
+static bool test_ocsp_db_hostname_is_valid(const wget_ocsp_db *ocsp_db, const char *hostname)
+{
+	(void) ocsp_db;
+
+	wget_debug_printf("%s: hostname %s\n", __func__, hostname);
+
+	return true;
+}
+
+static void test_ocsp_db_add_fingerprint(wget_ocsp_db *ocsp_db, const char *fingerprint, time_t maxage, bool valid)
+{
+	(void) ocsp_db;
+
+	wget_debug_printf("%s: fingerprint %s maxage %lld valid %d\n", __func__, fingerprint, (long long) maxage, valid);
+}
+
+static void test_ocsp_db_add_host(wget_ocsp_db *ocsp_db, const char *host, time_t maxage)
+{
+	(void) ocsp_db;
+
+	wget_debug_printf("%s: host %s maxage %lld\n", __func__, host, (long long) maxage);
+}
+
+static int test_ocsp_db_load(wget_ocsp_db *ocsp_db)
+{
+	(void) ocsp_db;
 	ocsp_db_load_counter++;
-	return wget_ocsp_db_load(ocsp_db->backend_db);
+	return 0;
 }
-static int test_ocsp_db_save(wget_ocsp_db_t *p_ocsp_db)
+
+static int test_ocsp_db_save(wget_ocsp_db *ocsp_db)
 {
-	test_ocsp_db_t *ocsp_db = (test_ocsp_db_t *) p_ocsp_db;
-
-	if (! ocsp_db->backend_db)
-		wget_error_printf_exit("wget using wrong OCSP database\n");
-
-	return wget_ocsp_db_save(ocsp_db->backend_db);
+	(void) ocsp_db;
+	return 0;
 }
-static void test_ocsp_db_free(wget_ocsp_db_t *p_ocsp_db)
-{
-	test_ocsp_db_t *ocsp_db = (test_ocsp_db_t *) p_ocsp_db;
 
-	if (ocsp_db->backend_db)
-		wget_ocsp_db_free(&ocsp_db->backend_db);
-	wget_free(ocsp_db);
-}
-static void test_ocsp_db_add_fingerprint(wget_ocsp_db_t *p_ocsp_db, const char *fingerprint, time_t maxage, int valid)
-{
-	test_ocsp_db_t *ocsp_db = (test_ocsp_db_t *) p_ocsp_db;
-
-	if (! ocsp_db->backend_db)
-		wget_error_printf_exit("wget using wrong OCSP database\n");
-
-	wget_ocsp_db_add_fingerprint(ocsp_db->backend_db, fingerprint, maxage, valid);
-}
-static void test_ocsp_db_add_host(wget_ocsp_db_t *p_ocsp_db, const char *host, time_t maxage)
-{
-	test_ocsp_db_t *ocsp_db = (test_ocsp_db_t *) p_ocsp_db;
-
-	if (! ocsp_db->backend_db)
-		wget_error_printf_exit("wget using wrong OCSP database\n");
-
-	wget_ocsp_db_add_host(ocsp_db->backend_db, host, maxage);
-}
-static bool test_ocsp_db_fingerprint_in_cache(const wget_ocsp_db_t *p_ocsp_db, const char *fingerprint, int *valid)
-{
-	const test_ocsp_db_t *ocsp_db = (test_ocsp_db_t *) p_ocsp_db;
-
-	if (! ocsp_db->backend_db)
-		wget_error_printf_exit("wget using wrong OCSP database\n");
-
-	return wget_ocsp_fingerprint_in_cache(ocsp_db->backend_db, fingerprint, valid);
-}
-static bool test_ocsp_db_hostname_is_valid(const wget_ocsp_db_t *p_ocsp_db, const char *hostname)
-{
-	const test_ocsp_db_t *ocsp_db = (test_ocsp_db_t *) p_ocsp_db;
-
-	if (! ocsp_db->backend_db)
-		wget_error_printf_exit("wget using wrong OCSP database\n");
-
-	return wget_ocsp_hostname_is_valid(ocsp_db->backend_db, hostname);
-}
-static struct wget_ocsp_db_vtable test_ocsp_db_vtable = {
-	.load = test_ocsp_db_load,
-	.save = test_ocsp_db_save,
+static const wget_ocsp_db_vtable test_ocsp_db_vtable = {
+	.init = test_ocsp_db_init,
+	.deinit = test_ocsp_db_deinit,
 	.free = test_ocsp_db_free,
+	.fingerprint_in_cache = test_ocsp_db_fingerprint_in_cache,
+	.hostname_is_valid = test_ocsp_db_hostname_is_valid,
 	.add_fingerprint = test_ocsp_db_add_fingerprint,
 	.add_host = test_ocsp_db_add_host,
-	.fingerprint_in_cache = test_ocsp_db_fingerprint_in_cache,
-	.hostname_is_valid = test_ocsp_db_hostname_is_valid
+	.load = test_ocsp_db_load,
+	.save = test_ocsp_db_save,
 };
-static wget_ocsp_db_t *test_ocsp_db_new(int usable) {
-	test_ocsp_db_t *ocsp_db = wget_malloc(sizeof(test_ocsp_db_t));
 
-	ocsp_db->parent.vtable = &test_ocsp_db_vtable;
-	if (usable)
-		ocsp_db->backend_db = wget_ocsp_db_init(NULL, NULL);
-	else
-		ocsp_db->backend_db = NULL;
-
-	return (wget_ocsp_db_t *) ocsp_db;
-}
-
-static void finalizer(G_GNUC_WGET_UNUSED wget_plugin_t *plugin, G_GNUC_WGET_UNUSED int exit_status)
+static void finalizer(WGET_GCC_UNUSED wget_plugin *plugin, WGET_GCC_UNUSED int exit_status)
 {
 	if (hpkp_db_load_counter != 1)
 		wget_error_printf_exit("wget using wrong HPKP database (%d)\n", hpkp_db_load_counter);
@@ -714,20 +718,17 @@ static void finalizer(G_GNUC_WGET_UNUSED wget_plugin_t *plugin, G_GNUC_WGET_UNUS
 		wget_error_printf_exit("wget using wrong OCSP database (%d)\n", ocsp_db_load_counter);
 }
 
-WGET_EXPORT int wget_plugin_initializer(wget_plugin_t *plugin);
-int wget_plugin_initializer(wget_plugin_t *plugin)
+WGET_EXPORT int wget_plugin_initializer(wget_plugin *plugin);
+int wget_plugin_initializer(wget_plugin *plugin)
 {
-	wget_plugin_add_hpkp_db(plugin, test_hpkp_db_new(0), 1);
-	wget_plugin_add_hpkp_db(plugin, test_hpkp_db_new(1), 3);
-	wget_plugin_add_hpkp_db(plugin, test_hpkp_db_new(0), 2);
+	// set the replacement for the standard HPKP database functions
+	wget_hpkp_set_plugin(&test_hpkp_db_vtable);
 
-	wget_plugin_add_hsts_db(plugin, test_hsts_db_new(0), 1);
-	wget_plugin_add_hsts_db(plugin, test_hsts_db_new(1), 3);
-	wget_plugin_add_hsts_db(plugin, test_hsts_db_new(0), 2);
+	// set the replacement for the standard HSTS database functions
+	wget_hsts_set_plugin(&test_hsts_db_vtable);
 
-	wget_plugin_add_ocsp_db(plugin, test_ocsp_db_new(0), 1);
-	wget_plugin_add_ocsp_db(plugin, test_ocsp_db_new(1), 3);
-	wget_plugin_add_ocsp_db(plugin, test_ocsp_db_new(0), 2);
+	// set the replacement for the standard OCSP database functions
+	wget_ocsp_set_plugin(&test_ocsp_db_vtable);
 
 	wget_plugin_register_finalizer(plugin, finalizer);
 

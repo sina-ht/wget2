@@ -38,11 +38,11 @@
   #pragma GCC diagnostic ignored "-Wundef"
 #endif
 
-#include "timespec.h" // gnulib gettime()
-
 #include <glthread/thread.h>
 #include <glthread/lock.h>
 #include <glthread/cond.h>
+
+#include "timespec.h" // gnulib gettime()
 
 #include <wget.h>
 #include "private.h"
@@ -59,16 +59,16 @@
  * Solaris threads and Windows threads.
  */
 
-struct _wget_thread_st {
-	gl_thread_t tid;
+struct wget_thread_st {
+	gl_thread_t tid; //!< thread id
 };
 
-struct _wget_thread_mutex_st {
-	gl_lock_t mutex;
+struct wget_thread_mutex_st {
+	gl_lock_t mutex; //!< mutex
 };
 
-struct _wget_thread_cond_st {
-	gl_cond_t cond;
+struct wget_thread_cond_st {
+	gl_cond_t cond; //!< conditional
 };
 
 /**
@@ -80,9 +80,12 @@ struct _wget_thread_cond_st {
  * After usage, a call to wget_thread_mutex_destroy() frees
  * the allocated resources.
  */
-int wget_thread_mutex_init(wget_thread_mutex_t *mutex)
+int wget_thread_mutex_init(wget_thread_mutex *mutex)
 {
-	*mutex = wget_malloc(sizeof(struct _wget_thread_mutex_st));
+	*mutex = wget_malloc(sizeof(struct wget_thread_mutex_st));
+
+	if (!*mutex)
+		return WGET_E_MEMORY;
 
 	return glthread_lock_init(&((*mutex)->mutex));
 }
@@ -95,7 +98,7 @@ int wget_thread_mutex_init(wget_thread_mutex_t *mutex)
  *
  * After calling this function, the \p mutex cannot be used any more.
  */
-int wget_thread_mutex_destroy(wget_thread_mutex_t *mutex)
+int wget_thread_mutex_destroy(wget_thread_mutex *mutex)
 {
 	int rc = glthread_lock_destroy(&(*mutex)->mutex);
 	xfree(*mutex);
@@ -109,7 +112,7 @@ int wget_thread_mutex_destroy(wget_thread_mutex_t *mutex)
  *
  * To unlock the \p mutex, call wget_thread_mutex_unlock().
  */
-void wget_thread_mutex_lock(wget_thread_mutex_t mutex)
+void wget_thread_mutex_lock(wget_thread_mutex mutex)
 {
 	glthread_lock_lock(&mutex->mutex);
 }
@@ -119,7 +122,7 @@ void wget_thread_mutex_lock(wget_thread_mutex_t mutex)
  *
  * Unlocks the \p mutex.
  */
-void wget_thread_mutex_unlock(wget_thread_mutex_t mutex)
+void wget_thread_mutex_unlock(wget_thread_mutex mutex)
 {
 	glthread_lock_unlock(&mutex->mutex);
 }
@@ -133,9 +136,12 @@ void wget_thread_mutex_unlock(wget_thread_mutex_t mutex)
  * After usage, a call to wget_thread_cond_destroy() frees
  * the allocated resources.
  */
-int wget_thread_cond_init(wget_thread_cond_t *cond)
+int wget_thread_cond_init(wget_thread_cond *cond)
 {
-	*cond = wget_malloc(sizeof(struct _wget_thread_cond_st));
+	*cond = wget_malloc(sizeof(struct wget_thread_cond_st));
+
+	if (!*cond)
+		return WGET_E_MEMORY;
 
 	return glthread_cond_init(&((*cond)->cond));
 }
@@ -148,7 +154,7 @@ int wget_thread_cond_init(wget_thread_cond_t *cond)
  *
  * After calling this function, \p cond cannot be used any more.
  */
-int wget_thread_cond_destroy(wget_thread_cond_t *cond)
+int wget_thread_cond_destroy(wget_thread_cond *cond)
 {
 	int rc = glthread_cond_destroy(&(*cond)->cond);
 	xfree(*cond);
@@ -161,7 +167,7 @@ int wget_thread_cond_destroy(wget_thread_cond_t *cond)
  *
  * Wakes up one (random) thread that waits on the conditional.
  */
-int wget_thread_cond_signal(wget_thread_cond_t cond)
+int wget_thread_cond_signal(wget_thread_cond cond)
 {
 	return glthread_cond_broadcast(&cond->cond);
 }
@@ -176,15 +182,19 @@ int wget_thread_cond_signal(wget_thread_cond_t cond)
  *
  * To wait forever use a timeout lower or equal then 0.
  */
-int wget_thread_cond_wait(wget_thread_cond_t cond, wget_thread_mutex_t mutex, long long ms)
+int wget_thread_cond_wait(wget_thread_cond cond, wget_thread_mutex mutex, long long ms)
 {
 	if (ms <= 0)
 		return glthread_cond_wait(&cond->cond, &mutex->mutex);
 
 	// pthread_cond_timedwait() wants an absolute time
-	ms += wget_get_timemillis();
+	struct timespec ts;
+	gettime(&ts);
+	ms += ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
+	ts.tv_sec = ms / 1000;
+	ts.tv_nsec = (ms % 1000) * 1000000;
 
-	return glthread_cond_timedwait(&cond->cond, &mutex->mutex, (&(struct timespec){ .tv_sec = ms / 1000, .tv_nsec = (ms % 1000) * 1000000 }));
+	return glthread_cond_timedwait(&cond->cond, &mutex->mutex, &ts);
 }
 
 /**
@@ -196,10 +206,13 @@ int wget_thread_cond_wait(wget_thread_cond_t cond, wget_thread_mutex_t mutex, lo
  *
  * Start \p start_routine as own thread with argument \p arg.
  */
-int wget_thread_start(wget_thread_t *thread, void *(*start_routine)(void *), void *arg, G_GNUC_WGET_UNUSED int flags)
+int wget_thread_start(wget_thread *thread, void *(*start_routine)(void *), void *arg, WGET_GCC_UNUSED int flags)
 {
 	if (wget_thread_support()) {
-		*thread = wget_malloc(sizeof(struct _wget_thread_st));
+		*thread = wget_malloc(sizeof(struct wget_thread_st));
+
+		if (!*thread)
+			return WGET_E_MEMORY;
 
 		return glthread_create(&((*thread)->tid), start_routine, arg);
 	}
@@ -215,7 +228,7 @@ int wget_thread_start(wget_thread_t *thread, void *(*start_routine)(void *), voi
  *
  * Currently a no-op function, since it's not portable.
  */
-int wget_thread_cancel(G_GNUC_WGET_UNUSED wget_thread_t thread)
+int wget_thread_cancel(WGET_GCC_UNUSED wget_thread thread)
 {
 /*
 	if (thread && thread->tid)
@@ -234,7 +247,7 @@ int wget_thread_cancel(G_GNUC_WGET_UNUSED wget_thread_t thread)
  *
  * Currently a no-op function, since it's not portable.
  */
-int wget_thread_kill(G_GNUC_WGET_UNUSED wget_thread_t thread, G_GNUC_WGET_UNUSED int sig)
+int wget_thread_kill(WGET_GCC_UNUSED wget_thread thread, WGET_GCC_UNUSED int sig)
 {
 /*	if (thread && thread->tid)
 		return glthread_kill(thread->tid, sig);
@@ -254,7 +267,7 @@ int wget_thread_kill(G_GNUC_WGET_UNUSED wget_thread_t thread, G_GNUC_WGET_UNUSED
  * This function just waits - to stop a thread you have take
  * your own measurements.
  */
-int wget_thread_join(wget_thread_t *thread)
+int wget_thread_join(wget_thread *thread)
 {
 	if (thread && *thread && (*thread)->tid) {
 		int rc = glthread_join((*thread)->tid, NULL);
@@ -274,7 +287,7 @@ int wget_thread_join(wget_thread_t *thread)
  * \return The thread id of the caller.
  *
  */
-wget_thread_id_t wget_thread_self(void)
+wget_thread_id wget_thread_self(void)
 {
 	return gl_thread_self();
 }

@@ -28,12 +28,18 @@
 #include "wget.h"
 #include "fuzzer.h"
 
+static void cookie_free(void *cookie)
+{
+	if (cookie)
+		wget_cookie_free((wget_cookie **) &cookie);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-	wget_cookie_db_t *db, *db2;
-	wget_cookie_t *cookie, *cookie2;
-	wget_iri_t *iri;
-	wget_vector_t *cookies;
+	wget_cookie_db *db, *db2;
+	wget_cookie *cookie, *cookie2;
+	wget_iri *iri;
+	wget_vector *cookies;
 	char *in;
 
 	if (size > 1000) // same as max_len = 10000 in .options file
@@ -46,7 +52,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	memcpy(in, data, size);
 	in[size] = 0;
 
-	free(wget_cookie_to_setcookie(NULL));
+	wget_free(wget_cookie_to_setcookie(NULL));
 	wget_cookie_store_cookie(NULL, NULL);
 	wget_cookie_db_save(NULL, NULL);
 	wget_cookie_db_load(NULL, NULL);
@@ -56,28 +62,30 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	wget_cookie_set_keep_session_cookies(db, 1);
 
 	wget_cookie_parse_setcookie(in, &cookie);
+	wget_free(wget_cookie_to_setcookie(cookie));
+
 	if (cookie) {
 		char fname[64];
 
-		wget_cookie_store_cookie(db, cookie);
 		wget_cookie_check_psl(db, cookie);
 		iri = wget_iri_parse("x.y", "iso-8859-1");
 		wget_cookie_normalize(iri, cookie);
+
 		wget_cookie_store_cookie(db, cookie);
 
 		wget_cookie_parse_setcookie(in, &cookie2);
 		cookies = wget_vector_create(4, NULL);
-		wget_vector_set_destructor(cookies, (wget_vector_destructor_t)wget_cookie_deinit);
-		wget_vector_add_noalloc(cookies, cookie2);
+		wget_vector_set_destructor(cookies, cookie_free);
+		wget_vector_add(cookies, cookie2);
 		wget_cookie_normalize_cookies(iri, cookies);
 		wget_cookie_store_cookies(db, cookies);
 		wget_http_free_cookies(&cookies);
 
-		free(wget_cookie_create_request_header(db, iri));
+		wget_free(wget_cookie_create_request_header(db, iri));
 		wget_iri_free(&iri);
 
 		// test load & save functions
-		snprintf(fname, sizeof(fname), "%d.tmp", getpid());
+		wget_snprintf(fname, sizeof(fname), "%d.tmp", getpid());
 		wget_cookie_db_save(db, fname);
 
 		db2 = wget_cookie_db_init(NULL);
@@ -86,9 +94,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
 		unlink(fname);
 	}
-	free(wget_cookie_to_setcookie(cookie));
-
-	free(cookie);
 
 	wget_cookie_db_load_psl(NULL, NULL);
 	wget_cookie_db_load_psl(db, "/dev/null");

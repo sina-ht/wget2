@@ -36,11 +36,11 @@
 #include "private.h"
 
 typedef struct {
-	wget_html_parsed_result_t
+	wget_html_parsed_result
 		result;
-	wget_vector_t *
+	wget_vector *
 		additional_tags;
-	wget_vector_t *
+	wget_vector *
 		ignore_tags;
 	int
 		uri_index;
@@ -86,27 +86,29 @@ static const char attrs[][12] = {
 	"usemap"
 };
 
-static void _css_parse_uri(void *context, const char *url G_GNUC_WGET_UNUSED, size_t len, size_t pos)
+static void _css_parse_uri(void *context, const char *url WGET_GCC_UNUSED, size_t len, size_t pos)
 {
 	_html_context_t *ctx = context;
+	wget_html_parsed_result *res = &ctx->result;
+	wget_html_parsed_url *parsed_url;
 
-	wget_html_parsed_result_t *res = &ctx->result;
+	if (!(parsed_url = wget_malloc(sizeof(wget_html_parsed_url))))
+		return;
+
+	parsed_url->link_inline = 1;
+	wget_strscpy(parsed_url->attr, ctx->css_attr, sizeof(parsed_url->attr));
+	wget_strscpy(parsed_url->dir, ctx->css_dir, sizeof(parsed_url->dir));
+	parsed_url->url.p = (const char *) (ctx->html + ctx->css_start_offset + pos);
+	parsed_url->url.len = len;
 
 	if (!res->uris)
 		res->uris = wget_vector_create(32, NULL);
 
-	wget_html_parsed_url_t parsed_url;
-	parsed_url.link_inline = 1;
-	wget_strscpy(parsed_url.attr, ctx->css_attr, sizeof(parsed_url.attr));
-	wget_strscpy(parsed_url.dir, ctx->css_dir, sizeof(parsed_url.dir));
-	parsed_url.url.p = (const char *) (ctx->html + ctx->css_start_offset + pos);
-	parsed_url.url.len = len;
-
-	wget_vector_add(res->uris, &parsed_url, sizeof(parsed_url));
+	wget_vector_add(res->uris, parsed_url);
 }
 
 // Callback function, called from HTML parser for each URI found.
-static void _html_get_url(void *context, int flags, const char *tag, const char *attr, const char *val, size_t len, size_t pos G_GNUC_WGET_UNUSED)
+static void _html_get_url(void *context, int flags, const char *tag, const char *attr, const char *val, size_t len, size_t pos WGET_GCC_UNUSED)
 {
 	_html_context_t *ctx = context;
 
@@ -126,7 +128,7 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 	}
 
 	if ((flags & XML_FLG_ATTRIBUTE) && val) {
-		wget_html_parsed_result_t *res = &ctx->result;
+		wget_html_parsed_result *res = &ctx->result;
 
 //		debug_printf("%02X %s %s '%.*s' %zu %zu\n", (unsigned) flags, tag, attr, (int) len, val, len, pos);
 
@@ -182,8 +184,8 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 		}
 
 		if (ctx->ignore_tags) {
-			if (wget_vector_find(ctx->ignore_tags, &(wget_html_tag_t){ .name = tag, .attribute = NULL } ) != -1
-				|| wget_vector_find(ctx->ignore_tags, &(wget_html_tag_t){ .name = tag, .attribute = attr } ) != -1)
+			if (wget_vector_find(ctx->ignore_tags, &(wget_html_tag){ .name = tag, .attribute = NULL } ) != -1
+				|| wget_vector_find(ctx->ignore_tags, &(wget_html_tag){ .name = tag, .attribute = attr } ) != -1)
 				return;
 		}
 
@@ -206,7 +208,7 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 
 				if (ctx->uri_index >= 0) {
 					// href= came before rel=
-					wget_html_parsed_url_t *url = wget_vector_get(res->uris, ctx->uri_index);
+					wget_html_parsed_url *url = wget_vector_get(res->uris, ctx->uri_index);
 					url->link_inline = ctx->link_inline;
 				}
 			}
@@ -221,8 +223,8 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 
 		// search the dynamic list for a tag/attr match
 		if (!found && ctx->additional_tags) {
-			if (wget_vector_find(ctx->additional_tags, &(wget_html_tag_t){ .name = tag, .attribute = NULL } ) != -1
-				|| wget_vector_find(ctx->additional_tags, &(wget_html_tag_t){ .name = tag, .attribute = attr } ) != -1)
+			if (wget_vector_find(ctx->additional_tags, &(wget_html_tag){ .name = tag, .attribute = NULL } ) != -1
+				|| wget_vector_find(ctx->additional_tags, &(wget_html_tag){ .name = tag, .attribute = attr } ) != -1)
 				found = 1;
 		}
 
@@ -240,7 +242,7 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 			if (!res->uris)
 				res->uris = wget_vector_create(32, NULL);
 
-			wget_html_parsed_url_t url;
+			wget_html_parsed_url url;
 
 			if (!wget_strcasecmp_ascii(attr, "srcset")) {
 				// value is a list of URLs, see https://html.spec.whatwg.org/multipage/embedded-content.html#attr-img-srcset
@@ -250,11 +252,12 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 					for (;len && c_isspace(*val); val++, len--); // skip leading spaces
 					for (p = val;len && !c_isspace(*val) && *val != ','; val++, len--); // find end of URL
 					if (p != val) {
+						url.link_inline = ctx->link_inline;
 						wget_strscpy(url.attr, attr, sizeof(url.attr));
 						wget_strscpy(url.dir, tag, sizeof(url.dir));
 						url.url.p = p;
 						url.url.len = val - p;
-						wget_vector_add(res->uris, &url, sizeof(url));
+						wget_vector_add_memdup(res->uris, &url, sizeof(url));
 					}
 					for (;len && *val != ','; val++, len--); // skip optional width/density descriptor
 					if (len && *val == ',') { val++; len--; }
@@ -267,7 +270,7 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 				wget_strscpy(url.dir, tag, sizeof(url.dir));
 				url.url.p = val;
 				url.url.len = len;
-				ctx->uri_index = wget_vector_add(res->uris, &url, sizeof(url));
+				ctx->uri_index = wget_vector_add_memdup(res->uris, &url, sizeof(url));
 			}
 		}
 	}
@@ -280,7 +283,7 @@ static void _html_get_url(void *context, int flags, const char *tag, const char 
 	}
 }
 
-void wget_html_free_urls_inline (wget_html_parsed_result_t **res)
+void wget_html_free_urls_inline (wget_html_parsed_result **res)
 {
 	if (res && *res) {
 		xfree((*res)->encoding);
@@ -289,7 +292,7 @@ void wget_html_free_urls_inline (wget_html_parsed_result_t **res)
 	}
 }
 
-wget_html_parsed_result_t *wget_html_get_urls_inline(const char *html, wget_vector_t *additional_tags, wget_vector_t *ignore_tags)
+wget_html_parsed_result *wget_html_get_urls_inline(const char *html, wget_vector *additional_tags, wget_vector *ignore_tags)
 {
 	_html_context_t context = {
 		.result.follow = 1,

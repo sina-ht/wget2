@@ -45,7 +45,7 @@ void plugin_db_clear_search_paths(void);
 // Extended plugin handle
 typedef struct
 {
-	wget_plugin_t parent;
+	wget_plugin parent;
 
 	// Plugin name
 	char *name;
@@ -66,7 +66,7 @@ plugin_t *plugin_db_load_from_name(const char *name, dl_error_t *e);
 int plugin_db_load_from_envvar(void);
 
 // Creates a list of all plugins found in plugin search paths.
-void plugin_db_list(wget_vector_t *names_out);
+void plugin_db_list(wget_vector *names_out);
 
 // Forwards a command line option to appropriate plugin.
 // On errors, it returns -1 and sets error. Otherwise it returns 0.
@@ -80,35 +80,23 @@ void plugin_db_show_help(void);
 
 // Plugin's verdict on forwarded URLs
 struct plugin_db_forward_url_verdict {
-	wget_iri_t *alt_iri;
+	wget_iri *alt_iri;
 	char *alt_local_filename;
 	bool
 		reject : 1,
 		accept : 1;
 };
 
-// Forwards a URL about to be enqueued to intrested plugins
-void plugin_db_forward_url(const wget_iri_t *iri, struct plugin_db_forward_url_verdict *verdict);
+// Forwards a URL about to be enqueued to interested plugins
+void plugin_db_forward_url(const wget_iri *iri, struct plugin_db_forward_url_verdict *verdict);
 
 // Free's all contents of plugin_db_forward_url_verdict
 void plugin_db_forward_url_verdict_free(struct plugin_db_forward_url_verdict *verdict);
 
-// Forwards downloaded file to intrested plugins
+// Forwards downloaded file to interested plugins
 // Returns 0 if wget must not post-process the file, 1 otherwise
-int plugin_db_forward_downloaded_file(const wget_iri_t *iri, uint64_t size, const char *filename, const void *data,
-		wget_vector_t *recurse_iris);
-
-// Fetches the plugin-provided HSTS database, or NULL.
-// Ownership of the returned HSTS database is transferred to the caller, so it must be free'd with wget_hsts_db_free().
-wget_hsts_db_t *plugin_db_fetch_provided_hsts_db(void);
-
-// Fetches the plugin-provided HPKP database, or NULL.
-// Ownership of the returned HPKP database is transferred to the caller, so it must be free'd with wget_hpkp_db_free().
-wget_hpkp_db_t *plugin_db_fetch_provided_hpkp_db(void);
-
-// Fetches the plugin-provided OCSP database, or NULL.
-// Ownership of the returned OCSP database is transferred to the caller, so it must be free'd with wget_ocsp_db_free().
-wget_ocsp_db_t *plugin_db_fetch_provided_ocsp_db(void);
+int plugin_db_forward_downloaded_file(const wget_iri *iri, uint64_t size, const char *filename, const void *data,
+		wget_vector *recurse_iris);
 
 // Sends 'finalize' signal to all plugins and unloads all plugins
 void plugin_db_finalize(int exitcode);

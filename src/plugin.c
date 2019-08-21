@@ -32,17 +32,16 @@
 #include "wget_plugin.h"
 
 // Strings
-static const char *init_fn_name = "wget_plugin_initializer";
 static const char *plugin_list_envvar = "WGET2_PLUGINS";
 
 // Splits string using the given separator and appends the array to vector.
-static void split_string(const char *str, char separator, wget_vector_t *v)
+static void split_string(const char *str, char separator, wget_vector *v)
 {
 	const char *ptr, *pmark;
 
 	for (pmark = ptr = str; *ptr; pmark = ptr + 1) {
 		if ((ptr = strchrnul(pmark, separator)) > pmark)
-			wget_vector_add_noalloc(v, wget_strmemdup(pmark, ptr - pmark));
+			wget_vector_add(v, wget_strmemdup(pmark, ptr - pmark));
 	}
 }
 
@@ -50,35 +49,26 @@ static void split_string(const char *str, char separator, wget_vector_t *v)
 typedef struct {
 	plugin_t parent;
 	// Finalizer function, to be called when wget2 exits
-	wget_plugin_finalizer_t finalizer;
+	wget_plugin_finalizer_fn *finalizer;
 	// The plugin's option processor
-	wget_plugin_argp_t argp;
+	wget_plugin_option_callback *argp;
 	// The plugin's URL filter
-	wget_plugin_url_filter_t url_filter;
+	wget_plugin_url_filter_callback *url_filter;
 	// The plugin's post processor
-	wget_plugin_post_processor_t post_processor;
+	wget_plugin_post_processor *post_processor;
 	// Buffer to store plugin name
 	char name_buf[];
 } plugin_priv_t;
 
 static int initialized = 0;
 // Plugin search paths
-static wget_vector_t *search_paths;
+static wget_vector *search_paths;
 // List of loaded plugins
-static wget_vector_t *plugin_list;
+static wget_vector *plugin_list;
 // Index of plugins by plugin name
-static wget_stringmap_t *plugin_name_index;
+static wget_stringmap *plugin_name_index;
 // Whether any of the previous options forwarded was 'help'
 static int plugin_help_forwarded;
-// Plugin supplied HSTS database
-static wget_hsts_db_t *hsts_db;
-static int hsts_db_priority;
-// Plugin supplied HPKP database
-static wget_hpkp_db_t *hpkp_db;
-static int hpkp_db_priority;
-// Plugin supplied OCSP database
-static wget_ocsp_db_t *ocsp_db;
-static int ocsp_db_priority;
 
 // Sets a list of directories to search for plugins, separated by
 // _separator_.
@@ -95,14 +85,14 @@ void plugin_db_clear_search_paths(void)
 
 // Basic plugin API
 static void impl_register_finalizer
-	(wget_plugin_t *p_plugin, wget_plugin_finalizer_t fn)
+	(wget_plugin *p_plugin, wget_plugin_finalizer_fn *fn)
 {
 	plugin_priv_t *priv = (plugin_priv_t *) p_plugin;
 
 	priv->finalizer = fn;
 }
 
-static const char *impl_get_name(wget_plugin_t *p_plugin)
+static const char *impl_get_name(wget_plugin *p_plugin)
 {
 	plugin_t *plugin = (plugin_t *) p_plugin;
 
@@ -110,7 +100,7 @@ static const char *impl_get_name(wget_plugin_t *p_plugin)
 }
 
 static void impl_register_argp
-	(wget_plugin_t *p_plugin, wget_plugin_argp_t fn)
+	(wget_plugin *p_plugin, wget_plugin_option_callback *fn)
 {
 	plugin_priv_t *priv = (plugin_priv_t *) p_plugin;
 
@@ -119,26 +109,26 @@ static void impl_register_argp
 
 // API for URL interception
 typedef struct {
-	wget_intercept_action_t parent;
+	wget_intercept_action parent;
 
 	struct plugin_db_forward_url_verdict verdict;
 } intercept_action_t;
 
-static void impl_action_reject(wget_intercept_action_t *p_action)
+static void impl_action_reject(wget_intercept_action *p_action)
 {
 	intercept_action_t *action = (intercept_action_t *) p_action;
 
 	action->verdict.reject = 1;
 }
 
-static void impl_action_accept(wget_intercept_action_t *p_action)
+static void impl_action_accept(wget_intercept_action *p_action)
 {
 	intercept_action_t *action = (intercept_action_t *) p_action;
 
 	action->verdict.accept = 1;
 }
 
-static void impl_action_set_alt_url(wget_intercept_action_t *p_action, const wget_iri_t *iri)
+static void impl_action_set_alt_url(wget_intercept_action *p_action, const wget_iri *iri)
 {
 	intercept_action_t *action = (intercept_action_t *) p_action;
 
@@ -147,7 +137,7 @@ static void impl_action_set_alt_url(wget_intercept_action_t *p_action, const wge
 	action->verdict.alt_iri = wget_iri_clone(iri);
 }
 
-static void impl_action_set_local_filename(wget_intercept_action_t *p_action, const char *local_filename)
+static void impl_action_set_local_filename(wget_intercept_action *p_action, const char *local_filename)
 {
 	intercept_action_t *action = (intercept_action_t *) p_action;
 
@@ -156,7 +146,7 @@ static void impl_action_set_local_filename(wget_intercept_action_t *p_action, co
 	action->verdict.alt_local_filename = wget_strdup(local_filename);
 }
 
-static void impl_register_url_filter(wget_plugin_t *p_plugin, wget_plugin_url_filter_t fn)
+static void impl_register_url_filter(wget_plugin *p_plugin, wget_plugin_url_filter_callback *fn)
 {
 	plugin_priv_t *priv = (plugin_priv_t *) p_plugin;
 
@@ -165,38 +155,38 @@ static void impl_register_url_filter(wget_plugin_t *p_plugin, wget_plugin_url_fi
 
 // API Exposed for plugins for intercepting downloaded files:
 typedef struct {
-	wget_downloaded_file_t parent;
+	wget_downloaded_file parent;
 
-	const wget_iri_t *iri;
+	const wget_iri *iri;
 	const char *filename;
 	uint64_t size;
 	const void *data;
 	void *data_buf;
-	wget_vector_t *recurse_iris;
+	wget_vector *recurse_iris;
 } downloaded_file_t;
 
-static const wget_iri_t *impl_file_get_source_url(wget_downloaded_file_t *p_file)
+static const wget_iri *impl_file_get_source_url(wget_downloaded_file *p_file)
 {
 	downloaded_file_t *file = (downloaded_file_t *) p_file;
 
 	return file->iri;
 }
 
-static const char *impl_file_get_local_filename(wget_downloaded_file_t *p_file)
+static const char *impl_file_get_local_filename(wget_downloaded_file *p_file)
 {
 	downloaded_file_t *file = (downloaded_file_t *) p_file;
 
 	return file->filename;
 }
 
-static uint64_t impl_file_get_size(wget_downloaded_file_t *p_file)
+static uint64_t impl_file_get_size(wget_downloaded_file *p_file)
 {
 	downloaded_file_t *file = (downloaded_file_t *) p_file;
 
 	return file->size;
 }
 
-static int impl_file_get_contents(wget_downloaded_file_t *p_file, const void **data, size_t *size)
+static int impl_file_get_contents(wget_downloaded_file *p_file, const void **data, size_t *size)
 {
 	downloaded_file_t *file = (downloaded_file_t *) p_file;
 
@@ -214,7 +204,7 @@ static int impl_file_get_contents(wget_downloaded_file_t *p_file, const void **d
 	return 0;
 }
 
-static FILE *impl_file_open_stream(wget_downloaded_file_t *p_file)
+static FILE *impl_file_open_stream(wget_downloaded_file *p_file)
 {
 	downloaded_file_t *file = (downloaded_file_t *) p_file;
 
@@ -227,65 +217,27 @@ static FILE *impl_file_open_stream(wget_downloaded_file_t *p_file)
 	return NULL;
 }
 
-static bool impl_file_get_recurse(wget_downloaded_file_t *p_file)
+static bool impl_file_get_recurse(wget_downloaded_file *p_file)
 {
 	downloaded_file_t *file = (downloaded_file_t *) p_file;
 
 	return file->recurse_iris ? true : false;
 }
 
-static void impl_file_add_recurse_url(wget_downloaded_file_t *p_file, const wget_iri_t *iri)
+static void impl_file_add_recurse_url(wget_downloaded_file *p_file, const wget_iri *iri)
 {
 	downloaded_file_t *file = (downloaded_file_t *) p_file;
 
 	if (file->recurse_iris)
-		wget_vector_add_noalloc(file->recurse_iris, wget_iri_clone(iri));
+		wget_vector_add(file->recurse_iris, wget_iri_clone(iri));
 }
 
-static void impl_register_post_processor(wget_plugin_t *p_plugin, wget_plugin_post_processor_t fn)
+static void impl_register_post_processor(wget_plugin *p_plugin, wget_plugin_post_processor *fn)
 {
 	plugin_priv_t *priv = (plugin_priv_t *) p_plugin;
 
 	priv->post_processor = fn;
 }
-
-// API for custom HSTS, HPKP and OCSP databases
-static void impl_add_hsts_db(G_GNUC_WGET_UNUSED wget_plugin_t *p_plugin, wget_hsts_db_t *new_hsts_db, int priority)
-{
-	if (hsts_db_priority < priority) {
-		hsts_db_priority = priority;
-		if (hsts_db)
-			wget_hsts_db_free(&hsts_db);
-		hsts_db = new_hsts_db;
-	} else {
-		wget_hsts_db_free(&new_hsts_db);
-	}
-}
-
-static void impl_add_hpkp_db(G_GNUC_WGET_UNUSED wget_plugin_t *p_plugin, wget_hpkp_db_t *new_hpkp_db, int priority)
-{
-	if (hpkp_db_priority < priority) {
-		hpkp_db_priority = priority;
-		if (hpkp_db)
-			wget_hpkp_db_free(&hpkp_db);
-		hpkp_db = new_hpkp_db;
-	} else {
-		wget_hpkp_db_free(&new_hpkp_db);
-	}
-}
-
-static void impl_add_ocsp_db(G_GNUC_WGET_UNUSED wget_plugin_t *p_plugin, wget_ocsp_db_t *new_ocsp_db, int priority)
-{
-	if (ocsp_db_priority < priority) {
-		ocsp_db_priority = priority;
-		if (ocsp_db)
-			wget_ocsp_db_free(&ocsp_db);
-		ocsp_db = new_ocsp_db;
-	} else {
-		wget_ocsp_db_free(&new_ocsp_db);
-	}
-}
-
 
 // vtable
 static struct wget_plugin_vtable vtable = {
@@ -307,23 +259,12 @@ static struct wget_plugin_vtable vtable = {
 	.file_get_recurse = impl_file_get_recurse,
 	.file_add_recurse_url = impl_file_add_recurse_url,
 	.register_post_processor = impl_register_post_processor,
-
-	.add_hsts_db = impl_add_hsts_db,
-	.add_hpkp_db = impl_add_hpkp_db,
-	.add_ocsp_db = impl_add_ocsp_db
 };
 
-
-// Frees all resources held by a plugin, except for the memory for the structure itself (for wget_vector_t)
-static void plugin_deinit(plugin_t *plugin)
-{
-	dl_file_close(plugin->dm);
-}
-
-// Like plugin_deinit but also free's memory
+// Free resources of the plugin and plugin itself
 static void plugin_free(plugin_t *plugin)
 {
-	plugin_deinit(plugin);
+	dl_file_close(plugin->dm);
 	wget_free(plugin);
 }
 
@@ -334,7 +275,7 @@ static plugin_t *_load_plugin(const char *name, const char *path, dl_error_t *e)
 	dl_file_t *dm;
 	plugin_t *plugin;
 	plugin_priv_t *priv;
-	wget_plugin_initializer_t init_fn;
+	wget_plugin_initializer_fn *init_fn;
 
 	name_len = strlen(name);
 
@@ -361,22 +302,22 @@ static plugin_t *_load_plugin(const char *name, const char *path, dl_error_t *e)
 	plugin->dm = dm;
 
 	// Call initializer
-	*((void **)(&init_fn)) = dl_file_lookup(dm, init_fn_name, e);
+	*((void **)(&init_fn)) = dl_file_lookup(dm, "wget_plugin_initializer", e);
 	if (! init_fn) {
 		plugin_free(plugin);
 		return NULL;
 	}
-	if (init_fn((wget_plugin_t *) plugin) != 0) {
+	if (init_fn((wget_plugin *) plugin) != 0) {
 		dl_error_set(e, "Plugin failed to initialize");
 		plugin_free(plugin);
 		return NULL;
 	}
 
 	// Add to plugin list
-	wget_vector_add_noalloc(plugin_list, (void *) plugin);
+	wget_vector_add(plugin_list, plugin);
 
 	// Add to map
-	wget_stringmap_put_noalloc(plugin_name_index, plugin->name, plugin);
+	wget_stringmap_put(plugin_name_index, plugin->name, plugin);
 
 	return plugin;
 }
@@ -416,7 +357,7 @@ plugin_t *plugin_db_load_from_name(const char *name, dl_error_t *e)
 int plugin_db_load_from_envvar(void)
 {
 	dl_error_t e[1];
-	wget_vector_t *v;
+	wget_vector *v;
 	const char *str;
 	int ret = 0;
 
@@ -466,7 +407,7 @@ int plugin_db_load_from_envvar(void)
 }
 
 // Creates a list of all plugins found in plugin search paths.
-void plugin_db_list(wget_vector_t *names_out)
+void plugin_db_list(wget_vector *names_out)
 {
 	dl_list(search_paths, names_out);
 }
@@ -538,7 +479,7 @@ int plugin_db_forward_option(const char *plugin_option, dl_error_t *e)
 		return -1;
 	}
 
-	op_res = priv->argp((wget_plugin_t *) plugin, option, value);
+	op_res = priv->argp((wget_plugin *) plugin, option, value);
 
 	if (op_res < 0)
 	{
@@ -562,7 +503,7 @@ void plugin_db_show_help(void)
 		plugin_priv_t *priv = (plugin_priv_t *) plugin;
 		if (priv->argp) {
 			printf(_("Options for %s:\n"), plugin->name);
-			priv->argp((wget_plugin_t *) plugin, "help", NULL);
+			priv->argp((wget_plugin *) plugin, "help", NULL);
 			printf("\n");
 		}
 	}
@@ -575,8 +516,8 @@ int plugin_db_help_forwarded(void)
 	return plugin_help_forwarded;
 }
 
-// Forwards a URL about to be enqueued to intrested plugins
-void plugin_db_forward_url(const wget_iri_t *iri, struct plugin_db_forward_url_verdict *verdict)
+// Forwards a URL about to be enqueued to interested plugins
+void plugin_db_forward_url(const wget_iri *iri, struct plugin_db_forward_url_verdict *verdict)
 {
 	// Initialize action structure
 	intercept_action_t action = { .parent.vtable = &vtable };
@@ -587,11 +528,11 @@ void plugin_db_forward_url(const wget_iri_t *iri, struct plugin_db_forward_url_v
 		plugin_priv_t *priv = (plugin_priv_t *) plugin;
 
 		if (priv->url_filter) {
-			const wget_iri_t *cur_iri = action.verdict.alt_iri;
+			const wget_iri *cur_iri = action.verdict.alt_iri;
 			if (! cur_iri)
 				cur_iri = iri;
 
-			priv->url_filter((wget_plugin_t *) plugin, cur_iri, (wget_intercept_action_t *) &action);
+			priv->url_filter((wget_plugin *) plugin, cur_iri, (wget_intercept_action *) &action);
 			if (action.verdict.reject || action.verdict.accept)
 				break;
 		}
@@ -609,36 +550,9 @@ void plugin_db_forward_url_verdict_free(struct plugin_db_forward_url_verdict *ve
 		wget_free(verdict->alt_local_filename);
 }
 
-// Fetches the plugin-provided HSTS database, or NULL.
-// Ownership of the returned HSTS database is transferred to the caller, so it must be free'd with wget_hsts_db_free().
-wget_hsts_db_t *plugin_db_fetch_provided_hsts_db(void)
-{
-	wget_hsts_db_t *res = hsts_db;
-	hsts_db = NULL;
-	return res;
-}
-
-// Fetches the plugin-provided HPKP database, or NULL.
-// Ownership of the returned HPKP database is transferred to the caller, so it must be free'd with wget_hpkp_db_free().
-wget_hpkp_db_t *plugin_db_fetch_provided_hpkp_db(void)
-{
-	wget_hpkp_db_t *res = hpkp_db;
-	hpkp_db = NULL;
-	return res;
-}
-
-// Fetches the plugin-provided OCSP database, or NULL.
-// Ownership of the returned OCSP database is transferred to the caller, so it must be free'd with wget_ocsp_db_free().
-wget_ocsp_db_t *plugin_db_fetch_provided_ocsp_db(void)
-{
-	wget_ocsp_db_t *res = ocsp_db;
-	ocsp_db = NULL;
-	return res;
-}
-
 // Forwards downloaded file to interested plugins
-int plugin_db_forward_downloaded_file(const wget_iri_t *iri, uint64_t size, const char *filename, const void *data,
-		wget_vector_t *recurse_iris)
+int plugin_db_forward_downloaded_file(const wget_iri *iri, uint64_t size, const char *filename, const void *data,
+		wget_vector *recurse_iris)
 {
 	int ret = 1;
 
@@ -659,7 +573,7 @@ int plugin_db_forward_downloaded_file(const wget_iri_t *iri, uint64_t size, cons
 		plugin_priv_t *priv = (plugin_priv_t *) plugin;
 
 		if (priv->post_processor) {
-			if (priv->post_processor((wget_plugin_t *) plugin, (wget_downloaded_file_t *) &file) == 0) {
+			if (priv->post_processor((wget_plugin *) plugin, (wget_downloaded_file *) &file) == 0) {
 				ret = 0;
 				break;
 			}
@@ -679,17 +593,11 @@ void plugin_db_init(void)
 	if (! initialized) {
 		search_paths = wget_vector_create(16, NULL);
 		plugin_list = wget_vector_create(16, NULL);
-		wget_vector_set_destructor(plugin_list, (wget_vector_destructor_t) plugin_deinit);
+		wget_vector_set_destructor(plugin_list, (wget_vector_destructor *) plugin_free);
 		plugin_name_index = wget_stringmap_create(16);
 		wget_stringmap_set_key_destructor(plugin_name_index, NULL);
 		wget_stringmap_set_value_destructor(plugin_name_index, NULL);
 		plugin_help_forwarded = 0;
-		hsts_db = NULL;
-		hsts_db_priority = 0;
-		hpkp_db = NULL;
-		hpkp_db_priority = 0;
-		ocsp_db = NULL;
-		ocsp_db_priority = 0;
 
 		initialized = 1;
 	}
@@ -707,17 +615,11 @@ void plugin_db_finalize(int exitcode)
 		plugin_t *plugin = (plugin_t *) wget_vector_get(plugin_list, i);
 		plugin_priv_t *priv = (plugin_priv_t *) plugin;
 		if (priv->finalizer)
-			priv->finalizer((wget_plugin_t *) plugin, exitcode);
+			priv->finalizer((wget_plugin *) plugin, exitcode);
 	}
 	wget_vector_free(&plugin_list);
 	wget_stringmap_free(&plugin_name_index);
 	wget_vector_free(&search_paths);
-	if (hsts_db)
-		wget_hsts_db_free(&hsts_db);
-	if (hpkp_db)
-		wget_hpkp_db_free(&hpkp_db);
-	if (ocsp_db)
-		wget_ocsp_db_free(&ocsp_db);
 
 	initialized = 0;
 }

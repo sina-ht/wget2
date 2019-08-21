@@ -55,6 +55,8 @@ fi
 gl_EARLY
 gl_INIT
 
+AX_CODE_COVERAGE
+
 LT_PREREQ([2.2])
 LT_INIT([dlopen])
 
@@ -129,6 +131,7 @@ if test -n "$WARN_CFLAGS"; then
     nw="$nw -Wcast-function-type" # gcc 8, very noisy
     nw="$nw -Wabi" # gcc 8, very noisy
     nw="$nw -Wunused-macros" # triggers in auto-generated lex css parser, #pragma doesn't work, conflicts with -Werror
+    nw="$nw -Wchkp" # gcc-9 says: not supported any more (but emits it via -Q --help=C)"
     if test "$cross_compiling" = yes; then
       nw="$nw -Wformat"
     fi
@@ -184,6 +187,7 @@ if test -n "$WARN_CFLAGS"; then
     WARN_CFLAGS="$WARN_CFLAGS -Wno-documentation -Wno-documentation-unknown-command"
     WARN_CFLAGS="$WARN_CFLAGS -Wno-covered-switch-default -Wno-unused-macros"
     WARN_CFLAGS="$WARN_CFLAGS -Wno-missing-field-initializers"
+    WARN_CFLAGS="$WARN_CFLAGS -Wno-nullability-extension -Wno-nullability-completeness"
 
     # remove all flags from WARN_FLAGS that are already in CFLAGS
     # wget_WORD_REMOVE([WARN_CFLAGS], [$WARN_CFLAGS], [$CFLAGS])
@@ -329,35 +333,39 @@ m4_ifdef([AM_GNU_GETTEXT], [
 ])
 m4_ifdef([AM_GNU_GETTEXT_VERSION], [
 #do not indent here
-AM_GNU_GETTEXT_VERSION([0.18.2])
+AM_GNU_GETTEXT_VERSION([0.19.3])
 ])
 AM_CONDITIONAL([HAVE_PO], [ test "$have_po" = yes ])
 
 #
 # check for doxygen and pandoc
 #
-AC_ARG_ENABLE(doc, AS_HELP_STRING([--disable-doc], [don't generate any documentation]),
+AC_ARG_ENABLE(doc, AS_HELP_STRING([--disable-doc], [don t generate any documentation]),
   enable_doc=$enableval, enable_doc=yes)
 if test "$enable_doc" = yes; then
   AC_CHECK_PROGS([DOXYGEN], [doxygen])
   AC_CHECK_PROGS([PANDOC], [pandoc])
 
   if test -n "$DOXYGEN" || test -n "$PANDOC"; then
-    DOCS_INFO="yes (found:"
+    LIBWGET_DOCS_INFO="yes (found:"
     if test -n "$DOXYGEN"; then
-      DOCS_INFO="$DOCS_INFO Doxygen"
+      LIBWGET_DOCS_INFO+=" Doxygen)"
+	else
+	  LIBWGET_DOCS_INFO="no"
     fi
+    WGET2_DOCS_INFO="yes (found:"
     if test -n "$PANDOC"; then
-      DOCS_INFO="$DOCS_INFO Pandoc"
+      WGET2_DOCS_INFO+=" Pandoc)"
+	else
+	  WGET2_DOCS_INFO="no"
     fi
-    DOCS_INFO="$DOCS_INFO)"
   else
     DOCS_INFO="no (neither Doxygen nor Pandoc found)"
   fi
 else
   DOCS_INFO="no (disabled)"
 fi
-AM_CONDITIONAL([WITH_DOCS], [ test -n "$DOXYGEN" && test -n "$PANDOC" ])
+AM_CONDITIONAL([WITH_DOCS], [ test -n "$DOXYGEN" || test -n "$PANDOC" ])
 AM_CONDITIONAL([WITH_DOXYGEN], [ test -n "$DOXYGEN" ])
 AM_CONDITIONAL([WITH_PANDOC], [ test -n "$PANDOC" ])
 
@@ -451,10 +459,38 @@ AS_IF([test "x$with_gnutls" != "xno"], [
 ])
 AM_CONDITIONAL([WITH_GNUTLS], [test "x$with_gnutls" = xyes])
 
+AC_ARG_WITH(wolfssl, AS_HELP_STRING([--without-wolfssl], [disable WolfSSL support]), with_wolfssl=$withval)
+AS_IF([test "x$with_wolfssl" = xyes], [
+  echo "*** $with_wolfssl"
+  PKG_CHECK_MODULES([WOLFSSL], [wolfssl], [
+    with_wolfssl=yes
+    LIBS="$WOLFSSL_LIBS $LIBS"
+    CFLAGS="$WOLFSSL_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_WOLFSSL], [1], [Use WolfSSL])
+  ], [
+    AC_SEARCH_LIBS(wolfSSL_Init, wolfssl,
+      [with_wolfssl=yes; AC_DEFINE([WITH_WOLFSSL], [1], [Use WolfSSL])],
+      [with_wolfssl=no;  AC_MSG_WARN(*** WolfSSL was not found. You will not be able to use HTTPS.)])
+  ])
+])
+AM_CONDITIONAL([WITH_WOLFSSL], [test "x$with_wolfssl" = xyes])
+
+AM_CONDITIONAL([WITH_TLS], [test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes])
+AS_IF([test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes], [
+  AC_DEFINE([WITH_TLS], [1], [Built with TLS support])
+])
+
 AS_IF([test "x$with_gnutls" != xyes || test "x$with_gnutls_hash" != xyes], [
-  AC_SEARCH_LIBS(nettle_md5_init, nettle,
-    [with_libnettle=yes; AC_DEFINE([WITH_LIBNETTLE], [1], [Use libnettle])],
-    [with_libnettle=no;  AC_MSG_WARN(*** LIBNETTLE was not found. Fallback to libgcrypt for hashing and checksumming.)])
+  PKG_CHECK_MODULES([NETTLE], nettle, [
+      with_libnettle=yes
+      LIBS="$NETTLE_LIBS $LIBS"
+      CFLAGS="$NETTLE_CFLAGS $CFLAGS"
+      AC_DEFINE([WITH_LIBNETTLE], [1], [Use libnettle])
+    ], [
+      AC_SEARCH_LIBS(nettle_md5_init, nettle,
+        [with_libnettle=yes; AC_DEFINE([WITH_LIBNETTLE], [1], [Use libnettle])],
+        [with_libnettle=no;  AC_MSG_WARN(*** LIBNETTLE was not found. Fallback to libgcrypt for hashing and checksumming.)])
+    ])
 
   AS_IF([test "x$with_libnettle" != xyes], [
     AC_SEARCH_LIBS(gcry_check_version, gcrypt,
@@ -682,6 +718,7 @@ AS_IF([test "x$with_libmicrohttpd" != xno], [
     LIBS="$MICROHTTPD_LIBS $LIBS"
     CFLAGS="$MICROHTTPD_CFLAGS $CFLAGS"
     AC_CHECK_FUNCS(MHD_free)
+    AC_CHECK_HEADERS([microhttpd_http2.h])
     LIBS=$old_LIBS
     CFLAGS=$old_CFLAGS
   ], [
@@ -689,6 +726,7 @@ AS_IF([test "x$with_libmicrohttpd" != xno], [
       [with_libmicrohttpd=yes; AC_DEFINE([WITH_MICROHTTPD], [1], [Use libmicrohttpd])],
       [with_libmicrohttpd=no; AC_MSG_WARN(*** LIBMICROHTTPD was not found. Several tests will not run.)])
     AC_CHECK_FUNCS(MHD_free)
+    AC_CHECK_HEADERS([microhttpd_http2.h])
     TEST_LIBS=$LIBS
     TEST_CFLAGS=$CFLAGS
   ])
@@ -745,7 +783,7 @@ AC_SUBST([TEST_LIBS])
 
 # Checks for header files.
 AC_CHECK_HEADERS([\
- crypt.h idna.h idn/idna.h idn2.h unicase.h netinet/tcp.h sys/uio.h])
+ crypt.h idna.h idn/idna.h idn2.h unicase.h netinet/tcp.h])
 
 # Checks for library functions.
 AC_FUNC_FORK
@@ -784,7 +822,7 @@ AC_MSG_NOTICE([Summary of build options:
   LDFlags:            ${LDFLAGS}
   Libs:               ${LIBS}
   Library types:      shared=${enable_shared}, static=${enable_static}
-  SSL/TLS support:    $with_gnutls
+  SSL/TLS support:    $with_gnutls $with_wolfssl
   GZIP compression:   $with_zlib
   BZIP2 compression:  $with_bzip2
   LZMA compression:   $with_lzma
@@ -795,6 +833,8 @@ AC_MSG_NOTICE([Summary of build options:
   HSTS support:       $with_libhsts
   HTTP/2.0 support:   $with_libnghttp2
   Documentation:      $DOCS_INFO
+  Wget2 docs:         $WGET2_DOCS_INFO
+  Libwget docs:       $LIBWGET_DOCS_INFO
   PCRE support:       ${HAVE_PCRE}
   Tests:              ${TESTS_INFO}
   Assertions:         $ENABLE_ASSERT

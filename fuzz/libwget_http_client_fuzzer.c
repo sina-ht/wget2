@@ -38,6 +38,9 @@ static int connect_fd;
 #include <dlfcn.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#if defined __OpenBSD__ || defined __FreeBSD__
+#include <netinet/in.h>
+#endif
 #ifdef RTLD_NEXT /* Not defined e.g. on CygWin */
 struct combined {
 	struct addrinfo ai;
@@ -69,8 +72,20 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
 
 	return libc_getaddrinfo(node, service, hints, res);
 }
+void freeaddrinfo(struct addrinfo *res)
+{
+	if (fuzzing) {
+		wget_free(res);
+		return;
+	}
 
-#ifdef __OpenBSD__
+	void (*libc_freeaddrinfo)(struct addrinfo *res) =
+		(void(*)(struct addrinfo *res)) dlsym (RTLD_NEXT, "getaddrinfo");
+
+	libc_freeaddrinfo(res);
+}
+
+#if defined __OpenBSD__ || defined __FreeBSD__
 int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host, size_t hostlen, char *serv, size_t servlen, int flags)
 #else
 int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags)
@@ -165,7 +180,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 		return 0;
 
 	fuzzing = 1;
-	wget_iri_t *uri = wget_iri_parse("http://example.com", NULL);
+	wget_iri *uri = wget_iri_parse("http://example.com", NULL);
 	wget_tcp_set_timeout(NULL, 0); // avoid to call select or poll
 	wget_tcp_set_connect_timeout(NULL, 0); // avoid to call select or poll
 
@@ -180,14 +195,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
 			connect_fd = -1;
 
-			wget_http_request_t *req = wget_http_create_request(uri, "GET");
-			wget_http_connection_t *conn = NULL;
+			wget_http_request *req = wget_http_create_request(uri, "GET");
+			wget_http_connection *conn = NULL;
 
 			// wget_http_add_header(req, "User-Agent", "TheUserAgent/0.5");
 
 			if (wget_http_open(&conn, uri) == WGET_E_SUCCESS) {
 				if (wget_http_send_request(conn, req) == WGET_E_SUCCESS) {
-					wget_http_response_t *resp = wget_http_get_response(conn);
+					wget_http_response *resp = wget_http_get_response(conn);
 					wget_http_free_response(&resp);
 				}
 				wget_http_close(&conn);

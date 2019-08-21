@@ -58,10 +58,14 @@ extern "C" {
 #define WGET_TEST_HTTPS_ONLY 1003
 #define WGET_TEST_HTTP_ONLY 1004
 #define WGET_TEST_HTTPS_REJECT_CONNECTIONS 1005
+#define WGET_TEST_H2_ONLY 1006
+#define WGET_TEST_SKIP_H2 1007
 #define WGET_TEST_FEATURE_MHD 1101
 #define WGET_TEST_FEATURE_TLS 1102
 #define WGET_TEST_FEATURE_IDN 1103
 #define WGET_TEST_FEATURE_PLUGIN 1104
+#define WGET_TEST_FEATURE_OCSP 1105
+#define WGET_TEST_FEATURE_OCSP_STAPLING 1106
 
 // defines for wget_test()
 #define WGET_TEST_REQUEST_URL 2001
@@ -77,11 +81,17 @@ extern "C" {
 // defines for wget_test_check_file_system()
 #define WGET_TEST_FS_CASEMATTERS 3001 // file system is case-sensitive
 
+// for post-handshake authentication
+#define WGET_TEST_POST_HANDSHAKE_AUTH 3002
+
+// for OCSP testing
+#define WGET_TEST_OCSP_RESP_FILE 3003
+
 #define countof(a) (sizeof(a)/sizeof(*(a)))
 
 #define TEST_OPAQUE_STR "11733b200778ce33060f31c9af70a870ba96ddd4"
 
-G_GNUC_WGET_UNUSED static const char *WGET_TEST_SOME_HTML_BODY = "\
+WGET_GCC_UNUSED static const char *WGET_TEST_SOME_HTML_BODY = "\
 <html>\n\
 <head>\n\
   <title>The Title</title>\n\
@@ -104,6 +114,8 @@ typedef struct {
 		restricted_mode;
 	size_t
 		content_length;
+	const char *
+		hardlink;
 } wget_test_file_t;
 
 typedef struct {
@@ -114,7 +126,11 @@ typedef struct {
 	const char *
 		body;
 	const char *
+		body_original;
+	const char *
 		headers[10];
+	const char *
+		headers_original[10];
 	const char *
 		request_headers[10];
 	const char *
@@ -135,19 +151,18 @@ typedef struct {
 		body_len; // The length of the body in bytes. 0 means use strlen(body)
 
 	bool
-		body_alloc : 1, // if body has been allocated internally (and need to be freed on exit)
 		https_only : 1,
 		http_only : 1;
-	bool
-		header_alloc[10]; // if header[n] has been allocated internally (and need to be freed on exit)
 } wget_test_url_t;
 
 WGETAPI void wget_test_stop_server(void);
 WGETAPI void wget_test_start_server(int first_key, ...);
 WGETAPI void wget_test(int first_key, ...);
 WGETAPI int wget_test_check_file_system(void);
-WGETAPI int wget_test_get_http_server_port(void) G_GNUC_WGET_PURE;
-WGETAPI int wget_test_get_https_server_port(void) G_GNUC_WGET_PURE;
+WGETAPI int wget_test_get_http_server_port(void) WGET_GCC_PURE;
+WGETAPI int wget_test_get_https_server_port(void) WGET_GCC_PURE;
+WGETAPI int wget_test_get_ocsp_server_port(void) WGET_GCC_PURE;
+WGETAPI int wget_test_get_h2_server_port(void) WGET_GCC_PURE;
 
 #if defined __clang__ || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #	pragma GCC diagnostic ignored "-Wmissing-field-initializers"

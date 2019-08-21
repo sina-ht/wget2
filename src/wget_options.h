@@ -53,8 +53,17 @@ enum {
 	WGET_GPG_VERIFY_SIG_NO_FAIL
 };
 
+typedef struct {
+	const char
+		*filename;
+	FILE
+		*fp;
+	wget_stats_format
+		format;
+} stats_args;
+
 struct config {
-	wget_iri_t
+	wget_iri
 		*base;
 	const char
 		*post_file,
@@ -94,22 +103,18 @@ struct config {
 		*reject_regex,
 		*gnupg_homedir,
 		*stats_all,
-		*stats_dns,
-		*stats_ocsp,
-		*stats_server,
-		*stats_site,
-		*stats_tls,
 		*system_config,
 		*user_config,
 		*hsts_file,
 		*hsts_preload_file,
 		*hpkp_file,
 		*tls_session_file,
+		*ocsp_server,
 		*ocsp_file,
 		*netrc_file,
 		*use_askpass_bin,
 		*dns_cache_preload;
-	wget_vector_t
+	wget_vector
 		*compression,
 		*domains,
 		*exclude_directories,
@@ -126,31 +131,39 @@ struct config {
 		*mime_types,
 		*http_retry_on_status,
 		*save_content_on;
-	wget_content_encoding_type_t
+	wget_content_encoding
 		compression_methods[wget_content_encoding_max + 1];	// the last one for counting
-	wget_hsts_db_t
+	wget_hsts_db
 		*hsts_db; // in-memory HSTS database
 #ifdef WITH_LIBHSTS
 	hsts_t
 		*hsts_preload_data; // in-memory HSTS preloaded data
 #endif
-	wget_hpkp_db_t
+	wget_hpkp_db
 		*hpkp_db; // in-memory HPKP database
-	wget_tls_session_db_t
+	wget_tls_session_db
 		*tls_session_db; // in-memory TLS session database
-	wget_ocsp_db_t
+	wget_ocsp_db
 		*ocsp_db; // in-memory fingerprint OCSP database
-	wget_netrc_db_t
+	wget_netrc_db
 		*netrc_db; // in-memory .netrc database
-	struct _wget_cookie_db_st
+	wget_cookie_db
 		*cookie_db;
+	stats_args
+		*stats_dns_args,
+		*stats_ocsp_args,
+		*stats_server_args,
+		*stats_site_args,
+		*stats_tls_args;
 	char
 		*password,
 		*username;
 	size_t
 		chunk_size;
 	long long
-		quota;
+		quota,
+		limit_rate, // bytes
+		start_pos; // bytes
 	bool
 		no_compression,
 		auth_no_challenge;
@@ -168,10 +181,14 @@ struct config {
 		dns_timeout, // ms
 		read_timeout, // ms
 		max_redirect,
-		max_threads;
-	unsigned short
+		max_threads,
+		ocsp_date,
+		ocsp_nonce;
+	uint16_t
 		default_http_port,
 		default_https_port;
+	wget_report_speed
+		report_speed;
 	char
 		tls_resume,            // if TLS session resumption is enabled or not
 		tls_false_start,
@@ -180,6 +197,7 @@ struct config {
 		fsync_policy,
 		netrc,
 		http2,
+		http2_only,
 		ocsp_stapling,
 		ocsp,
 		mirror,
@@ -246,11 +264,13 @@ struct config {
 		regex_type,
 		filter_urls,
 		askpass,
-		report_speed,
 		verify_save_failed,
 		verify_sig,
 		https_enforce,
-		retry_connrefused;
+		retry_connrefused,
+		unlink,
+		background;
+
 };
 
 extern struct config
@@ -274,7 +294,7 @@ typedef enum exit_status_t {
 extern "C" {
 #endif
 
-int init(int argc, const char **argv) G_GNUC_WGET_NONNULL_ALL;
+int init(int argc, const char **argv) WGET_GCC_NONNULL_ALL;
 int selftest_options(void);
 void deinit(void);
 void set_exit_status(exit_status_t status);

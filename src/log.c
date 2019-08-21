@@ -46,9 +46,9 @@
 #	include <windows.h>
 	static CRITICAL_SECTION g_crit;
 #	define _U
-#	define _U_WIN32 G_GNUC_WGET_UNUSED
+#	define _U_WIN32 WGET_GCC_UNUSED
 #else
-#	define _U G_GNUC_WGET_UNUSED
+#	define _U WGET_GCC_UNUSED
 #	define _U_WIN32
 #endif
 
@@ -63,7 +63,7 @@ static void _write_out(
 	size_t len,
 	int with_timestamp,
 	const char _U_WIN32 *colorstring,
-	wget_console_color_t _U color_id)
+	wget_console_color _U color_id)
 {
 	FILE *fp;
 	int fd = -1;
@@ -84,7 +84,7 @@ static void _write_out(
 	}
 
 	char sbuf[4096];
-	wget_buffer_t buf;
+	wget_buffer buf;
 	wget_buffer_init(&buf, sbuf, sizeof(sbuf));
 
 #ifndef _WIN32
@@ -161,7 +161,7 @@ static void _write_debug_stderr(const char *data, size_t len)
 	_write_debug(stderr, data, len);
 }
 
-static void G_GNUC_WGET_UNUSED _write_debug_stdout(const char *data, size_t len)
+static void WGET_GCC_UNUSED _write_debug_stdout(const char *data, size_t len)
 {
 	_write_debug(stdout, data, len);
 }

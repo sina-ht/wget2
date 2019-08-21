@@ -61,13 +61,13 @@ static void _validate_sigs(gpgme_signature_t sig, wget_gpg_info_t *info, const c
 			info->bad_sigs++;
 		} else {
 			if (cur->summary & GPGME_SIGSUM_RED) {
-				error_printf("%s: Invalid signature\n", sig_filename);
+				error_printf(_("%s: Invalid signature\n"), sig_filename);
 				info->bad_sigs++;
 			} else if (cur->summary & GPGME_SIGSUM_KEY_EXPIRED) {
 				error_printf(_("%s: Key %s expired\n"), sig_filename, cur->fpr);
 				info->invalid_sigs++;
 			} else if (cur->summary & GPGME_SIGSUM_SIG_EXPIRED) {
-				error_printf("%s: Expired signature\n", sig_filename);
+				error_printf(_("%s: Expired signature\n"), sig_filename);
 				info->invalid_sigs++;
 			} else if (cur->summary & GPGME_SIGSUM_KEY_MISSING) {
 				error_printf(_("%s: Key %s missing\n"), sig_filename, cur->fpr);
@@ -140,7 +140,7 @@ static void _print_gpg_error(gpgme_error_t err)
 	char buf[128];
 
 	gpgme_strerror_r(err, buf, sizeof(buf));
-	error_printf("  %s\n", buf);
+	error_printf("  %s\n", buf); // no translation
 }
 
 static int _verify_detached_sig(gpgme_data_t sig_buff, gpgme_data_t data_buf, wget_gpg_info_t *info,
@@ -244,7 +244,7 @@ static int _verify_detached_str(const char *sig, const size_t sig_len,
 
 #endif // WITH_GPGME
 
-int wget_verify_pgp_sig_buff(wget_buffer_t *sig, wget_buffer_t *data, wget_gpg_info_t *info)
+int wget_verify_pgp_sig_buff(wget_buffer *sig, wget_buffer *data, wget_gpg_info_t *info)
 {
 #ifdef WITH_GPGME
 	return wget_verify_pgp_sig_str(sig->data, sig->length, data->data, data->length, info);
@@ -262,7 +262,7 @@ int wget_verify_pgp_sig_str(const char *sig, const size_t sig_len, const char *d
 #endif
 }
 
-int wget_verify_job(JOB *job, wget_http_response_t *resp, wget_gpg_info_t *info)
+int wget_verify_job(JOB *job, wget_http_response *resp, wget_gpg_info_t *info)
 {
 	if (info)
 		memset(info, 0, sizeof(*info));

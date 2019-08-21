@@ -60,7 +60,7 @@ static void write_stats(const stats_t *stats)
 /*
  * helper function: percent-unescape, convert to utf-8, create URL string using base
  */
-static int _normalize_uri(wget_iri_t *base, wget_string_t *url, const char *encoding, wget_buffer_t *buf)
+static int _normalize_uri(wget_iri *base, wget_string *url, const char *encoding, wget_buffer *buf)
 {
 	char *urlpart_encoded;
 	size_t urlpart_encoded_length;
@@ -70,28 +70,30 @@ static int _normalize_uri(wget_iri_t *base, wget_string_t *url, const char *enco
 		return -1;
 
 	char *urlpart = wget_strmemdup(url->p, url->len);
+	if (!urlpart)
+		return -2;
 
 	wget_iri_unescape_url_inline(urlpart);
 	rc = wget_memiconv(encoding, urlpart, strlen(urlpart), "utf-8", &urlpart_encoded, &urlpart_encoded_length);
 	wget_xfree(urlpart);
 
 	if (rc)
-		return -2;
+		return -3;
 
 	rc = !wget_iri_relative_to_abs(base, urlpart_encoded, urlpart_encoded_length, buf);
 	wget_xfree(urlpart_encoded);
 
 	if (rc)
-		return -3;
+		return -4;
 
 	return 0;
 }
 
 static char *_normalize_location(const char *base, const char *url)
 {
-	wget_buffer_t buf;
-	wget_string_t url_s = { .p = url, .len = strlen(url) };
-	wget_iri_t *base_iri = wget_iri_parse(base, "utf-8");
+	wget_buffer buf;
+	wget_string url_s = { .p = url, .len = strlen(url) };
+	wget_iri *base_iri = wget_iri_parse(base, "utf-8");
 	char sbuf[1024], *norm_url = NULL;
 	int rc;
 
@@ -109,9 +111,9 @@ static char *_normalize_location(const char *base, const char *url)
 	return norm_url;
 }
 
-int main(int argc G_GNUC_WGET_UNUSED, const char *const *argv G_GNUC_WGET_UNUSED)
+int main(int argc WGET_GCC_UNUSED, const char *const *argv WGET_GCC_UNUSED)
 {
-	static wget_thread_t downloaders[MAXTHREADS];
+	static wget_thread downloaders[MAXTHREADS];
 
 	// set up libwget global configuration
 	wget_global_init(
@@ -131,7 +133,6 @@ int main(int argc G_GNUC_WGET_UNUSED, const char *const *argv G_GNUC_WGET_UNUSED
 	// set global timeouts to 5s
 	wget_tcp_set_timeout(NULL, 3000);
 	wget_tcp_set_connect_timeout(NULL, 3000);
-	wget_tcp_set_dns_timeout(NULL, 3000);
 
 	// OCSP off
 	wget_ssl_set_config_int(WGET_SSL_OCSP, 0);
@@ -160,10 +161,10 @@ int main(int argc G_GNUC_WGET_UNUSED, const char *const *argv G_GNUC_WGET_UNUSED
 	return 0;
 }
 
-static void *downloader_thread(G_GNUC_WGET_UNUSED void *p)
+static void *downloader_thread(WGET_GCC_UNUSED void *p)
 {
 	stats_t stats;
-	wget_http_response_t *resp = NULL;
+	wget_http_response *resp = NULL;
 	char *url = NULL;
 
 	while (fscanf(stdin, "%255s", stats.host) == 1) {

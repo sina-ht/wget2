@@ -41,7 +41,7 @@ typedef struct {
 		length;
 	int
 		id;
-	wget_thread_id_t
+	wget_thread_id
 		used_by;
 	bool
 		inuse : 1,
@@ -51,25 +51,25 @@ typedef struct {
 typedef struct DOWNLOADER DOWNLOADER;
 
 struct JOB {
-	wget_iri_t
+	wget_iri
 		*iri,
 		*original_url,
 		*referer;
 
 	// Metalink information
-	wget_metalink_t
+	wget_metalink
 		*metalink;
 
-	wget_vector_t
+	wget_vector
 		*challenges; // challenges from 401 response
 
-	wget_vector_t
+	wget_vector
 		*proxy_challenges; // challenges from 407 response (proxy)
 
-	wget_vector_t
+	wget_vector
 		*parts; // parts to download
 
-	wget_list_t
+	wget_list
 		*remaining_sig_ext; // Signature extensions yet to be tried.
 
 	HOST
@@ -84,7 +84,7 @@ struct JOB {
 	DOWNLOADER
 		*downloader;
 
-	wget_thread_id_t
+	wget_thread_id
 		used_by; // keep track of who uses this job, for host_release_jobs()
 	unsigned long long
 		id, // each job an unique ID value
@@ -108,11 +108,11 @@ struct JOB {
 };
 
 struct DOWNLOADER {
-	wget_thread_t
+	wget_thread
 		thread;
 	JOB
 		*job;
-	wget_http_connection_t
+	wget_http_connection
 		*conn;
 	char
 		*buf;
@@ -120,15 +120,15 @@ struct DOWNLOADER {
 		bufsize;
 	int
 		id;
-	wget_thread_cond_t
+	wget_thread_cond
 		cond;
 	bool
 		final_error : 1;
 };
 
-JOB *job_init(JOB *job, wget_iri_t *iri, bool http_fallback) G_GNUC_WGET_NONNULL((2));
-int job_validate_file(JOB *job) G_GNUC_WGET_NONNULL((1));
-void job_create_parts(JOB *job) G_GNUC_WGET_NONNULL((1));
-void job_free(JOB *job) G_GNUC_WGET_NONNULL((1));
+JOB *job_init(JOB *job, wget_iri *iri, bool http_fallback) WGET_GCC_NONNULL((2));
+int job_validate_file(JOB *job) WGET_GCC_NONNULL((1));
+void job_create_parts(JOB *job) WGET_GCC_NONNULL((1));
+void job_free(JOB *job) WGET_GCC_NONNULL((1));
 
 #endif /* SRC_WGET_JOB_H */

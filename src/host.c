@@ -39,9 +39,9 @@
 #include "wget_job.h"
 #include "wget_stats.h"
 
-static wget_hashmap_t
+static wget_hashmap
 	*hosts;
-static wget_thread_mutex_t
+static wget_thread_mutex
 	hosts_mutex;
 static int
 	qsize; // overall number of jobs
@@ -86,8 +86,7 @@ static unsigned int _host_hash(const HOST *host)
 	//   e.g. for http://example.com and a second time for https://example.com.
 	// Not unlikely that both are the same... but maybe they are not.
 
-	for (p = (unsigned char *)host->scheme; p && *p; p++)
-		hash = hash * 101 + *p;
+	hash = hash * 101 + host->scheme;
 
 	for (p = (unsigned char *)host->host; p && *p; p++)
 		hash = hash * 101 + *p;
@@ -104,13 +103,13 @@ static void _free_host_entry(HOST *host)
 	}
 }
 
-HOST *host_add(wget_iri_t *iri)
+HOST *host_add(wget_iri *iri)
 {
 	wget_thread_mutex_lock(hosts_mutex);
 
 	if (!hosts) {
-		hosts = wget_hashmap_create(16, (wget_hashmap_hash_t)_host_hash, (wget_hashmap_compare_t)_host_compare);
-		wget_hashmap_set_key_destructor(hosts, (wget_hashmap_key_destructor_t)_free_host_entry);
+		hosts = wget_hashmap_create(16, (wget_hashmap_hash_fn *) _host_hash, (wget_hashmap_compare_fn *) _host_compare);
+		wget_hashmap_set_key_destructor(hosts, (wget_hashmap_key_destructor *) _free_host_entry);
 	}
 
 	HOST *hostp = NULL, host = { .scheme = iri->scheme, .host = iri->host, .port = iri->port };
@@ -118,7 +117,7 @@ HOST *host_add(wget_iri_t *iri)
 	if (!wget_hashmap_contains(hosts, &host)) {
 		// info_printf("Add to hosts: %s\n", hostname);
 		hostp = wget_memdup(&host, sizeof(host));
-		wget_hashmap_put_noalloc(hosts, hostp, hostp);
+		wget_hashmap_put(hosts, hostp, hostp);
 	}
 
 	wget_thread_mutex_unlock(hosts_mutex);
@@ -126,7 +125,7 @@ HOST *host_add(wget_iri_t *iri)
 	return hostp;
 }
 
-HOST *host_get(wget_iri_t *iri)
+HOST *host_get(wget_iri *iri)
 {
 	HOST *hostp, host = { .scheme = iri->scheme, .host = iri->host, .port = iri->port };
 
@@ -173,7 +172,7 @@ static int _search_queue_for_free_job(struct _find_free_job_context *ctx, JOB *j
 	return 0;
 }
 
-static int G_GNUC_WGET_NONNULL_ALL _search_host_for_free_job(struct _find_free_job_context *ctx, HOST *host)
+static int WGET_GCC_NONNULL_ALL _search_host_for_free_job(struct _find_free_job_context *ctx, HOST *host)
 {
 	// host may be blocked due to max. number of failures reached
 	if (host->blocked) {
@@ -205,7 +204,7 @@ static int G_GNUC_WGET_NONNULL_ALL _search_host_for_free_job(struct _find_free_j
 	}
 
 	// find next job to do
-	wget_list_browse(host->queue, (wget_list_browse_t)_search_queue_for_free_job, ctx);
+	wget_list_browse(host->queue, (wget_list_browse_fn *) _search_queue_for_free_job, ctx);
 
 	return !!ctx->job; // 1=found a job, 0=no free job
 }
@@ -229,7 +228,7 @@ JOB *host_get_job(HOST *host, long long *pause)
 		_search_host_for_free_job(&ctx, host);
 	} else {
 		wget_thread_mutex_lock(hosts_mutex);
-		wget_hashmap_browse(hosts, (wget_hashmap_browse_t)_search_host_for_free_job, &ctx);
+		wget_hashmap_browse(hosts, (wget_hashmap_browse_fn *) _search_host_for_free_job, &ctx);
 		wget_thread_mutex_unlock(hosts_mutex);
 	}
 
@@ -239,9 +238,9 @@ JOB *host_get_job(HOST *host, long long *pause)
 	return ctx.job;
 }
 
-static int _release_job(wget_thread_id_t *ctx, JOB *job)
+static int _release_job(wget_thread_id *ctx, JOB *job)
 {
-	wget_thread_id_t self = *ctx;
+	wget_thread_id self = *ctx;
 
 	if (job->parts) {
 		for (int it = 0; it < wget_vector_size(job->parts); it++) {
@@ -267,7 +266,7 @@ void host_release_jobs(HOST *host)
 	if (!host)
 		return;
 
-	wget_thread_id_t self = wget_thread_self();
+	wget_thread_id self = wget_thread_self();
 
 	wget_thread_mutex_lock(hosts_mutex);
 
@@ -279,7 +278,7 @@ void host_release_jobs(HOST *host)
 		}
 	}
 
-	wget_list_browse(host->queue, (wget_list_browse_t)_release_job, &self);
+	wget_list_browse(host->queue, (wget_list_browse_fn *) _release_job, &self);
 
 	wget_thread_mutex_unlock(hosts_mutex);
 }
@@ -324,7 +323,7 @@ void host_add_job(HOST *host, const JOB *job)
  * This function creates a priority job for robots.txt.
  * This job has to be processed before any other job.
  */
-void host_add_robotstxt_job(HOST *host, wget_iri_t *iri, bool http_fallback)
+void host_add_robotstxt_job(HOST *host, wget_iri *iri, bool http_fallback)
 {
 	JOB *job;
 
@@ -370,8 +369,8 @@ static void _host_remove_job(HOST *host, JOB *job)
 				if (thejob->sitemap)
 						continue;
 
-				for (int it = 0; it < wget_vector_size(host->robots->paths); it++) {
-					wget_string_t *path = wget_vector_get(host->robots->paths, it);
+				for (int it = 0, n = wget_robots_get_path_count(host->robots); it < n; it++) {
+					wget_string *path = wget_robots_get_path(host->robots, it);
 
 					if (path->len && !strncmp(path->p + 1, thejob->iri->path ? thejob->iri->path : "", path->len - 1)) {
 						info_printf(_("URL '%s' not followed (disallowed by robots.txt)\n"), thejob->iri->uri);
@@ -467,7 +466,7 @@ int queue_empty(void)
 // did I say, that I like nested function instead using contexts !?
 // gcc, IBM and Intel support nested functions, just clang refuses it
 
-static int _queue_free_func(void *context G_GNUC_WGET_UNUSED, JOB *job)
+static int _queue_free_func(void *context WGET_GCC_UNUSED, JOB *job)
 {
 	job_free(job);
 	return 0;
@@ -476,7 +475,7 @@ static int _queue_free_func(void *context G_GNUC_WGET_UNUSED, JOB *job)
 void host_queue_free(HOST *host)
 {
 	wget_thread_mutex_lock(hosts_mutex);
-	wget_list_browse(host->queue, (wget_list_browse_t)_queue_free_func, NULL);
+	wget_list_browse(host->queue, (wget_list_browse_fn *) _queue_free_func, NULL);
 	wget_list_free(&host->queue);
 	if (host->robot_job) {
 		job_free(host->robot_job);
@@ -488,23 +487,25 @@ void host_queue_free(HOST *host)
 	wget_thread_mutex_unlock(hosts_mutex);
 }
 
-static int _queue_print_func(void *context G_GNUC_WGET_UNUSED, JOB *job)
+/*
+static int _queue_print_func(void *context WGET_GCC_UNUSED, JOB *job)
 {
-	info_printf("  %s %d\n", job->local_filename, job->inuse);
+	debug_printf("  %s %d\n", job->local_filename, job->inuse);
 	return 0;
 }
 
 void queue_print(HOST *host)
 {
 	if (host->port)
-		info_printf("%s://%s:%hu\n", host->scheme, host->host, host->port);
+		debug_printf("%s://%s:%hu\n", host->scheme, host->host, host->port);
 	else
-		info_printf("%s://%s\n", host->scheme, host->host);
+		debug_printf("%s://%s\n", host->scheme, host->host);
 
 	wget_thread_mutex_lock(hosts_mutex);
 	wget_list_browse(host->queue, (wget_list_browse_t)_queue_print_func, NULL);
 	wget_thread_mutex_unlock(hosts_mutex);
 }
+*/
 
 int queue_size(void)
 {

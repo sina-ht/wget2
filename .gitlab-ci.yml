@@ -30,7 +30,9 @@ variables:
   BUILD_IMAGES_PROJECT: gnuwget/build-images
   DEBIAN_BUILD: buildenv-debian-stretch
   DEBIAN_TESTING_BUILD: buildenv-debian-testing
-  FEDORA_BUILD: buildenv-f27
+  DEBIAN_UNSTABLE_BUILD: buildenv-debian-unstable
+  DEBIAN_HTTP2_BUILD: buildenv-mhd-http2
+  FEDORA_BUILD: buildenv-fedora
   CENTOS7_BUILD: buildenv-centos7
   MINGW_BUILD: buildenv-mingw
   ALPINE_BUILD: buildenv-alpine
@@ -48,7 +50,7 @@ variables:
 #       * make syntax-check
 #       * make distcheck
 #
-#   2. Fedora 27 Build
+#   2. Fedora Build
 #       * LLVM/Clang Build
 #       * Valgrind Tests
 #
@@ -69,7 +71,7 @@ Full+VPATH/Debian:
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
     - contrib/spell-checker
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - export CFLAGS=$CFLAGS_DEFAULT
     - sed -i 's/dist-lzip//g' configure.ac
     - ./bootstrap --skip-po && touch .manywarnings
@@ -118,6 +120,48 @@ Debian/Testing:
       - unit-tests/*.log
       - tests/*.log
 
+# Debian Unstable
+Debian/Unstable:
+  stage: stage1-testing
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_UNSTABLE_BUILD
+  script:
+    - export CFLAGS="$CFLAGS_DEFAULT"
+    - ./bootstrap --skip-po && touch .manywarnings
+    - ./configure $CONFIGURE_BASE_FLAGS
+    - make -j$(nproc)
+    - make check -j$(nproc)
+  tags:
+    - shared
+    - docker
+  artifacts:
+    expire_in: 2 weeks
+    when: on_failure
+    paths:
+      - ./*.log
+      - fuzz/*.log
+      - unit-tests/*.log
+      - tests/*.log
+
+Debian/WolfSSL:
+  stage: stage1-testing
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_UNSTABLE_BUILD
+  script:
+    - export CFLAGS="$CFLAGS_DEFAULT"
+    - ./bootstrap --skip-po && touch .manywarnings
+    - ./configure $CONFIGURE_BASE_FLAGS --without-gnutls --with-wolfssl
+    - make -j$(nproc)
+    - make check -j$(nproc)
+  tags:
+    - shared
+    - docker
+  artifacts:
+    expire_in: 2 weeks
+    when: on_failure
+    paths:
+      - ./*.log
+      - fuzz/*.log
+      - unit-tests/*.log
+      - tests/*.log
 
 # In this build we combine
 #  * gcc
@@ -126,7 +170,7 @@ Minimal/Debian:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - export CFLAGS="$CFLAGS_DEFAULT -Werror"
     - sed -i 's/dist-lzip//g' configure.ac
     - ./bootstrap --skip-po && touch .manywarnings
@@ -154,7 +198,7 @@ Sanitizers/Debian:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - export CFLAGS="$CFLAGS_DEFAULT -Werror"
     - ./bootstrap --skip-po && touch .manywarnings
     - export CC="ccache clang"
@@ -176,15 +220,14 @@ Sanitizers/Debian:
 
 Scan-Build/Debian:
   stage: stage1-testing
-  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_UNSTABLE_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - export CFLAGS=$CFLAGS_DEFAULT
     - ./bootstrap --skip-po && touch .manywarnings
-    - scan-build ./configure $CONFIGURE_BASE_FLAGS --disable-manywarnings
+    - CC=clang ./configure $CONFIGURE_BASE_FLAGS
     - make -C lib -j$(nproc)
-    - scan-build -v -enable-checker security,nullability --status-bugs -o scan-build make -j$(nproc)
-    - scan-build -v -enable-checker security,nullability --status-bugs -o scan-build make -j$(nproc) check
+    - scan-build -v --use-cc=clang -enable-checker valist,security,nullability --status-bugs -o scan-build make -j$(nproc)
   tags:
     - shared
   except:
@@ -199,7 +242,7 @@ Valgrind/Debian:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - export CFLAGS=$CFLAGS_DEFAULT
     - ./bootstrap --skip-po
     - ./configure $CONFIGURE_BASE_FLAGS --enable-valgrind-tests
@@ -222,7 +265,7 @@ Simple/Fedora:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$FEDORA_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - export CFLAGS="$CFLAGS_DEFAULT -Werror"
     - ./bootstrap --skip-po && touch .manywarnings
     - ./configure $CONFIGURE_BASE_FLAGS
@@ -244,7 +287,7 @@ Alpine:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$ALPINE_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po
     - ./configure $CONFIGURE_BASE_FLAGS
@@ -281,11 +324,12 @@ pages:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - ./bootstrap --skip-po
     - export CFLAGS=$CFLAGS_DEFAULT
     - ./configure $CONFIGURE_BASE_FLAGS
     - make -j$(nproc) check-coverage
+    - make dist
     - mkdir -p public
     # Test suite coverage report
     - rm -rf public/coverage
@@ -297,6 +341,7 @@ pages:
     - make -j$(nproc) fuzz-coverage
     - rm -rf public/fuzz-coverage
     - mv lcov public/fuzz-coverage
+    - mv wget2-*.gz public/wget2-latest.tar.gz
   tags:
     - shared
   artifacts:
@@ -305,12 +350,13 @@ pages:
       - public
   only:
     - master
+    - tmp-public-tarball
 
 MinGW64:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$MINGW_BUILD
   script:
-    - cp -a /builds/common/gnulib .
+    - cp -a /usr/local/gnulib .
     - ./bootstrap --skip-po
     - cp pthread_sigmask.c.mingw lib/pthread_sigmask.c
     - export CC="ccache $PREFIX-gcc"
@@ -339,7 +385,7 @@ MinGW64:
       - unit-tests/*.log
       - tests/*.log
 
-Build/Arch:
+Arch:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$ARCH_BUILD
   script:
@@ -410,3 +456,62 @@ CommitCheck:
   cache:
       paths:
       policy: push
+
+
+Debian/HTTP2:
+  stage: stage1-testing
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_HTTP2_BUILD
+  script:
+    - export CFLAGS="$CFLAGS_DEFAULT"
+    - ./bootstrap --skip-po && touch .manywarnings
+    - ./configure $CONFIGURE_BASE_FLAGS --enable-code-coverage
+    - make -j$(nproc)
+    - make check -j$(nproc)
+    - make code-coverage-capture
+  tags:
+    - shared
+    - docker
+  allow_failure: true
+  artifacts:
+    expire_in: 2 weeks
+    when: on_failure
+    paths:
+      - ./*.log
+      - fuzz/*.log
+      - unit-tests/*.log
+      - tests/*.log
+  artifacts:
+    expire_in: 2 weeks
+    when: on_success
+    paths:
+      - wget2-*-coverage
+
+# That is a specific runner that we cannot enable universally.
+# We restrict it to builds under the $BUILD_IMAGES_PROJECT project.
+FreeBSD.x86_64:
+  stage: stage1-testing
+  image:
+  script:
+    - export CC="ccache clang"
+    - sed -i.bak 's/dist-lzip//g' configure.ac
+    - sed -i.bak '/^python/d' bootstrap.conf
+    - sed -i.bak '/^lzip/d' bootstrap.conf
+    - sed -i.bak '/^makeinfo/d' bootstrap.conf
+    - ./bootstrap --skip-po && touch .manywarnings
+    - LIBS="-L/usr/local/lib" ./configure --cache-file cache/config.cache --disable-doc
+    - gmake -j$(sysctl hw.ncpu | awk '{print $2}')
+    - gmake check -j$(sysctl hw.ncpu | awk '{print $2}')
+  tags:
+    - freebsd
+  only:
+    - branches@gnuwget/wget2
+  except:
+    - tags
+  artifacts:
+    expire_in: 1 week
+    when: on_failure
+    paths:
+      - ./*.log
+      - fuzz/*.log
+      - tests/*.log
+      - unit-tests/*.log

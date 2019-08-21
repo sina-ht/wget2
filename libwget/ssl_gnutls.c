@@ -40,8 +40,6 @@
 
 #include <config.h>
 
-#ifdef WITH_GNUTLS
-
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
@@ -69,39 +67,15 @@
  * @{
  */
 
-typedef struct
-{
-	const char
-		*hostname,
-		*alpn_protocol;
-	long long
-		tls_secs; //milliseconds
-	int
-		version,
-		cert_chain_size;
-	char
-		http_protocol,
-		false_start,
-		tfo;
-	bool
-		tls_con,
-		resumed;
-} _stats_data_t;
+static wget_tls_stats_callback
+	*tls_stats_callback;
+static void
+	*tls_stats_ctx;
 
-typedef struct
-{
-	const char
-		*hostname;
-	int
-		nvalid,
-		nrevoked,
-		nignored,
-		stapling;
-} _ocsp_stats_data_t;
-
-static wget_stats_callback_t
-	stats_callback_tls,
-	stats_callback_ocsp;
+static wget_ocsp_stats_callback
+	*ocsp_stats_callback;
+static void
+	*ocsp_stats_ctx;
 
 static struct _config {
 	const char
@@ -113,12 +87,12 @@ static struct _config {
 		*crl_file,
 		*ocsp_server,
 		*alpn;
-	wget_ocsp_db_t
+	wget_ocsp_db
 		*ocsp_cert_cache,
 		*ocsp_host_cache;
-	wget_tls_session_db_t
+	wget_tls_session_db
 		*tls_session_cache;
-	wget_hpkp_db_t
+	wget_hpkp_db
 		*hpkp_cache;
 	char
 		ca_type,
@@ -129,7 +103,9 @@ static struct _config {
 		check_hostname : 1,
 		print_info : 1,
 		ocsp : 1,
-		ocsp_stapling : 1;
+		ocsp_date : 1,
+		ocsp_stapling : 1,
+		ocsp_nonce : 1;
 } _config = {
 	.check_certificate = 1,
 	.check_hostname = 1,
@@ -150,7 +126,7 @@ static struct _config {
 struct _session_context {
 	const char *
 		hostname;
-	wget_hpkp_stats_t
+	wget_hpkp_stats_result
 		stats_hpkp;
 	unsigned char
 		ocsp_stapling : 1,
@@ -240,17 +216,17 @@ void wget_ssl_set_config_string(int key, const char *value)
  *
  * The following parameters expect an already initialized libwget object as their value.
  *
- * - WGET_SSL_OCSP_CACHE: This option takes a pointer to a \ref wget_ocsp_db_t
+ *  - WGET_SSL_OCSP_CACHE: This option takes a pointer to a \ref wget_ocsp_db
  *  structure as an argument. Such a pointer is returned when initializing the OCSP cache with wget_ocsp_db_init().
  *  The cache is used to store OCSP responses locally and avoid querying the OCSP server repeatedly for the same certificate.
- *  - WGET_SSL_SESSION_CACHE: This option takes a pointer to a \ref wget_tls_session_db_t structure.
+ *  - WGET_SSL_SESSION_CACHE: This option takes a pointer to a \ref wget_tls_session_db structure.
  *  Such a pointer is returned when initializing the TLS session cache with wget_tls_session_db_init().
  *  This option thus sets the handle to the TLS session cache that will be used to store TLS sessions.
  *  The TLS session cache is used to support TLS session resumption. It stores the TLS session parameters derived from a previous TLS handshake
  *  (most importantly the session identifier and the master secret) so that there's no need to run the handshake again
  *  the next time we connect to the same host. This is useful as the handshake is an expensive process.
  *  - WGET_SSL_HPKP_CACHE: Set the HPKP cache to be used to verify known HPKP pinned hosts. This option takes a pointer
- *  to a \ref wget_hpkp_db_t structure. Such a pointer is returned when initializing the HPKP cache
+ *  to a \ref wget_hpkp_db structure. Such a pointer is returned when initializing the HPKP cache
  *  with wget_hpkp_db_init(). HPKP is a HTTP-level protocol that allows the server to "pin" its present and future X.509
  *  certificate fingerprints, to support rapid certificate change in the event that the higher level root CA
  *  gets compromised ([RFC 7469](https://tools.ietf.org/html/rfc7469)).
@@ -259,9 +235,9 @@ void wget_ssl_set_config_string(int key, const char *value)
 void wget_ssl_set_config_object(int key, void *value)
 {
 	switch (key) {
-	case WGET_SSL_OCSP_CACHE: _config.ocsp_cert_cache = (wget_ocsp_db_t *)value; break;
-	case WGET_SSL_SESSION_CACHE: _config.tls_session_cache = (wget_tls_session_db_t *)value; break;
-	case WGET_SSL_HPKP_CACHE: _config.hpkp_cache = (wget_hpkp_db_t *)value; break;
+	case WGET_SSL_OCSP_CACHE: _config.ocsp_cert_cache = (wget_ocsp_db *)value; break;
+	case WGET_SSL_SESSION_CACHE: _config.tls_session_cache = (wget_tls_session_db *)value; break;
+	case WGET_SSL_HPKP_CACHE: _config.hpkp_cache = (wget_hpkp_db *)value; break;
 	default: error_printf(_("Unknown config key %d (or value must not be an object)\n"), key);
 	}
 }
@@ -307,15 +283,30 @@ void wget_ssl_set_config_int(int key, int value)
 	case WGET_SSL_KEY_TYPE: _config.key_type = (char)value; break;
 	case WGET_SSL_PRINT_INFO: _config.print_info = (char)value; break;
 	case WGET_SSL_OCSP: _config.ocsp = (char)value; break;
+	case WGET_SSL_OCSP_DATE: _config.ocsp_date = (char)value; break;
 	case WGET_SSL_OCSP_STAPLING: _config.ocsp_stapling = (char)value; break;
+	case WGET_SSL_OCSP_NONCE: _config.ocsp_nonce = value; break;
 	default: error_printf(_("Unknown config key %d (or value must not be an integer)\n"), key);
 	}
+}
+
+static const char *safe_ctime(time_t *t, char *buf, size_t size)
+{
+	struct tm tm;
+
+	if (localtime_r(t, &tm)
+		&& strftime(buf, size, "%c", &tm))
+	{
+		return buf;
+	}
+
+	return "[error]";
 }
 
 static void _print_x509_certificate_info(gnutls_session_t session)
 {
 	const char *name;
-	char dn[128];
+	char dn[128], timebuf[64];
 	unsigned char digest[20];
 	unsigned char serial[40];
 	size_t dn_size = sizeof(dn);
@@ -345,10 +336,10 @@ static void _print_x509_certificate_info(gnutls_session_t session)
 			info_printf(_("Certificate info [%u]:\n"), ncert);
 
 			activet = gnutls_x509_crt_get_activation_time(cert);
-			info_printf(_("  Valid since: %s"), ctime(&activet));
+			info_printf(_("  Valid since: %s"), safe_ctime(&activet, timebuf, sizeof(timebuf)));
 
 			expiret = gnutls_x509_crt_get_expiration_time(cert);
-			info_printf(_("  Expires: %s"), ctime(&expiret));
+			info_printf(_("  Expires: %s"), safe_ctime(&expiret, timebuf, sizeof(timebuf)));
 
 			if (!gnutls_fingerprint(GNUTLS_DIG_MD5, &cert_list[ncert], digest, &digest_size)) {
 				char digest_hex[digest_size * 2 + 1];
@@ -377,7 +368,7 @@ static void _print_x509_certificate_info(gnutls_session_t session)
 
 			dn_size = sizeof(dn);
 			gnutls_x509_crt_get_dn(cert, dn, &dn_size);
-			info_printf("  DN: %s\n", dn);
+			info_printf(_("  DN: %s\n"), dn);
 
 			dn_size = sizeof(dn);
 			gnutls_x509_crt_get_issuer_dn(cert, dn, &dn_size);
@@ -566,13 +557,13 @@ error:
 /* Returns 0 on ok, and -1 on error */
 static int send_ocsp_request(const char *server,
 		      gnutls_x509_crt_t cert, gnutls_x509_crt_t issuer,
-		      wget_buffer_t **ocsp_data, gnutls_datum_t *nonce)
+		      wget_buffer **ocsp_data, gnutls_datum_t *nonce)
 {
 	int ret = -1, rc;
 	int server_allocated = 0;
 	gnutls_datum_t body;
-	wget_iri_t *iri;
-	wget_http_request_t *req = NULL;
+	wget_iri *iri;
+	wget_http_request *req = NULL;
 
 	if (!server) {
 		/* try to read URL from issuer certificate */
@@ -619,12 +610,12 @@ static int send_ocsp_request(const char *server,
 	wget_http_add_header(req, "Accept", "*/*");
 	wget_http_add_header(req, "Connection", "close");
 
-	wget_http_connection_t *conn;
+	wget_http_connection *conn;
 	if ((rc = wget_http_open(&conn, iri)) == WGET_E_SUCCESS) {
 		wget_http_request_set_body(req, "application/ocsp-request", wget_memdup(body.data, body.size), body.size);
 		req->debug_skip_body = 1;
 		if (wget_http_send_request(conn, req) == 0) {
-			wget_http_response_t *resp;
+			wget_http_response *resp;
 
 			if ((resp = wget_http_get_response(conn))) {
 				*ocsp_data = resp->body;
@@ -686,13 +677,14 @@ static void print_ocsp_verify_res(unsigned int status)
  *  -1: dunno
  */
 static int check_ocsp_response(gnutls_x509_crt_t cert,
-	gnutls_x509_crt_t issuer, wget_buffer_t *data,
+	gnutls_x509_crt_t issuer, wget_buffer *data,
 	gnutls_datum_t *nonce)
 {
 	gnutls_ocsp_resp_t resp;
 	int ret = -1, rc;
 	unsigned int status, cert_status;
 	time_t rtime, vtime, ntime, now;
+	char timebuf[64];
 
 	now = time(NULL);
 
@@ -736,21 +728,21 @@ static int check_ocsp_response(gnutls_x509_crt_t cert,
 	}
 
 	if (cert_status == GNUTLS_OCSP_CERT_REVOKED) {
-		debug_printf("*** Certificate was revoked at %s", ctime(&rtime));
+		debug_printf("*** Certificate was revoked at %s", safe_ctime(&rtime, timebuf, sizeof(timebuf)));
 		ret = 0;
 		goto cleanup;
 	}
 
 	if (ntime == -1) {
-		if (now - vtime > OCSP_VALIDITY_SECS) {
-			debug_printf("*** The OCSP response is old (was issued at: %s) ignoring", ctime(&vtime));
+		if (_config.ocsp_date && now - vtime > OCSP_VALIDITY_SECS) {
+			debug_printf("*** The OCSP response is old (was issued at: %s) ignoring", safe_ctime(&vtime, timebuf, sizeof(timebuf)));
 			goto cleanup;
 		}
 	} else {
 		/* there is a newer OCSP answer, don't trust this one */
 		if (ntime < now) {
-			debug_printf("*** The OCSP response was issued at: %s, but there is a newer issue at %s",
-				ctime(&vtime), ctime(&ntime));
+			debug_printf("*** The OCSP response was issued at: %s", safe_ctime(&vtime, timebuf, sizeof(timebuf)));
+			debug_printf("    but there is a newer issue at %s", safe_ctime(&ntime, timebuf, sizeof(timebuf)));
 			goto cleanup;
 		}
 	}
@@ -769,7 +761,7 @@ static int check_ocsp_response(gnutls_x509_crt_t cert,
 			goto cleanup;
 		}
 
-		if (rnonce.size != nonce->size || memcmp(nonce->data, rnonce.data, nonce->size) != 0) {
+		if (_config.ocsp_nonce && (rnonce.size != nonce->size || memcmp(nonce->data, rnonce.data, nonce->size) != 0)) {
 			debug_printf("nonce in the response doesn't match\n");
 			gnutls_free(rnonce.data);
 			goto cleanup;
@@ -779,7 +771,7 @@ static int check_ocsp_response(gnutls_x509_crt_t cert,
 	}
 
  finish_ok:
-	debug_printf("OCSP server flags certificate not revoked as of %s", ctime(&vtime));
+	debug_printf("OCSP server flags certificate not revoked as of %s", safe_ctime(&vtime, timebuf, sizeof(timebuf)));
 	ret = 1;
 
 cleanup:
@@ -809,7 +801,7 @@ static char *_get_cert_fingerprint(gnutls_x509_crt_t cert, char *fingerprint_hex
 /*
  * Add cert to OCSP cache, being either valid or revoked (valid==0)
  */
-static void _add_cert_to_ocsp_cache(gnutls_x509_crt_t cert, int valid)
+static void _add_cert_to_ocsp_cache(gnutls_x509_crt_t cert, bool valid)
 {
 	if (_config.ocsp_cert_cache) {
 		char fingerprint_hex[64 * 2 +1];
@@ -829,7 +821,7 @@ static void _add_cert_to_ocsp_cache(gnutls_x509_crt_t cert, int valid)
 //static int cert_verify_ocsp(gnutls_session_t session)
 static int cert_verify_ocsp(gnutls_x509_crt_t cert, gnutls_x509_crt_t issuer)
 {
-	wget_buffer_t *resp = NULL;
+	wget_buffer *resp = NULL;
 	unsigned char noncebuf[23];
 	gnutls_datum_t nonce = { noncebuf, sizeof(noncebuf) };
 	int ret;
@@ -840,7 +832,7 @@ static int cert_verify_ocsp(gnutls_x509_crt_t cert, gnutls_x509_crt_t issuer)
 		return -1;
 	}
 
-	if (send_ocsp_request(NULL, cert, issuer, &resp, &nonce) < 0) {
+	if (send_ocsp_request(_config.ocsp_server, cert, issuer, &resp, &nonce) < 0) {
 		debug_printf("Cannot contact OCSP server\n");
 		return -1;
 	}
@@ -890,7 +882,7 @@ static int _cert_verify_hpkp(gnutls_x509_crt_t cert, const char *hostname, gnutl
 		goto out;
 	}
 
-	data = xmalloc(size);
+	data = wget_malloc(size);
 
 	if ((rc = gnutls_pubkey_export(key, GNUTLS_X509_FMT_DER, data, &size)) == GNUTLS_E_SHORT_MEMORY_BUFFER) {
 		error_printf(_("Failed to export pubkey: %s\n"), gnutls_strerror(rc));
@@ -967,7 +959,7 @@ static int _verify_certificate_callback(gnutls_session_t session)
 			if (gnutls_x509_crt_init(&cert) == GNUTLS_E_SUCCESS) {
 				if ((cert_list = gnutls_certificate_get_peers(session, &cert_list_size))) {
 					if (gnutls_x509_crt_import(cert, &cert_list[0], GNUTLS_X509_FMT_DER) == GNUTLS_E_SUCCESS) {
-						_add_cert_to_ocsp_cache(cert, 0);
+						_add_cert_to_ocsp_cache(cert, false);
 					}
 				}
 				gnutls_x509_crt_deinit(cert);
@@ -983,7 +975,7 @@ static int _verify_certificate_callback(gnutls_session_t session)
 		if (gnutls_certificate_verification_status_print(
 			status, gnutls_certificate_type_get(session), &out, 0) == GNUTLS_E_SUCCESS)
 		{
-			error_printf("%s: %s\n", tag, out.data);
+			error_printf("%s: %s\n", tag, out.data); // no translation
 			gnutls_free(out.data);
 		}
 
@@ -1066,7 +1058,7 @@ static int _verify_certificate_callback(gnutls_session_t session)
 			if (gnutls_ocsp_status_request_is_checked(session, 0)) {
 				debug_printf("Server certificate is valid regarding OCSP stapling\n");
 //				_get_cert_fingerprint(cert, fingerprint, sizeof(fingerprint)); // calc hexadecimal fingerprint string
-				_add_cert_to_ocsp_cache(cert, 1);
+				_add_cert_to_ocsp_cache(cert, true);
 				nvalid = 1;
 			}
 #if GNUTLS_VERSION_NUMBER >= 0x030400
@@ -1135,11 +1127,11 @@ static int _verify_certificate_callback(gnutls_session_t session)
 
 			if (ocsp_ok == 1) {
 				debug_printf("Certificate[%u] of '%s' is valid (via OCSP)\n", it, hostname);
-				wget_ocsp_db_add_fingerprint(_config.ocsp_cert_cache, fingerprint, time(NULL) + 3600, 1); // 1h valid
+				wget_ocsp_db_add_fingerprint(_config.ocsp_cert_cache, fingerprint, time(NULL) + 3600, true); // 1h valid
 				nvalid++;
 			} else if (ocsp_ok == 0) {
 				debug_printf("%s: Certificate[%u] of '%s' has been revoked (via OCSP)\n", tag, it, hostname);
-				wget_ocsp_db_add_fingerprint(_config.ocsp_cert_cache, fingerprint, time(NULL) + 3600, 0);  // cert has been revoked
+				wget_ocsp_db_add_fingerprint(_config.ocsp_cert_cache, fingerprint, time(NULL) + 3600, false);  // cert has been revoked
 				nrevoked++;
 			} else {
 				debug_printf("WARNING: OCSP response not available or ignored\n");
@@ -1150,15 +1142,15 @@ static int _verify_certificate_callback(gnutls_session_t session)
 	}
 
 #ifdef HAVE_GNUTLS_OCSP_H
-	if (_config.ocsp && stats_callback_ocsp) {
-		_ocsp_stats_data_t stats;
+	if (_config.ocsp && ocsp_stats_callback) {
+		wget_ocsp_stats_data stats;
 		stats.hostname = hostname;
 		stats.nvalid = nvalid;
 		stats.nrevoked = nrevoked;
 		stats.nignored = nignored;
 		stats.stapling = ctx->ocsp_stapling;
 
-		stats_callback_ocsp(&stats);
+		ocsp_stats_callback(&stats, ocsp_stats_ctx);
 	}
 
 	if (_config.ocsp_stapling || _config.ocsp) {
@@ -1188,7 +1180,7 @@ out:
 }
 
 static int _init;
-static wget_thread_mutex_t _mutex;
+static wget_thread_mutex _mutex;
 
 static void __attribute__ ((constructor)) _wget_tls_init(void)
 {
@@ -1362,7 +1354,7 @@ void wget_ssl_init(void)
 			}
 
 			if (rc != GNUTLS_E_SUCCESS)
-				error_printf(_("GnuTLS: Unsupported priority string '%s': %s\n"), priorities ? "(null)" : priorities, gnutls_strerror(rc));
+				error_printf(_("GnuTLS: Unsupported priority string '%s': %s\n"), priorities ? priorities : "(null)", gnutls_strerror(rc));
 		} else {
 			// use GnuTLS defaults, which might hold insecure ciphers
 			if ((rc = gnutls_priority_init(&_priority_cache, NULL, NULL)))
@@ -1475,19 +1467,13 @@ static int _do_handshake(gnutls_session_t session, int sockfd, int timeout)
 }
 
 #ifdef MSG_FASTOPEN
-#if HAVE_SYS_SOCKET_H
-#	include <sys/socket.h>
-#elif HAVE_WS2TCPIP_H
-#	include <ws2tcpip.h>
-#endif
-#if HAVE_SYS_UIO_H
+#include <sys/socket.h>
 #include <sys/uio.h> // writev
-#endif
 #include <netdb.h>
 #include <errno.h>
 static ssize_t _ssl_writev(gnutls_transport_ptr_t *p, const giovec_t *iov, int iovcnt)
 {
-	wget_tcp_t *tcp = (wget_tcp_t *) p;
+	wget_tcp *tcp = (wget_tcp *) p;
 	ssize_t ret;
 
 	// info_printf("%s: %d %zu\n", __func__, iovcnt, iov[0].iov_len);
@@ -1564,10 +1550,10 @@ static ssize_t _win32_recv(gnutls_transport_ptr_t p, void *buf, size_t size)
  * If the handshake cannot be completed in the specified timeout for the provided TCP connection
  * this function fails and returns `WGET_E_TIMEOUT`. You can set the timeout with wget_tcp_set_timeout().
  */
-int wget_ssl_open(wget_tcp_t *tcp)
+int wget_ssl_open(wget_tcp *tcp)
 {
 	gnutls_session_t session;
-	_stats_data_t stats = {
+	wget_tls_stats_data stats = {
 			.alpn_protocol = NULL,
 			.version = -1,
 			.false_start = -1,
@@ -1592,21 +1578,34 @@ int wget_ssl_open(wget_tcp_t *tcp)
 	sockfd= tcp->sockfd;
 	connect_timeout = tcp->connect_timeout;
 
+	unsigned int flags = GNUTLS_CLIENT;
+
 #if GNUTLS_VERSION_NUMBER >= 0x030500
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+	flags |= GNUTLS_AUTO_REAUTH | GNUTLS_POST_HANDSHAKE_AUTH;
+#endif
+
 	if (tcp->tls_false_start) {
 		debug_printf("TLS False Start requested\n");
-		gnutls_init(&session, GNUTLS_CLIENT | GNUTLS_NONBLOCK | GNUTLS_ENABLE_FALSE_START);
-	} else
-		gnutls_init(&session, GNUTLS_CLIENT | GNUTLS_NONBLOCK);
+
+		flags |= GNUTLS_NONBLOCK | GNUTLS_ENABLE_FALSE_START;
+
+		gnutls_init(&session, flags);
+	} else {
+		flags |= GNUTLS_NONBLOCK;
+
+		gnutls_init(&session, flags);
+	}
 #elif defined GNUTLS_NONBLOCK
 	if (tcp->tls_false_start)
 		error_printf(_("TLS False Start requested but Wget built with insufficient GnuTLS version\n"));
-	gnutls_init(&session, GNUTLS_CLIENT | GNUTLS_NONBLOCK);
+	flags |= GNUTLS_NONBLOCK;
+	gnutls_init(&session, flags);
 #else
 	// very old gnutls version, likely to not work.
 	if (tcp->tls_false_start)
 		error_printf(_("TLS False Start requested but Wget built with insufficient GnuTLS version\n"));
-	gnutls_init(&session, GNUTLS_CLIENT);
+	gnutls_init(&session, flags);
 #endif
 
 	if ((rc = gnutls_priority_set(session, _priority_cache)) != GNUTLS_E_SUCCESS)
@@ -1634,7 +1633,7 @@ int wget_ssl_open(wget_tcp_t *tcp)
 			if ((rc = gnutls_ocsp_status_request_enable_client(session, NULL, 0, NULL)) == GNUTLS_E_SUCCESS)
 				ctx->ocsp_stapling = 1;
 			else
-				error_printf("GnuTLS: %s\n", gnutls_strerror(rc));
+				error_printf("GnuTLS: %s\n", gnutls_strerror(rc)); // no translation
 #endif
 		}
 	}
@@ -1652,19 +1651,21 @@ int wget_ssl_open(wget_tcp_t *tcp)
 			if ((e = strchrnul(s, ',')) != s)
 				nprot++;
 
-		gnutls_datum_t data[nprot];
+		if (nprot) {
+			gnutls_datum_t data[16];
 
-		for (nprot = 0, s = e = _config.alpn; *e; s = e + 1) {
-			if ((e = strchrnul(s, ',')) != s) {
-				data[nprot].data = (unsigned char *) s;
-				data[nprot].size = (unsigned) (e - s);
-				debug_printf("ALPN offering %.*s\n", (int) data[nprot].size, data[nprot].data);
-				nprot++;
+			for (nprot = 0, s = e = _config.alpn; *e && nprot < countof(data); s = e + 1) {
+				if ((e = strchrnul(s, ',')) != s) {
+					data[nprot].data = (unsigned char *) s;
+					data[nprot].size = (unsigned) (e - s);
+					debug_printf("ALPN offering %.*s\n", (int) data[nprot].size, data[nprot].data);
+					nprot++;
+				}
 			}
-		}
 
-		if ((rc = gnutls_alpn_set_protocols(session, data, nprot, 0)))
-			debug_printf("GnuTLS: Set ALPN: %s\n", gnutls_strerror(rc));
+			if ((rc = gnutls_alpn_set_protocols(session, data, nprot, 0)))
+				debug_printf("GnuTLS: Set ALPN: %s\n", gnutls_strerror(rc));
+		}
 	}
 #endif
 
@@ -1673,7 +1674,7 @@ int wget_ssl_open(wget_tcp_t *tcp)
 
 #ifdef MSG_FASTOPEN
 	if ((rc = wget_tcp_get_tcp_fastopen(tcp))) {
-		if (stats_callback_tls)
+		if (tls_stats_callback)
 			stats.tfo = (char)rc;
 
 		// prepare for TCP FASTOPEN... sendmsg() instead of connect/write on first write
@@ -1710,12 +1711,12 @@ int wget_ssl_open(wget_tcp_t *tcp)
 		}
 	}
 
-	if (stats_callback_tls)
+	if (tls_stats_callback)
 		before_millisecs = wget_get_timemillis();
 
 	ret = _do_handshake(session, sockfd, connect_timeout);
 
-	if (stats_callback_tls) {
+	if (tls_stats_callback) {
 		long long after_millisecs = wget_get_timemillis();
 		stats.tls_secs = after_millisecs - before_millisecs;
 		stats.tls_con = 1;
@@ -1727,16 +1728,18 @@ int wget_ssl_open(wget_tcp_t *tcp)
 #if GNUTLS_VERSION_NUMBER >= 0x030200
 	if (_config.alpn) {
 		gnutls_datum_t protocol;
-		if ((rc = gnutls_alpn_get_selected_protocol(session, &protocol)))
+		if ((rc = gnutls_alpn_get_selected_protocol(session, &protocol))) {
 			debug_printf("GnuTLS: Get ALPN: %s\n", gnutls_strerror(rc));
-		else {
+			if (!strstr(_config.alpn,"http/1.1"))
+				ret = WGET_E_CONNECT;
+		} else {
 			debug_printf("ALPN: Server accepted protocol '%.*s'\n", (int) protocol.size, protocol.data);
-			if (stats_callback_tls)
+			if (tls_stats_callback)
 				stats.alpn_protocol = wget_strmemdup(protocol.data, protocol.size);
 
 			if (!memcmp(protocol.data, "h2", 2)) {
 				tcp->protocol = WGET_PROTOCOL_HTTP_2_0;
-				if (stats_callback_tls)
+				if (tls_stats_callback)
 					stats.http_protocol = WGET_PROTOCOL_HTTP_2_0;
 			}
 		}
@@ -1749,7 +1752,7 @@ int wget_ssl_open(wget_tcp_t *tcp)
 	if (ret == WGET_E_SUCCESS) {
 		int resumed = gnutls_session_is_resumed(session);
 
-		if (stats_callback_tls) {
+		if (tls_stats_callback) {
 			stats.resumed = resumed;
 			stats.version = gnutls_protocol_get_version(session);
 			gnutls_certificate_get_peers(session, (unsigned int *)&(stats.cert_chain_size));
@@ -1773,9 +1776,9 @@ int wget_ssl_open(wget_tcp_t *tcp)
 		}
 	}
 
-	if (stats_callback_tls) {
+	if (tls_stats_callback) {
 		stats.hostname = hostname;
-		stats_callback_tls(&stats);
+		tls_stats_callback(&stats, tls_stats_ctx);
 		xfree(stats.alpn_protocol);
 	}
 
@@ -1969,111 +1972,27 @@ ssize_t wget_ssl_write_timeout(void *session, const char *buf, size_t count, int
 }
 
 /**
- * \param[in] fn A `wget_stats_callback_t` callback function used to collect TLS statistics
+ * \param[in] fn A `wget_ssl_stats_callback_tls_t` callback function to receive TLS statistics data
+ * \param[in] ctx Context data given to \p fn
  *
- * Set callback function to be called once TLS statistics for a host are collected
+ * Set callback function to be called when TLS statistics are available
  */
-void wget_tcp_set_stats_tls(wget_stats_callback_t fn)
+void wget_ssl_set_stats_callback_tls(wget_tls_stats_callback *fn, void *ctx)
 {
-	stats_callback_tls = fn;
+	tls_stats_callback = fn;
+	tls_stats_ctx = ctx;
 }
 
 /**
- * \param[in] type A `wget_tls_stats_t` constant representing TLS statistical info to return
- * \param[in] _stats An internal  pointer sent to callback function
- * \return TLS statistical info in question
+ * \param[in] fn A `wget_ssl_stats_callback_ocsp_t` callback function to receive OCSP statistics data
+ * \param[in] ctx Context data given to \p fn
  *
- * Get the specific TLS statistics information
+ * Set callback function to be called when OCSP statistics are available
  */
-const void *wget_tcp_get_stats_tls(wget_tls_stats_t type, const void *_stats)
+void wget_ssl_set_stats_callback_ocsp(wget_ocsp_stats_callback *fn, void *ctx)
 {
-	const _stats_data_t *stats = (_stats_data_t *) _stats;
-
-	switch(type) {
-	case WGET_STATS_TLS_HOSTNAME:
-		return stats->hostname;
-	case WGET_STATS_TLS_VERSION:
-		return &stats->version;
-	case WGET_STATS_TLS_FALSE_START:
-		return &(stats->false_start);
-	case WGET_STATS_TLS_TFO:
-		return &(stats->tfo);
-	case WGET_STATS_TLS_ALPN_PROTO:
-		return stats->alpn_protocol;
-	case WGET_STATS_TLS_CON:
-		return &(stats->tls_con);
-	case WGET_STATS_TLS_RESUMED:
-		return &(stats->resumed);
-	case WGET_STATS_TLS_HTTP_PROTO:
-		return &(stats->http_protocol);
-	case WGET_STATS_TLS_CERT_CHAIN_SIZE:
-		return &(stats->cert_chain_size);
-	case WGET_STATS_TLS_SECS:
-		return &(stats->tls_secs);
-	default:
-		return NULL;
-	}
+	ocsp_stats_callback = fn;
+	ocsp_stats_ctx = ctx;
 }
-
-/**
- * \param[in] fn A `wget_stats_callback_t` callback function used to collect OCSP statistics
- *
- * Set callback function to be called once OCSP statistics for a host are collected
- */
-void wget_tcp_set_stats_ocsp(wget_stats_callback_t fn)
-{
-	stats_callback_ocsp = fn;
-}
-
-/**
- * \param[in] type A `wget_ocsp_stats_t` constant representing OCSP statistical info to return
- * \param[in] _stats An internal  pointer sent to callback function
- * \return OCSP statistical info in question
- *
- * Get the specific OCSP statistics information
- */
-const void *wget_tcp_get_stats_ocsp(wget_ocsp_stats_t type, const void *_stats)
-{
-	const _ocsp_stats_data_t *stats = (_ocsp_stats_data_t *) _stats;
-
-	switch(type) {
-	case WGET_STATS_OCSP_HOSTNAME:
-		return stats->hostname;
-	case WGET_STATS_OCSP_VALID:
-		return &(stats->nvalid);
-	case WGET_STATS_OCSP_REVOKED:
-		return &(stats->nrevoked);
-	case WGET_STATS_OCSP_IGNORED:
-		return &(stats->nignored);
-	case WGET_STATS_OCSP_STAPLING:
-		return &(stats->stapling);
-	default:
-		return NULL;
-	}
-}
-
-#else // WITH_GNUTLS
-
-#include <stddef.h>
-
-#include <wget.h>
-#include "private.h"
-
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-void wget_ssl_set_config_string(int key, const char *value) { }
-void wget_ssl_set_config_object(int key, void *value) { }
-void wget_ssl_set_config_int(int key, int value) { }
-void wget_ssl_init(void) { }
-void wget_ssl_deinit(void) { }
-int wget_ssl_open(wget_tcp_t *tcp) { return WGET_E_TLS_DISABLED; }
-void wget_ssl_close(void **session) { }
-ssize_t wget_ssl_read_timeout(void *session, char *buf, size_t count, int timeout) { return 0; }
-ssize_t wget_ssl_write_timeout(void *session, const char *buf, size_t count, int timeout) { return 0; }
-void wget_tcp_set_stats_tls(const wget_stats_callback_t fn) { }
-const void *wget_tcp_get_stats_tls(const wget_tls_stats_t type, const void *stats) { return NULL;}
-void wget_tcp_set_stats_ocsp(const wget_stats_callback_t fn) { }
-const void *wget_tcp_get_stats_ocsp(const wget_ocsp_stats_t type, const void *stats) { return NULL;}
-
-#endif // WITH_GNUTLS
 
 /** @} */

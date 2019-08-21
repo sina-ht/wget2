@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright(c) 2018-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -21,89 +21,89 @@
  */
 #include <config.h>
 
-#include <wget.h>
 #include <stdio.h>
 #include <stdint.h>
 
+#include <wget.h>
 #include "wget_main.h"
 #include "wget_stats.h"
 #include "wget_options.h"
+#include "../libwget/http.h"
+#include "../libwget/net.h"
+
+typedef struct
+{
+	const char
+		*hostname,
+		*ip;
+	wget_hpkp_stats_result
+		hpkp;
+	wget_iri_scheme
+		scheme;
+	char
+		hsts,
+		csp,
+		hpkp_new;
+} server_stats_data;
 
 typedef struct {
 	const char
 		*hostname,
 		*ip;
-	char
-		scheme,
-		hsts,
-		csp,
-		hpkp_new;
-	wget_hpkp_stats_t
-		hpkp;
-} server_stats_t;
+	wget_iri_scheme
+		scheme;
+} server_stats_host;
 
-// Forward declarations for static functions
-static void print_human(stats_opts_t *opts, FILE *fp);
-static void print_csv(stats_opts_t *opts, FILE *fp);
-static void stats_callback(const void *stats);
-static void free_stats(server_stats_t *stats);
+static wget_hashmap
+	*hosts;
 
-static stats_print_func_t
-	print_server[] = {
-		[WGET_STATS_FORMAT_HUMAN] = print_human,
-		[WGET_STATS_FORMAT_CSV] = print_csv,
-	};
+static wget_thread_mutex
+	mutex;
 
-stats_opts_t stats_server_opts = {
-	.tag = "Server",
-	.options = &config.stats_server,
-	.set_callback = (stats_callback_setter_t) wget_tcp_set_stats_server,
-	.callback = stats_callback,
-	.destructor = (wget_vector_destructor_t) free_stats,
-	.print = print_server,
-};
+static FILE
+	*fp;
 
-static void stats_callback(const void *stats)
+static int host_compare(const server_stats_host *host1, const server_stats_host *host2)
 {
-	server_stats_t server_stats = { .hpkp_new = -1, .hsts = -1, .csp = -1, .hpkp = WGET_STATS_HPKP_NO };
+	int n;
 
-	server_stats.hostname = wget_strdup(wget_tcp_get_stats_server(WGET_STATS_SERVER_HOSTNAME, stats));
-	server_stats.ip = wget_strdup(wget_tcp_get_stats_server(WGET_STATS_SERVER_IP, stats));
+	if ((n = wget_strcmp(host1->hostname, host2->hostname)))
+		return n;
 
-	const char *scheme = wget_tcp_get_stats_server(WGET_STATS_SERVER_SCHEME, stats);
-	if (scheme) {
-		if (!strcmp(scheme, "http"))
-			server_stats.scheme = 1;
-		else if (!strcmp(scheme, "https"))
-			server_stats.scheme = 2;
-	}
+	if ((n = wget_strcmp(host1->ip, host2->ip)))
+		return n;
 
-	if (wget_tcp_get_stats_server(WGET_STATS_SERVER_HPKP_NEW, stats))
-		server_stats.hpkp_new = *((char *)wget_tcp_get_stats_server(WGET_STATS_SERVER_HPKP_NEW, stats));
-
-	if (wget_tcp_get_stats_server(WGET_STATS_SERVER_HSTS, stats))
-		server_stats.hsts = *((char *)wget_tcp_get_stats_server(WGET_STATS_SERVER_HSTS, stats));
-
-	if (wget_tcp_get_stats_server(WGET_STATS_SERVER_CSP, stats))
-		server_stats.csp = *((char *)wget_tcp_get_stats_server(WGET_STATS_SERVER_CSP, stats));
-
-	if (wget_tcp_get_stats_server(WGET_STATS_SERVER_HPKP, stats))
-		server_stats.hpkp = *((char *)wget_tcp_get_stats_server(WGET_STATS_SERVER_HPKP, stats));
-
-	wget_thread_mutex_lock(stats_server_opts.mutex);
-	wget_vector_add(stats_server_opts.data, &server_stats, sizeof(server_stats_t));
-	wget_thread_mutex_unlock(stats_server_opts.mutex);
+	return host1->scheme - host2->scheme;
 }
 
-static void free_stats(server_stats_t *stats)
+#ifdef __clang__
+__attribute__((no_sanitize("integer")))
+#endif
+static unsigned int host_hash(const server_stats_host *host)
 {
-	if (stats) {
-		xfree(stats->hostname);
-		xfree(stats->ip);
+	unsigned int hash = host->scheme; // use 0 as SALT if hash table attacks doesn't matter
+	const unsigned char *p;
+
+	for (p = (unsigned char *)host->hostname; p && *p; p++)
+			hash = hash * 101 + *p;
+
+	for (p = (unsigned char *)host->ip; p && *p; p++)
+		hash = hash * 101 + *p;
+
+	return hash;
+}
+
+static void free_host_entry(server_stats_host *host)
+{
+	if (host) {
+		wget_xfree(host->hostname);
+		wget_xfree(host->ip);
+		wget_xfree(host);
 	}
 }
 
-G_GNUC_WGET_PURE static const char *_hpkp_string(wget_hpkp_stats_t hpkp)
+WGET_GCC_CONST
+static const char *hpkp_string(wget_hpkp_stats_result hpkp)
 {
 	switch (hpkp) {
 	case WGET_STATS_HPKP_NO: return "HPKP_NO";
@@ -114,50 +114,72 @@ G_GNUC_WGET_PURE static const char *_hpkp_string(wget_hpkp_stats_t hpkp)
 	}
 }
 
-G_GNUC_WGET_PURE static const char *_scheme_string(int scheme)
+static void server_stats_print(server_stats_data *stats)
 {
-	switch (scheme) {
-	case 1: return "http";
-	case 2: return "https";
-	default: return "?";
+	if (config.stats_server_args->format == WGET_STATS_FORMAT_HUMAN) {
+		wget_fprintf(fp, "  %s:\n", NULL_TO_DASH(stats->hostname));
+		wget_fprintf(fp, "    IP             : %s\n", NULL_TO_DASH(stats->ip));
+		wget_fprintf(fp, "    Scheme         : %s\n", wget_iri_scheme_get_name(stats->scheme));
+		wget_fprintf(fp, "    HPKP           : %s\n", hpkp_string(stats->hpkp));
+		wget_fprintf(fp, "    HPKP New Entry : %s\n", ON_OFF_DASH(stats->hpkp_new));
+		wget_fprintf(fp, "    HSTS           : %s\n", ON_OFF_DASH(stats->hsts));
+		wget_fprintf(fp, "    CSP            : %s\n\n", ON_OFF_DASH(stats->csp));
+	} else {
+		wget_fprintf(fp, "%s,%s,%s,%d,%d,%d,%d\n",
+			stats->hostname ? stats->hostname : "",
+			stats->ip ? stats->ip : "",
+			wget_iri_scheme_get_name(stats->scheme),
+			(int) stats->hpkp,
+			stats->hpkp_new,
+			stats->hsts,
+			stats->csp);
 	}
 }
 
-static int print_human_entry(FILE *fp, const server_stats_t *server_stats)
+static void server_stats_add(wget_http_connection *conn, wget_http_response *resp)
 {
-	fprintf(fp, "  %s:\n", NULL_TO_DASH(server_stats->hostname));
-	fprintf(fp, "    IP             : %s\n", NULL_TO_DASH(server_stats->ip));
-	fprintf(fp, "    Scheme         : %s\n", _scheme_string(server_stats->scheme));
-	fprintf(fp, "    HPKP           : %s\n", _hpkp_string(server_stats->hpkp));
-	fprintf(fp, "    HPKP New Entry : %s\n", ON_OFF_DASH(server_stats->hpkp_new));
-	fprintf(fp, "    HSTS           : %s\n", ON_OFF_DASH(server_stats->hsts));
-	fprintf(fp, "    CSP            : %s\n\n", ON_OFF_DASH(server_stats->csp));
+	server_stats_host *hostp = wget_malloc(sizeof(server_stats_host));
 
-	return 0;
+	hostp->hostname = wget_strdup(wget_http_get_host(conn));
+	hostp->ip = wget_strdup(wget_tcp_get_ip(conn->tcp));
+	hostp->scheme = conn->scheme;
+
+	wget_thread_mutex_lock(mutex);
+
+	if (!wget_hashmap_contains(hosts, hostp)) {
+		server_stats_data stats;
+
+		stats.hostname = hostp->hostname;
+		stats.ip = hostp->ip;
+		stats.scheme = hostp->scheme;
+		stats.hpkp = conn->tcp->hpkp;
+		stats.hpkp_new = resp ? (resp->hpkp ? 1 : 0): -1;
+		stats.hsts = resp ? (resp->hsts ? 1 : 0) : -1;
+		stats.csp = resp ? (resp->csp ? 1 : 0) : -1;
+
+		server_stats_print(&stats);
+		wget_hashmap_put(hosts, hostp, hostp);
+	} else
+		free_host_entry(hostp);
+
+	wget_thread_mutex_unlock(mutex);
 }
 
-static int print_csv_entry(FILE *fp, const server_stats_t *server_stats)
+void server_stats_init(FILE *fpout)
 {
-	fprintf(fp, "%s,%s,%d,%d,%d,%d,%d\n",
-		server_stats->hostname ? server_stats->hostname : "",
-		server_stats->ip ? server_stats->ip : "",
-		server_stats->scheme,
-		(int) server_stats->hpkp,
-		server_stats->hpkp_new,
-		server_stats->hsts,
-		server_stats->csp);
+	wget_thread_mutex_init(&mutex);
 
-	return 0;
+	hosts = wget_hashmap_create(16, (wget_hashmap_hash_fn *) host_hash, (wget_hashmap_compare_fn *) host_compare);
+	wget_hashmap_set_key_destructor(hosts, (wget_hashmap_key_destructor *) free_host_entry);
+
+	fp = fpout;
+
+	wget_server_set_stats_callback(server_stats_add);
 }
 
-static void print_human(stats_opts_t *opts, FILE *fp)
+void server_stats_exit(void)
 {
-	fprintf(fp, "\nServer Statistics:\n");
-	wget_vector_browse(opts->data, (wget_vector_browse_t) print_human_entry, fp);
-}
-
-static void print_csv(stats_opts_t *opts, FILE *fp)
-{
-	fprintf(fp, "Hostname,IP,Scheme,HPKP,NewHPKP,HSTS,CSP\n");
-	wget_vector_browse(opts->data, (wget_vector_browse_t) print_csv_entry, fp);
+	// We don't need mutex locking here - this function is called on exit when all threads have ceased.
+	wget_hashmap_free(&hosts);
+	wget_thread_mutex_destroy(&mutex);
 }

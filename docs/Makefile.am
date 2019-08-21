@@ -8,6 +8,7 @@ man3_MANS =\
  $(builddir)/man/man3/libwget-base64.3\
  $(builddir)/man/man3/libwget-bitmap.3\
  $(builddir)/man/man3/libwget-console.3\
+ $(builddir)/man/man3/libwget-dns.3\
  $(builddir)/man/man3/libwget-dns-caching.3\
  $(builddir)/man/man3/libwget-error.3\
  $(builddir)/man/man3/libwget-hash.3\
@@ -52,15 +53,16 @@ wget2.stamp:
 	$(MAKEINFO) --force -o $(builddir)/wget2.info $(builddir)/wget2.texi
 	echo > wget2.stamp
 
-DISTCLEANFILES += wget2.texi wget2.info README.md
+DISTCLEANFILES += wget2.texi wget2.info
 EXTRA_DIST += wget2.info $(man1_MANS)
 STAMPS += wget2.stamp
 endif
 
 CLEANFILES = $(STAMPS)
 
+DISTCLEANFILES += README.md
 README.md: $(top_srcdir)/README.md
-	$(AM_V_at)sed -n '/# GNU Wget2/,$$p' $< >$@
+	$(AM_V_at)sed -n '/# GNU Wget2/,$$p' $(top_srcdir)/README.md >$@
 
 all-local: README.md $(STAMPS)
 

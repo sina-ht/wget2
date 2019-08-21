@@ -5,20 +5,18 @@ MYLIBS = \
  $(LIBSOCKET) $(LIB_CLOCK_GETTIME) $(LIB_CRYPTO) $(LIB_GETLOGIN) $(LIB_NANOSLEEP) $(LIB_POLL) \
  $(LIB_POSIX_SPAWN) $(LIB_PTHREAD_SIGMASK) $(LIB_SELECT) $(LTLIBICONV) $(LTLIBINTL) \
  $(LTLIBMULTITHREAD) $(LTLIBTHREAD) $(SERVENT_LIB) @INTL_MACOSX_LIBS@ \
- $(LIBS)
+ $(LIBS) $(CODE_COVERAGE_LIBS)
 
-AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS)
+AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(CODE_COVERAGE_CFLAGS) -DMALLOC_RETURNS_NONNULL
 AM_CPPFLAGS = -I$(top_srcdir)/include/wget -I$(srcdir) -I$(top_builddir)/lib -I$(top_srcdir)/lib \
- -DWGETVER_FILE=\"$(top_builddir)/include/wget/wgetver.h\"
+ -DWGETVER_FILE=\"$(top_builddir)/include/wget/wgetver.h\" $(CODE_COVERAGE_CPPFLAGS) \
+ -DMALLOC_RETURNS_NONNULL
+
 LDADD = ../lib/libgnu.la ../libwget/libwget.la $(MYLIBS)
 
 BASE_OBJS = \
   ../src/log.o \
   ../src/options.o \
-  ../src/stats.o \
-  ../src/stats_dns.o \
-  ../src/stats_tls.o \
-  ../src/stats_ocsp.o \
   ../src/stats_server.o \
   ../src/stats_site.o \
   ../src/utils.o \

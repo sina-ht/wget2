@@ -97,7 +97,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 //	if (chroot(".") == 0) {
 		char *p;
 		if ((p = wget_strnglob("*", 1,  0)))
-			free(p);
+			wget_free(p);
 //	} else
 //		printf("Failed to chroot\n");
 
@@ -111,14 +111,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
 	int w, h;
 	wget_get_screen_size(&w, &h);
-
-	char esc[size * 3 + 1];
-	wget_restrict_file_name(data0, esc, WGET_RESTRICT_NAMES_WINDOWS);
-	wget_restrict_file_name(data0, esc, WGET_RESTRICT_NAMES_NOCONTROL);
-	wget_restrict_file_name(data0, esc, WGET_RESTRICT_NAMES_ASCII);
-	wget_restrict_file_name(data0, esc, WGET_RESTRICT_NAMES_UPPERCASE);
-	wget_restrict_file_name(data0, esc, WGET_RESTRICT_NAMES_LOWERCASE);
-	wget_restrict_file_name(data0, esc, WGET_RESTRICT_NAMES_UNIX);
 
 	wget_memtohex(NULL, 0, NULL, 0);
 	wget_memtohex(data, size, dst1, sizeof(dst1));

@@ -35,10 +35,10 @@
 #include "wget_main.h"
 #include "wget_blacklist.h"
 
-static wget_hashmap_t
+static wget_hashmap
 	*blacklist;
 
-static wget_thread_mutex_t
+static wget_thread_mutex
 	mutex;
 
 void blacklist_init(void)
@@ -56,13 +56,12 @@ void blacklist_exit(void)
 #ifdef __clang__
 __attribute__((no_sanitize("integer")))
 #endif
-static unsigned int G_GNUC_WGET_NONNULL_ALL hash_iri(const wget_iri_t *iri)
+static unsigned int WGET_GCC_NONNULL_ALL hash_iri(const wget_iri *iri)
 {
 	unsigned int h = iri->port; // use port as SALT if hash table attacks doesn't matter
 	const unsigned char *p;
 
-	for (p = (unsigned char *)iri->scheme; p && *p; p++)
-		h = h * 101 + *p;
+	h = h * 101 + iri->scheme;
 
 	for (p = (unsigned char *)iri->host; p && *p; p++)
 		h = h * 101 + *p;
@@ -76,7 +75,7 @@ static unsigned int G_GNUC_WGET_NONNULL_ALL hash_iri(const wget_iri_t *iri)
 	return h;
 }
 
-static int G_GNUC_WGET_NONNULL_ALL _blacklist_print(G_GNUC_WGET_UNUSED void *ctx, const wget_iri_t *iri)
+static int WGET_GCC_NONNULL_ALL blacklist_print_entry(WGET_GCC_UNUSED void *ctx, const wget_iri *iri)
 {
 	debug_printf("blacklist %s\n", iri->uri);
 	return 0;
@@ -85,7 +84,7 @@ static int G_GNUC_WGET_NONNULL_ALL _blacklist_print(G_GNUC_WGET_UNUSED void *ctx
 void blacklist_print(void)
 {
 	wget_thread_mutex_lock(mutex);
-	wget_hashmap_browse(blacklist, (wget_hashmap_browse_t)_blacklist_print, NULL);
+	wget_hashmap_browse(blacklist, (wget_hashmap_browse_fn *) blacklist_print_entry, NULL);
 	wget_thread_mutex_unlock(mutex);
 }
 
@@ -94,12 +93,12 @@ int blacklist_size(void)
 	return wget_hashmap_size(blacklist);
 }
 
-static void _free_entry(wget_iri_t *iri)
+static void _free_entry(wget_iri *iri)
 {
 	wget_iri_free(&iri);
 }
 
-wget_iri_t *blacklist_add(wget_iri_t *iri)
+wget_iri *blacklist_add(wget_iri *iri)
 {
 	if (!iri)
 		return NULL;
@@ -108,13 +107,13 @@ wget_iri_t *blacklist_add(wget_iri_t *iri)
 		wget_thread_mutex_lock(mutex);
 
 		if (!blacklist) {
-			blacklist = wget_hashmap_create(128, (wget_hashmap_hash_t)hash_iri, (wget_hashmap_compare_t)wget_iri_compare);
-			wget_hashmap_set_key_destructor(blacklist, (wget_hashmap_key_destructor_t)_free_entry);
+			blacklist = wget_hashmap_create(128, (wget_hashmap_hash_fn *) hash_iri, (wget_hashmap_compare_fn *) wget_iri_compare);
+			wget_hashmap_set_key_destructor(blacklist, (wget_hashmap_key_destructor *) _free_entry);
 		}
 
 		if (!wget_hashmap_contains(blacklist, iri)) {
 			// info_printf("Add to blacklist: %s\n",iri->uri);
-			wget_hashmap_put_noalloc(blacklist, iri, NULL); // use hashmap as a hashset (without value)
+			wget_hashmap_put(blacklist, iri, NULL); // use hashmap as a hashset (without value)
 			wget_thread_mutex_unlock(mutex);
 			return iri;
 		} else {

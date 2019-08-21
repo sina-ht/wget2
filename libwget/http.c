@@ -38,11 +38,7 @@
 #include <c-ctype.h>
 #include <time.h>
 #include <errno.h>
-#ifdef HAVE_SYS_SOCKET_H
-# include <sys/socket.h>
-#elif defined HAVE_WS2TCPIP_H
-# include <ws2tcpip.h>
-#endif
+#include <sys/socket.h>
 #include <netinet/in.h>
 #ifdef WITH_ZLIB
 //#include <zlib.h>
@@ -59,16 +55,13 @@
 static char
 	_abort_indicator;
 
-static wget_vector_t
+static wget_vector
 	*http_proxies,
 	*https_proxies,
 	*no_proxies;
 
-static wget_hashmap_t
-	*hosts;
-
 // protect access to the above vectors
-static wget_thread_mutex_t
+static wget_thread_mutex
 	proxy_mutex,
 	hosts_mutex;
 static bool
@@ -118,30 +111,12 @@ void wget_http_exit(void)
 	_wget_http_exit();
 }
 
-typedef struct {
-	const char
-		*hostname,
-		*ip,
-		*scheme;
-} HOST;
-
-typedef struct
-{
-	const char
-		*hostname,
-		*ip,
-		*scheme;
-	char
-		hsts,
-		csp,
-		hpkp_new;
-	wget_hpkp_stats_t hpkp;
-} _stats_data_t;
-
-static wget_stats_callback_t stats_callback;
+static wget_server_stats_callback
+	*server_stats_callback;
 
 // This is the default function for collecting body data
-static int _body_callback(wget_http_response_t *resp, void *user_data G_GNUC_WGET_UNUSED, const char *data, size_t length)
+static wget_http_body_callback _body_callback;
+static int _body_callback(wget_http_response *resp, void *user_data WGET_GCC_UNUSED, const char *data, size_t length)
 {
 	if (!resp->body)
 		resp->body = wget_buffer_alloc(102400);
@@ -161,9 +136,11 @@ static int _body_callback(wget_http_response_t *resp, void *user_data G_GNUC_WGE
  *   Characters other than those in the "reserved" set are equivalent to their
  *   percent-encoded octets: the normal form is to not encode them (see Sections 2.1 and 2.2 of [RFC3986]).
  */
-wget_http_request_t *wget_http_create_request(const wget_iri_t *iri, const char *method)
+wget_http_request *wget_http_create_request(const wget_iri *iri, const char *method)
 {
-	wget_http_request_t *req = xcalloc(1, sizeof(wget_http_request_t));
+	wget_http_request *req = wget_calloc(1, sizeof(wget_http_request));
+	if (!req)
+		return NULL;
 
 	wget_buffer_init(&req->esc_resource, req->esc_resource_buf, sizeof(req->esc_resource_buf));
 	wget_buffer_init(&req->esc_host, req->esc_host_buf, sizeof(req->esc_host_buf));
@@ -173,7 +150,7 @@ wget_http_request_t *wget_http_create_request(const wget_iri_t *iri, const char 
 	wget_iri_get_escaped_resource(iri, &req->esc_resource);
 	wget_iri_get_escaped_host(iri, &req->esc_host);
 	req->headers = wget_vector_create(8, NULL);
-	wget_vector_set_destructor(req->headers, (wget_vector_destructor_t)wget_http_free_param);
+	wget_vector_set_destructor(req->headers, (wget_vector_destructor *) wget_http_free_param);
 
 	wget_http_add_header(req, "Host", req->esc_host.data);
 	wget_http_request_set_body_cb(req, _body_callback, NULL);
@@ -181,19 +158,19 @@ wget_http_request_t *wget_http_create_request(const wget_iri_t *iri, const char 
 	return req;
 }
 
-void wget_http_request_set_header_cb(wget_http_request_t *req, wget_http_header_callback_t callback, void *user_data)
+void wget_http_request_set_header_cb(wget_http_request *req, wget_http_header_callback *callback, void *user_data)
 {
 	req->header_callback = callback;
 	req->header_user_data = user_data;
 }
 
-void wget_http_request_set_body_cb(wget_http_request_t *req, wget_http_body_callback_t callback, void *user_data)
+void wget_http_request_set_body_cb(wget_http_request *req, wget_http_body_callback *callback, void *user_data)
 {
 	req->body_callback = callback;
 	req->body_user_data = user_data;
 }
 
-void wget_http_request_set_int(wget_http_request_t *req, int key, int value)
+void wget_http_request_set_int(wget_http_request *req, int key, int value)
 {
 	switch (key) {
 	case WGET_HTTP_RESPONSE_KEEPHEADER: req->response_keepheader = !!value; break;
@@ -201,7 +178,7 @@ void wget_http_request_set_int(wget_http_request_t *req, int key, int value)
 	}
 }
 
-int wget_http_request_get_int(wget_http_request_t *req, int key)
+int wget_http_request_get_int(wget_http_request *req, int key)
 {
 	switch (key) {
 	case WGET_HTTP_RESPONSE_KEEPHEADER: return req->response_keepheader;
@@ -211,7 +188,7 @@ int wget_http_request_get_int(wget_http_request_t *req, int key)
 	}
 }
 
-void wget_http_request_set_ptr(wget_http_request_t *req, int key, void *value)
+void wget_http_request_set_ptr(wget_http_request *req, int key, void *value)
 {
 	switch (key) {
 	case WGET_HTTP_USER_DATA: req->user_data = value; break;
@@ -219,7 +196,7 @@ void wget_http_request_set_ptr(wget_http_request_t *req, int key, void *value)
 	}
 }
 
-void *wget_http_request_get_ptr(wget_http_request_t *req, int key)
+void *wget_http_request_get_ptr(wget_http_request *req, int key)
 {
 	switch (key) {
 	case WGET_HTTP_USER_DATA: return req->user_data;
@@ -229,7 +206,7 @@ void *wget_http_request_get_ptr(wget_http_request_t *req, int key)
 	}
 }
 
-void wget_http_request_set_body(wget_http_request_t *req, const char *mimetype, char *body, size_t length)
+void wget_http_request_set_body(wget_http_request *req, const char *mimetype, char *body, size_t length)
 {
 	if (mimetype)
 		wget_http_add_header(req, "Content-Type", mimetype);
@@ -238,45 +215,54 @@ void wget_http_request_set_body(wget_http_request_t *req, const char *mimetype, 
 	req->body_length = length;
 }
 
-void wget_http_add_header_vprintf(wget_http_request_t *req, const char *name, const char *fmt, va_list args)
+static int http_add_header(wget_http_request *req, const char *name, const char *value)
 {
-	wget_http_header_param_t param;
+	wget_http_header_param *param = wget_malloc(sizeof(wget_http_header_param));
 
-	param.value = wget_vaprintf(fmt, args);
-	param.name = wget_strdup(name);
-	wget_vector_add(req->headers, &param, sizeof(param));
+	if (!param || !name || !value)
+		goto err;
+
+	param->name = name;
+	param->value = value;
+
+	if (wget_vector_add(req->headers, param) >= 0)
+		return WGET_E_SUCCESS;
+
+	xfree(param);
+
+err:
+	xfree(value);
+	xfree(name);
+	return WGET_E_MEMORY;
 }
 
-void wget_http_add_header_printf(wget_http_request_t *req, const char *name, const char *fmt, ...)
+int wget_http_add_header_vprintf(wget_http_request *req, const char *name, const char *fmt, va_list args)
+{
+	return http_add_header(req, wget_strdup(name), wget_vaprintf(fmt, args));
+}
+
+int wget_http_add_header_printf(wget_http_request *req, const char *name, const char *fmt, ...)
 {
 	va_list args;
 
 	va_start(args, fmt);
-	wget_http_add_header_vprintf(req, name, fmt, args);
+	int rc = wget_http_add_header_vprintf(req, name, fmt, args);
 	va_end(args);
+
+	return rc;
 }
 
-void wget_http_add_header(wget_http_request_t *req, const char *name, const char *value)
+int wget_http_add_header(wget_http_request *req, const char *name, const char *value)
 {
-	wget_http_header_param_t param = {
-		.name = wget_strdup(name),
-		.value = wget_strdup(value)
-	};
-
-	wget_vector_add(req->headers, &param, sizeof(param));
+	return http_add_header(req, wget_strdup(name), wget_strdup(value));
 }
 
-void wget_http_add_header_param(wget_http_request_t *req, wget_http_header_param_t *param)
+int wget_http_add_header_param(wget_http_request *req, wget_http_header_param *param)
 {
-	wget_http_header_param_t _param = {
-		.name = wget_strdup(param->name),
-		.value = wget_strdup(param->value)
-	};
-
-	wget_vector_add(req->headers, &_param, sizeof(_param));
+	return http_add_header(req, wget_strdup(param->name), wget_strdup(param->value));
 }
 
-void wget_http_add_credentials(wget_http_request_t *req, wget_http_challenge_t *challenge, const char *username, const char *password, int proxied)
+void wget_http_add_credentials(wget_http_request *req, wget_http_challenge *challenge, const char *username, const char *password, int proxied)
 {
 	if (!challenge)
 		return;
@@ -297,7 +283,7 @@ void wget_http_add_credentials(wget_http_request_t *req, wget_http_challenge_t *
 	}
 	else if (!wget_strcasecmp_ascii(challenge->auth_scheme, "digest")) {
 		const char *realm, *opaque, *nonce, *qop, *algorithm;
-		wget_buffer_t buf;
+		wget_buffer buf;
 		int hashtype, hashlen;
 
 		if (!wget_stringmap_get(challenge->params, "realm", &realm))
@@ -407,15 +393,15 @@ void http_set_config_int(int key, int value)
 */
 
 struct _http2_stream_context {
-	wget_http_response_t
+	wget_http_response
 		*resp;
-	wget_decompressor_t
+	wget_decompressor
 		*decompressor;
 };
 
-static int _decompress_error_handler(wget_decompressor_t *dc, int err G_GNUC_WGET_UNUSED)
+static int _decompress_error_handler(wget_decompressor *dc, int err WGET_GCC_UNUSED)
 {
-	wget_http_response_t *resp = (wget_http_response_t *) wget_decompress_get_context(dc);
+	wget_http_response *resp = (wget_http_response *) wget_decompress_get_context(dc);
 
 	if (resp && resp->req)
 		error_printf(_("Decompress failed [host: %s - resource: %s]\n"),
@@ -424,18 +410,37 @@ static int _decompress_error_handler(wget_decompressor_t *dc, int err G_GNUC_WGE
 	return 0;
 }
 
+static wget_decompressor_sink_fn _get_body;
 static int _get_body(void *userdata, const char *data, size_t length)
 {
-	wget_http_response_t *resp = (wget_http_response_t *) userdata;
+	wget_http_response *resp = (wget_http_response *) userdata;
 
 	return resp->req->body_callback(resp, resp->req->body_user_data, data, length);
 }
 
-#ifdef WITH_LIBNGHTTP2
-static ssize_t _send_callback(nghttp2_session *session G_GNUC_WGET_UNUSED,
-	const uint8_t *data, size_t length, int flags G_GNUC_WGET_UNUSED, void *user_data)
+static void _fix_broken_server_encoding(wget_http_response *resp)
 {
-	wget_http_connection_t *conn = (wget_http_connection_t *)user_data;
+	// a workaround for broken server configurations
+	// see https://mail-archives.apache.org/mod_mbox/httpd-dev/200207.mbox/<3D2D4E76.4010502@talex.com.pl>
+	if (resp->content_encoding == wget_content_encoding_gzip) {
+		const char *ext;
+		if (!wget_strcasecmp_ascii(resp->content_type, "application/x-gzip")
+			|| !wget_strcasecmp_ascii(resp->content_type, "application/gzip")
+			|| !wget_strcasecmp_ascii(resp->content_type, "application/gunzip")
+			|| ((ext = strrchr(resp->req->esc_resource.data, '.'))
+			&& (!wget_strcasecmp_ascii(ext, ".gz") || !wget_strcasecmp_ascii(ext, ".tgz"))))
+		{
+			debug_printf("Broken server configuration gzip workaround triggered\n");
+			resp->content_encoding =  wget_content_encoding_identity;
+		}
+	}
+}
+
+#ifdef WITH_LIBNGHTTP2
+static ssize_t _send_callback(nghttp2_session *session WGET_GCC_UNUSED,
+	const uint8_t *data, size_t length, int flags WGET_GCC_UNUSED, void *user_data)
+{
+	wget_http_connection *conn = (wget_http_connection *)user_data;
 	ssize_t rc;
 
 	// debug_printf("writing... %zd\n", length);
@@ -472,8 +477,8 @@ static void _print_frame_type(int type, const char tag, int streamid)
 		debug_printf("[FRAME %d] %c Unknown type %d\n", streamid, tag, type);
 }
 
-static int _on_frame_send_callback(nghttp2_session *session G_GNUC_WGET_UNUSED,
-	const nghttp2_frame *frame, void *user_data G_GNUC_WGET_UNUSED)
+static int _on_frame_send_callback(nghttp2_session *session WGET_GCC_UNUSED,
+	const nghttp2_frame *frame, void *user_data WGET_GCC_UNUSED)
 {
 	_print_frame_type(frame->hd.type, '>', frame->hd.stream_id);
 
@@ -489,19 +494,21 @@ static int _on_frame_send_callback(nghttp2_session *session G_GNUC_WGET_UNUSED,
 }
 
 static int _on_frame_recv_callback(nghttp2_session *session,
-	const nghttp2_frame *frame, void *user_data G_GNUC_WGET_UNUSED)
+	const nghttp2_frame *frame, void *user_data WGET_GCC_UNUSED)
 {
 	_print_frame_type(frame->hd.type, '<', frame->hd.stream_id);
 
 	// header callback after receiving all header tags
 	if (frame->hd.type == NGHTTP2_HEADERS) {
 		struct _http2_stream_context *ctx = nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
-		wget_http_response_t *resp = ctx ? ctx->resp : NULL;
+		wget_http_response *resp = ctx ? ctx->resp : NULL;
 
 		if (resp) {
 			if (resp->header && resp->req->header_callback) {
 				resp->req->header_callback(resp, resp->req->header_user_data);
 			}
+
+			_fix_broken_server_encoding(resp);
 
 			if (!ctx->decompressor) {
 				ctx->decompressor = wget_decompress_open(resp->content_encoding, _get_body, resp);
@@ -516,10 +523,10 @@ static int _on_frame_recv_callback(nghttp2_session *session,
 static int _on_header_callback(nghttp2_session *session,
 	const nghttp2_frame *frame, const uint8_t *name, size_t namelen,
 	const uint8_t *value, size_t valuelen,
-	uint8_t flags G_GNUC_WGET_UNUSED, void *user_data G_GNUC_WGET_UNUSED)
+	uint8_t flags WGET_GCC_UNUSED, void *user_data WGET_GCC_UNUSED)
 {
 	struct _http2_stream_context *ctx = nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
-	wget_http_response_t *resp = ctx ? ctx->resp : NULL;
+	wget_http_response *resp = ctx ? ctx->resp : NULL;
 
 	if (!resp)
 		return 0;
@@ -547,17 +554,17 @@ static int _on_header_callback(nghttp2_session *session,
  * This function is called to indicate that a stream is closed.
  */
 static int _on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
-	uint32_t error_code G_GNUC_WGET_UNUSED, void *user_data)
+	uint32_t error_code WGET_GCC_UNUSED, void *user_data)
 {
 	struct _http2_stream_context *ctx = nghttp2_session_get_stream_user_data(session, stream_id);
 
 	debug_printf("closing stream %d\n", stream_id);
 	if (ctx) {
-		wget_http_connection_t *conn = (wget_http_connection_t *) user_data;
+		wget_http_connection *conn = (wget_http_connection *) user_data;
 
 		ctx->resp->response_end = wget_get_timemillis(); // Final transmission time.
 
-		wget_vector_add_noalloc(conn->received_http2_responses, ctx->resp);
+		wget_vector_add(conn->received_http2_responses, ctx->resp);
 		wget_decompress_close(ctx->decompressor);
 		nghttp2_session_set_stream_user_data(session, stream_id, NULL);
 		xfree(ctx);
@@ -570,8 +577,8 @@ static int _on_stream_close_callback(nghttp2_session *session, int32_t stream_id
  * use this function to print the received response body.
  */
 static int _on_data_chunk_recv_callback(nghttp2_session *session,
-	uint8_t flags G_GNUC_WGET_UNUSED, int32_t stream_id,
-	const uint8_t *data, size_t len,	void *user_data G_GNUC_WGET_UNUSED)
+	uint8_t flags WGET_GCC_UNUSED, int32_t stream_id,
+	const uint8_t *data, size_t len,	void *user_data WGET_GCC_UNUSED)
 {
 	struct _http2_stream_context *ctx = nghttp2_session_get_stream_user_data(session, stream_id);
 
@@ -598,102 +605,12 @@ static void setup_nghttp2_callbacks(nghttp2_session_callbacks *callbacks)
 }
 #endif
 
-static int _host_compare(const HOST *host1, const HOST *host2)
-{
-	int n;
-
-	if ((n = wget_strcmp(host1->hostname, host2->hostname)))
-		return n;
-
-	if ((n = wget_strcmp(host1->ip, host2->ip)))
-		return n;
-
-	return wget_strcmp(host1->scheme, host2->scheme);
-}
-
-#ifdef __clang__
-__attribute__((no_sanitize("integer")))
-#endif
-static unsigned int _host_hash(const HOST *host)
-{
-	unsigned int hash = 0; // use 0 as SALT if hash table attacks doesn't matter
-	const unsigned char *p;
-
-	for (p = (unsigned char *)host->hostname; p && *p; p++)
-			hash = hash * 101 + *p;
-
-	for (p = (unsigned char *)host->ip; p && *p; p++)
-		hash = hash * 101 + *p;
-
-	for (p = (unsigned char *)host->scheme; p && *p; p++)
-			hash = hash * 101 + *p;
-
-	return hash;
-}
-
-static void _free_host_entry(HOST *host)
-{
-	if (host) {
-		wget_xfree(host->hostname);
-		wget_xfree(host->ip);
-		wget_xfree(host->scheme);
-		wget_xfree(host);
-	}
-}
-
-static const HOST *host_add(const HOST *hostp)
-{
-	if (!hosts) {
-		hosts = wget_hashmap_create(16, (wget_hashmap_hash_t)_host_hash, (wget_hashmap_compare_t)_host_compare);
-		wget_hashmap_set_key_destructor(hosts, (wget_hashmap_key_destructor_t)_free_host_entry);
-	}
-
-	wget_hashmap_put_noalloc(hosts, hostp, hostp);
-
-	return hostp;
-}
-
-void host_ips_free(void)
-{
-	// We don't need mutex locking here - this function is called on exit when all threads have ceased.
-	if (stats_callback)
-		wget_hashmap_free(&hosts);
-}
-
-static void _server_stats_add(wget_http_connection_t *conn, wget_http_response_t *resp)
-{
-	wget_thread_mutex_lock(hosts_mutex);
-
-	HOST *hostp = wget_malloc(sizeof(HOST));
-	hostp->hostname = wget_strdup(wget_http_get_host(conn));
-	hostp->ip = wget_strdup(conn->tcp->ip);
-	hostp->scheme = wget_strdup(conn->scheme);
-
-	if (!hosts || !wget_hashmap_contains(hosts, hostp)) {
-		_stats_data_t stats;
-
-		stats.hostname = hostp->hostname;
-		stats.ip = hostp->ip;
-		stats.scheme = hostp->scheme;
-		stats.hpkp = conn->tcp->hpkp;
-		stats.hpkp_new = resp ? (resp->hpkp ? 1 : 0): -1;
-		stats.hsts = resp ? (resp->hsts ? 1 : 0) : -1;
-		stats.csp = resp ? (resp->csp ? 1 : 0) : -1;
-
-		stats_callback(&stats);
-		host_add(hostp);
-	} else
-		_free_host_entry(hostp);
-
-	wget_thread_mutex_unlock(hosts_mutex);
-}
-
-int wget_http_open(wget_http_connection_t **_conn, const wget_iri_t *iri)
+int wget_http_open(wget_http_connection **_conn, const wget_iri *iri)
 {
 	static int next_http_proxy = -1;
 	static int next_https_proxy = -1;
 
-	wget_http_connection_t
+	wget_http_connection
 		*conn;
 	const char
 		*host;
@@ -706,14 +623,14 @@ int wget_http_open(wget_http_connection_t **_conn, const wget_iri_t *iri)
 	if (!_conn)
 		return WGET_E_INVALID;
 
-	conn = *_conn = xcalloc(1, sizeof(wget_http_connection_t)); // convenience assignment
+	conn = *_conn = wget_calloc(1, sizeof(wget_http_connection)); // convenience assignment
 
 	host = iri->host;
 	port = iri->port;
 
 	wget_thread_mutex_lock(proxy_mutex);
 	if (!wget_http_match_no_proxy(no_proxies, iri->host)) {
-		wget_iri_t *proxy;
+		wget_iri *proxy;
 
 		if (iri->scheme == WGET_IRI_SCHEME_HTTP && http_proxies) {
 			proxy = wget_vector_get(http_proxies, (++next_http_proxy) % wget_vector_size(http_proxies));
@@ -785,8 +702,8 @@ int wget_http_open(wget_http_connection_t **_conn, const wget_iri_t *iri)
 		conn->pending_requests = wget_vector_create(16, NULL);
 #endif
 	} else {
-		if (stats_callback && (rc == WGET_E_CERTIFICATE))
-			_server_stats_add(conn, NULL);
+		if (server_stats_callback && (rc == WGET_E_CERTIFICATE))
+			server_stats_callback(conn, NULL);
 
 		wget_http_close(_conn);
 	}
@@ -794,7 +711,7 @@ int wget_http_open(wget_http_connection_t **_conn, const wget_iri_t *iri)
 	return rc;
 }
 
-void wget_http_close(wget_http_connection_t **conn)
+void wget_http_close(wget_http_connection **conn)
 {
 	if (*conn) {
 		debug_printf("closing connection\n");
@@ -831,7 +748,7 @@ static void _init_nv(nghttp2_nv *nv, const char *name, const char *value)
 }
 #endif
 
-int wget_http_send_request(wget_http_connection_t *conn, wget_http_request_t *req)
+int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 {
 	ssize_t nbytes;
 
@@ -850,7 +767,7 @@ int wget_http_send_request(wget_http_connection_t *conn, wget_http_request_t *re
 		nvp = &nvs[4];
 
 		for (int it = 0; it < wget_vector_size(req->headers); it++) {
-			wget_http_header_param_t *param = wget_vector_get(req->headers, it);
+			wget_http_header_param *param = wget_vector_get(req->headers, it);
 			if (!wget_strcasecmp_ascii(param->name, "Connection"))
 				continue;
 			if (!wget_strcasecmp_ascii(param->name, "Transfer-Encoding"))
@@ -863,9 +780,9 @@ int wget_http_send_request(wget_http_connection_t *conn, wget_http_request_t *re
 			_init_nv(nvp++, param->name, param->value);
 		}
 
-		struct _http2_stream_context *ctx = xcalloc(1, sizeof(struct _http2_stream_context));
+		struct _http2_stream_context *ctx = wget_calloc(1, sizeof(struct _http2_stream_context));
 		// HTTP/2.0 has the streamid as link between
-		ctx->resp = xcalloc(1, sizeof(wget_http_response_t));
+		ctx->resp = wget_calloc(1, sizeof(wget_http_response));
 		ctx->resp->req = req;
 		ctx->resp->major = 2;
 		// we do not get a Keep-Alive header in HTTP2 - let's assume the connection stays open
@@ -903,7 +820,7 @@ int wget_http_send_request(wget_http_connection_t *conn, wget_http_request_t *re
 		return -1;
 	}
 
-	wget_vector_add_noalloc(conn->pending_requests, req);
+	wget_vector_add(conn->pending_requests, req);
 
 	if (req->debug_skip_body)
 		debug_printf("# sent %zd bytes:\n%.*s<body skipped>", nbytes, (int)(conn->buf->length - req->body_length), conn->buf->data);
@@ -913,7 +830,7 @@ int wget_http_send_request(wget_http_connection_t *conn, wget_http_request_t *re
 	return 0;
 }
 
-ssize_t wget_http_request_to_buffer(wget_http_request_t *req, wget_buffer_t *buf, int proxied)
+ssize_t wget_http_request_to_buffer(wget_http_request *req, wget_buffer *buf, int proxied)
 {
 	char have_content_length = 0;
 	char check_content_length = req->body && req->body_length;
@@ -923,7 +840,7 @@ ssize_t wget_http_request_to_buffer(wget_http_request_t *req, wget_buffer_t *buf
 	wget_buffer_strcpy(buf, req->method);
 	wget_buffer_memcat(buf, " ", 1);
 	if (proxied) {
-		wget_buffer_strcat(buf, req->scheme);
+		wget_buffer_strcat(buf, wget_iri_scheme_get_name(req->scheme));
 		wget_buffer_memcat(buf, "://", 3);
 		wget_buffer_bufcat(buf, &req->esc_host);
 	}
@@ -932,7 +849,7 @@ ssize_t wget_http_request_to_buffer(wget_http_request_t *req, wget_buffer_t *buf
 	wget_buffer_memcat(buf, " HTTP/1.1\r\n", 11);
 
 	for (int it = 0; it < wget_vector_size(req->headers); it++) {
-		wget_http_header_param_t *param = wget_vector_get(req->headers, it);
+		wget_http_header_param *param = wget_vector_get(req->headers, it);
 
 		wget_buffer_strcat(buf, param->name);
 		wget_buffer_memcat(buf, ": ", 2);
@@ -962,30 +879,12 @@ ssize_t wget_http_request_to_buffer(wget_http_request_t *req, wget_buffer_t *buf
 	return buf->length;
 }
 
-static void _fix_broken_server_encoding(wget_http_response_t *resp)
-{
-	// a workaround for broken server configurations
-	// see https://mail-archives.apache.org/mod_mbox/httpd-dev/200207.mbox/<3D2D4E76.4010502@talex.com.pl>
-	if (resp->content_encoding == wget_content_encoding_gzip) {
-		const char *ext;
-		if (!wget_strcasecmp_ascii(resp->content_type, "application/x-gzip")
-			|| !wget_strcasecmp_ascii(resp->content_type, "application/gzip")
-			|| !wget_strcasecmp_ascii(resp->content_type, "application/gunzip")
-			|| ((ext = strrchr(resp->req->esc_resource.data, '.'))
-			&& (!wget_strcasecmp_ascii(ext, ".gz") || !wget_strcasecmp_ascii(ext, ".tgz"))))
-		{
-			debug_printf("Broken server configuration gzip workaround triggered\n");
-			resp->content_encoding =  wget_content_encoding_identity;
-		}
-	}
-}
-
-wget_http_response_t *wget_http_get_response_cb(wget_http_connection_t *conn)
+wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 {
 	size_t bufsize, body_len = 0, body_size = 0;
 	ssize_t nbytes, nread = 0;
 	char *buf, *p = NULL;
-	wget_http_response_t *resp = NULL;
+	wget_http_response *resp = NULL;
 
 #ifdef WITH_LIBNGHTTP2
 	if (conn->protocol == WGET_PROTOCOL_HTTP_2_0) {
@@ -1021,22 +920,20 @@ wget_http_response_t *wget_http_get_response_cb(wget_http_connection_t *conn)
 
 		resp = wget_vector_get(conn->received_http2_responses, 0); // should use double linked lists here
 
-		if (stats_callback)
-			_server_stats_add(conn, resp);
+		if (server_stats_callback)
+			server_stats_callback(conn, resp);
 
 		if (resp) {
 			debug_printf("  ##  response status %d\n", resp->code);
 			wget_vector_remove_nofree(conn->received_http2_responses, 0);
-
-			_fix_broken_server_encoding(resp);
 		}
 
 		return resp;
 	}
 #endif
 
-	wget_decompressor_t *dc = NULL;
-	wget_http_request_t *req = wget_vector_get(conn->pending_requests, 0); // TODO: should use double linked lists here
+	wget_decompressor *dc = NULL;
+	wget_http_request *req = wget_vector_get(conn->pending_requests, 0); // TODO: should use double linked lists here
 
 	debug_printf("### req %p pending requests = %d\n", (void *) req, wget_vector_size(conn->pending_requests));
 	if (!req)
@@ -1068,7 +965,7 @@ wget_http_response_t *wget_http_get_response_cb(wget_http_connection_t *conn)
 			debug_printf("# got header %zd bytes:\n%s\n\n", p - buf, buf);
 
 			if (req->response_keepheader) {
-				wget_buffer_t *header = wget_buffer_alloc(p - buf + 4);
+				wget_buffer *header = wget_buffer_alloc(p - buf + 4);
 				wget_buffer_memcpy(header, buf, p - buf);
 				wget_buffer_memcat(header, "\r\n\r\n", 4);
 
@@ -1086,8 +983,8 @@ wget_http_response_t *wget_http_get_response_cb(wget_http_connection_t *conn)
 
 			resp->req = req;
 
-			if (stats_callback)
-				_server_stats_add(conn, resp);
+			if (server_stats_callback)
+				server_stats_callback(conn, resp);
 
 			if (req->header_callback) {
 				if (req->header_callback(resp, req->header_user_data))
@@ -1104,7 +1001,10 @@ wget_http_response_t *wget_http_get_response_cb(wget_http_connection_t *conn)
 		}
 
 		if ((size_t)nread + 1024 > bufsize) {
-			wget_buffer_ensure_capacity(conn->buf, bufsize + 1024);
+			if (wget_buffer_ensure_capacity(conn->buf, bufsize + 1024) != WGET_E_SUCCESS) {
+				error_printf(_("Failed to allocate %zu bytes\n"), bufsize + 1024);
+				goto cleanup;
+			}
 			buf = conn->buf->data;
 			bufsize = conn->buf->size;
 		}
@@ -1128,7 +1028,7 @@ wget_http_response_t *wget_http_get_response_cb(wget_http_connection_t *conn)
 	 || H_10X(resp->code)
 	 || resp->code == HTTP_STATUS_NO_CONTENT
 	 || resp->code == HTTP_STATUS_NOT_MODIFIED
-	 || (resp->transfer_encoding == transfer_encoding_identity && resp->content_length == 0 && resp->content_length_valid)) {
+	 || (resp->transfer_encoding == wget_transfer_encoding_identity && resp->content_length == 0 && resp->content_length_valid)) {
 		// - body not included, see RFC 2616 4.3
 		// - body empty, see RFC 2616 4.4
 		goto cleanup;
@@ -1144,7 +1044,7 @@ wget_http_response_t *wget_http_get_response_cb(wget_http_connection_t *conn)
 	buf[body_len] = 0;
 	resp->cur_downloaded = body_len;
 
-	if (resp->transfer_encoding == transfer_encoding_chunked) {
+	if (resp->transfer_encoding == wget_transfer_encoding_chunked) {
 		size_t chunk_size = 0;
 		char *end;
 
@@ -1348,9 +1248,9 @@ cleanup:
 
 // get response, resp->body points to body in memory
 
-wget_http_response_t *wget_http_get_response(wget_http_connection_t *conn)
+wget_http_response *wget_http_get_response(wget_http_connection *conn)
 {
-	wget_http_response_t *resp;
+	wget_http_response *resp;
 
 	resp = wget_http_get_response_cb(conn);
 
@@ -1363,17 +1263,23 @@ wget_http_response_t *wget_http_get_response(wget_http_connection_t *conn)
 	return resp;
 }
 
-static wget_vector_t *_parse_proxies(const char *proxy, const char *encoding)
+static void iri_free(void *iri)
+{
+	if (iri)
+		wget_iri_free((wget_iri **) &iri);
+}
+
+static wget_vector *_parse_proxies(const char *proxy, const char *encoding)
 {
 	if (!proxy)
 		return NULL;
 
-	wget_vector_t *proxies = NULL;
+	wget_vector *proxies = NULL;
 	const char *s, *p;
 
 	for (s = p = proxy; *p; s = p + 1) {
 		if ((p = strchrnul(s, ',')) != s && p - s < 256) {
-			wget_iri_t *iri;
+			wget_iri *iri;
 			char host[p - s + 1];
 
 			memcpy(host, s, p - s);
@@ -1383,9 +1289,9 @@ static wget_vector_t *_parse_proxies(const char *proxy, const char *encoding)
 			if (iri) {
 				if (!proxies) {
 					proxies = wget_vector_create(8, NULL);
-					wget_vector_set_destructor(proxies, (wget_vector_destructor_t)wget_iri_free_content);
+					wget_vector_set_destructor(proxies, iri_free);
 				}
-				wget_vector_add_noalloc(proxies, iri);
+				wget_vector_add(proxies, iri);
 			}
 		}
 	}
@@ -1393,12 +1299,12 @@ static wget_vector_t *_parse_proxies(const char *proxy, const char *encoding)
 	return proxies;
 }
 
-static wget_vector_t *_parse_no_proxies(const char *no_proxy, const char *encoding)
+static wget_vector *_parse_no_proxies(const char *no_proxy, const char *encoding)
 {
 	if (!no_proxy)
 		return NULL;
 
-	wget_vector_t *proxies;
+	wget_vector *proxies;
 	const char *s, *p;
 
 	proxies = wget_vector_create(8, NULL);
@@ -1409,7 +1315,8 @@ static wget_vector_t *_parse_no_proxies(const char *no_proxy, const char *encodi
 		if ((p = strchrnul(s, ',')) != s && p - s < 256) {
 			char *host, *hostp;
 
-			host = wget_strmemdup(s, p - s);
+			if (!(host = wget_strmemdup(s, p - s)))
+				continue;
 
 			// May be a hostname, domainname (optional with leading dot or wildcard), IP address.
 			// We do not support network address (CIDR) for now.
@@ -1426,7 +1333,7 @@ static wget_vector_t *_parse_no_proxies(const char *no_proxy, const char *encodi
 				host = hostp;
 			}
 
-			wget_vector_add_noalloc(proxies, host);
+			wget_vector_add(proxies, host);
 		}
 	}
 
@@ -1465,7 +1372,7 @@ int wget_http_set_no_proxy(const char *no_proxy, const char *encoding)
 	return 0;
 }
 
-int wget_http_match_no_proxy(wget_vector_t *no_proxies_vec, const char *host)
+int wget_http_match_no_proxy(wget_vector *no_proxies_vec, const char *host)
 {
 	if (!no_proxies_vec || !host)
 		return 0;
@@ -1473,6 +1380,9 @@ int wget_http_match_no_proxy(wget_vector_t *no_proxies_vec, const char *host)
 	// https://www.gnu.org/software/emacs/manual/html_node/url/Proxies.html
 	for (int it = 0; it < wget_vector_size(no_proxies_vec); it++) {
 		const char *no_proxy = wget_vector_get(no_proxies_vec, it);
+
+		if (!no_proxy)
+			continue;
 
 		if (!strcmp(no_proxy, host))
 			return 1; // exact match
@@ -1485,7 +1395,7 @@ int wget_http_match_no_proxy(wget_vector_t *no_proxies_vec, const char *host)
 	return 0;
 }
 
-void wget_http_abort_connection(wget_http_connection_t *conn)
+void wget_http_abort_connection(wget_http_connection *conn)
 {
 	if (conn)
 		conn->abort_indicator = 1; // stop single connection
@@ -1494,51 +1404,12 @@ void wget_http_abort_connection(wget_http_connection_t *conn)
 }
 
 /**
- * \param[in] fn A `wget_stats_callback_t` callback function used to collect Server statistics
+ * \param[in] fn A `wget_server_stats_callback` callback function to receive server statistics data
+ * \param[in] ctx Context data given to \p fn
  *
- * Set callback function to be called once Server statistics for a host are collected
+ * Set callback function to be called when server statistics are available
  */
-void wget_tcp_set_stats_server(wget_stats_callback_t fn)
+void wget_server_set_stats_callback(wget_server_stats_callback *fn)
 {
-	stats_callback = fn;
-}
-
-/**
- * \param[in] fn A `wget_stats_callback_t` callback function used to collect Site Host statistics
- *
- * Set callback function to be called once Response statistics for a host are collected
- */
-void wget_tcp_set_stats_site(G_GNUC_WGET_UNUSED wget_stats_callback_t fn)
-{
-}
-
-/**
- * \param[in] type A `wget_server_stats_t` constant representing Server statistical info to return
- * \param[in] _stats An internal  pointer sent to callback function
- * \return Server statistical info in question
- *
- * Get the specific Server statistics information
- */
-const void *wget_tcp_get_stats_server(wget_server_stats_t type, const void *_stats)
-{
-	const _stats_data_t *stats = (_stats_data_t *) _stats;
-
-	switch(type) {
-	case WGET_STATS_SERVER_HOSTNAME:
-		return stats->hostname;
-	case WGET_STATS_SERVER_IP:
-		return stats->ip;
-	case WGET_STATS_SERVER_SCHEME:
-		return stats->scheme;
-	case WGET_STATS_SERVER_HPKP:
-		return &(stats->hpkp);
-	case WGET_STATS_SERVER_HPKP_NEW:
-		return &(stats->hpkp_new);
-	case WGET_STATS_SERVER_HSTS:
-		return &(stats->hsts);
-	case WGET_STATS_SERVER_CSP:
-		return &(stats->csp);
-	default:
-		return NULL;
-	}
+	server_stats_callback = fn;
 }

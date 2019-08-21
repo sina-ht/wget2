@@ -63,7 +63,7 @@ do { \
 #define LOCAL_NAME(x) OBJECT_DIR "/lib" x ".so"
 #endif
 
-static int string_vector_check(wget_vector_t *v, int correct_len, ...)
+static int string_vector_check(wget_vector *v, int correct_len, ...)
 {
 	int v_len = wget_vector_size(v);
 	va_list arglist;
@@ -72,21 +72,23 @@ static int string_vector_check(wget_vector_t *v, int correct_len, ...)
 	if (v_len != correct_len)
 		return 0;
 
-	wget_vector_setcmpfunc(v, (wget_vector_compare_t) strcmp);
+	wget_vector_setcmpfunc(v, (wget_vector_compare_fn *) strcmp);
 	wget_vector_sort(v);
 
 	va_start(arglist, correct_len);
 	for (int i = 0; i < v_len; i++) {
 		str = va_arg(arglist, const char *);
-		if (strcmp((const char *) wget_vector_get(v, i), str) != 0)
+		if (strcmp((const char *) wget_vector_get(v, i), str) != 0) {
+			va_end(arglist);
 			return 0;
+		}
 	}
 	va_end(arglist);
 
 	return 1;
 }
 
-static void string_vector_dump(wget_vector_t *v)
+static void string_vector_dump(wget_vector *v)
 {
 	int v_len = wget_vector_size(v);
 
@@ -191,8 +193,8 @@ static void test_fn_check(void *fn, const char *expected)
 // Test whether dl_list() works
 static void test_dl_list(void)
 {
-	wget_vector_t *dirs;
-	wget_vector_t *names;
+	wget_vector *dirs;
+	wget_vector *names;
 
 	remove_object_dir();
 	libassert(mkdir(OBJECT_DIR, 0755) == 0);
@@ -213,7 +215,7 @@ static void test_dl_list(void)
 
 	dirs = wget_vector_create(2, NULL);
 	names = wget_vector_create(2, NULL);
-	wget_vector_add_str(dirs, OBJECT_DIR);
+	wget_vector_add(dirs, wget_strdup(OBJECT_DIR));
 
 	dl_list(dirs, names);
 	if (! string_vector_check(names, 2, "alpha", "beta")) {
@@ -282,7 +284,7 @@ do { \
 } while (0)
 
 
-int main(G_GNUC_WGET_UNUSED int argc, char **argv)
+int main(WGET_GCC_UNUSED int argc, char **argv)
 {
 	if (! dl_supported()) {
 		printf("Skipping dynamic loading tests\n");
@@ -300,7 +302,7 @@ int main(G_GNUC_WGET_UNUSED int argc, char **argv)
 	else if (!strcmp(valgrind, "1")) {
 		char cmd[strlen(argv[0]) + 256];
 
-		snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS=\"\" valgrind "
+		wget_snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS=\"\" valgrind "
 				"--error-exitcode=301 --leak-check=yes "
 				"--show-reachable=yes --track-origins=yes %s",
 				argv[0]);
@@ -308,7 +310,7 @@ int main(G_GNUC_WGET_UNUSED int argc, char **argv)
 	} else {
 		char cmd[strlen(valgrind) + strlen(argv[0]) + 32];
 
-		snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS="" %s %s",
+		wget_snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS="" %s %s",
 				valgrind, argv[0]);
 		return system(cmd) != 0;
 	}

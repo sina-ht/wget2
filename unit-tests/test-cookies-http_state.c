@@ -54,8 +54,8 @@ static int filter(const struct dirent *dp)
 
 static void test_cookies(void)
 {
-	wget_cookie_db_t *cookie_db;
-	wget_http_response_t *resp;
+	wget_cookie_db *cookie_db;
+	wget_http_response *resp;
 	struct dirent **dps;
 	int n, oh_my_gosh;
 	size_t size;
@@ -74,7 +74,7 @@ static void test_cookies(void)
 		return;
 	}
 
-	wget_iri_t *iri = wget_iri_parse("http://home.example.org/cookie-parser-result", NULL);
+	wget_iri *iri = wget_iri_parse("http://home.example.org/cookie-parser-result", NULL);
 
 	cookie_db = wget_cookie_db_init(NULL);
 
@@ -167,12 +167,12 @@ int main(int argc, const char * const *argv)
 	else if (!strcmp(valgrind, "1")) {
 		char cmd[strlen(argv[0]) + 256];
 
-		snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS=\"\" valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes %s", argv[0]);
+		wget_snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS=\"\" valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes %s", argv[0]);
 		return system(cmd) != 0;
 	} else {
 		char cmd[strlen(valgrind) + strlen(argv[0]) + 32];
 
-		snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS="" %s %s", valgrind, argv[0]);
+		wget_snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS="" %s %s", valgrind, argv[0]);
 		return system(cmd) != 0;
 	}
 

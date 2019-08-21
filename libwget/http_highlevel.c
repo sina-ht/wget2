@@ -35,7 +35,7 @@
 #include "private.h"
 #include "http.h"
 
-static int _stream_callback(wget_http_response_t *resp G_GNUC_WGET_UNUSED, void *user_data, const char *data, size_t length)
+static int _stream_callback(wget_http_response *resp WGET_GCC_UNUSED, void *user_data, const char *data, size_t length)
 {
 	FILE *stream = (FILE *) user_data;
 
@@ -51,7 +51,7 @@ static int _stream_callback(wget_http_response_t *resp G_GNUC_WGET_UNUSED, void 
 	return 0;
 }
 
-static int _fd_callback(wget_http_response_t *resp G_GNUC_WGET_UNUSED, void *user_data, const char *data, size_t length)
+static int _fd_callback(wget_http_response *resp WGET_GCC_UNUSED, void *user_data, const char *data, size_t length)
 {
 	int fd = *(int *) user_data;
 	ssize_t nbytes = write(fd, data, length);
@@ -62,19 +62,19 @@ static int _fd_callback(wget_http_response_t *resp G_GNUC_WGET_UNUSED, void *use
 	return 0;
 }
 
-wget_http_response_t *wget_http_get(int first_key, ...)
+wget_http_response *wget_http_get(int first_key, ...)
 {
-	wget_vector_t *headers = wget_vector_create(8, NULL);
-	wget_iri_t *uri = NULL;
-	wget_http_connection_t *conn = NULL, **connp = NULL;
-	wget_http_request_t *req;
-	wget_http_response_t *resp = NULL;
-	wget_vector_t *challenges = NULL;
-	wget_cookie_db_t *cookie_db = NULL;
+	wget_vector *headers;
+	wget_iri *uri = NULL;
+	wget_http_connection *conn = NULL, **connp = NULL;
+	wget_http_request *req;
+	wget_http_response *resp = NULL;
+	wget_vector *challenges = NULL;
+	wget_cookie_db *cookie_db = NULL;
 	FILE *saveas_stream = NULL;
-	wget_http_body_callback_t saveas_callback = NULL;
+	wget_http_body_callback *saveas_callback = NULL;
 	int saveas_fd = -1;
-	wget_http_header_callback_t header_callback = NULL;
+	wget_http_header_callback *header_callback = NULL;
 	va_list args;
 	const char *url = NULL,	*url_encoding = NULL, *scheme = "GET";
 	const char *http_username = NULL, *http_password = NULL;
@@ -90,8 +90,13 @@ wget_http_response_t *wget_http_get(int first_key, ...)
 			keep_header : 1,
 			free_uri : 1;
 	} bits = {
-		.cookies_enabled = !!wget_global_get_int(WGET_COOKIES_ENABLED)
+		.cookies_enabled = wget_global_get_int(WGET_COOKIES_ENABLED) != 0
 	};
+
+	if (!(headers = wget_vector_create(8, NULL))) {
+		debug_printf("no memory\n");
+		return NULL;
+	}
 
 	va_start(args, first_key);
 	for (key = first_key; key; key = va_arg(args, int)) {
@@ -100,22 +105,25 @@ wget_http_response_t *wget_http_get(int first_key, ...)
 			url = va_arg(args, const char *);
 			break;
 		case WGET_HTTP_URI:
-			uri = va_arg(args, wget_iri_t *);
+			uri = va_arg(args, wget_iri *);
 			break;
 		case WGET_HTTP_URL_ENCODING:
 			url_encoding = va_arg(args, const char *);
 			break;
 		case WGET_HTTP_HEADER_ADD:
 		{
-			wget_http_header_param_t param = {
+			wget_http_header_param param = {
 				.name = va_arg(args, const char *),
 				.value = va_arg(args, const char *)
 			};
-			wget_vector_add(headers, &param, sizeof(param));
+			if (wget_vector_add_memdup(headers, &param, sizeof(param)) < 0) {
+				va_end(args);
+				goto out;
+			}
 			break;
 		}
 		case WGET_HTTP_CONNECTION_PTR:
-			connp = va_arg(args, wget_http_connection_t **);
+			connp = va_arg(args, wget_http_connection **);
 			if (connp)
 				conn = *connp;
 			break;
@@ -132,14 +140,14 @@ wget_http_response_t *wget_http_get(int first_key, ...)
 			saveas_stream = va_arg(args, FILE *);
 			break;
 		case WGET_HTTP_BODY_SAVEAS_FUNC:
-			saveas_callback = va_arg(args, wget_http_body_callback_t);
+			saveas_callback = va_arg(args, wget_http_body_callback *);
 			body_user_data = va_arg(args, void *);
 			break;
 		case WGET_HTTP_BODY_SAVEAS_FD:
 			saveas_fd = va_arg(args, int);
 			break;
 		case WGET_HTTP_HEADER_FUNC:
-			header_callback = va_arg(args, wget_http_header_callback_t);
+			header_callback = va_arg(args, wget_http_header_callback *);
 			header_user_data = va_arg(args, void *);
 			break;
 		case WGET_HTTP_SCHEME:
@@ -151,6 +159,7 @@ wget_http_response_t *wget_http_get(int first_key, ...)
 			break;
 		default:
 			error_printf(_("Unknown option %d\n"), key);
+			va_end(args);
 			goto out;
 		}
 	}
@@ -171,12 +180,14 @@ wget_http_response_t *wget_http_get(int first_key, ...)
 	}
 
 	if (bits.cookies_enabled)
-		cookie_db = (wget_cookie_db_t *)wget_global_get_ptr(WGET_COOKIE_DB);
+		cookie_db = (wget_cookie_db *)wget_global_get_ptr(WGET_COOKIE_DB);
 
 	while (uri && redirection_level <= max_redirections) {
 		// create a HTTP/1.1 GET request.
 		// the only default header is 'Host: domain' (taken from uri)
 		req = wget_http_create_request(uri, scheme);
+		if (!req)
+			goto out;
 
 		// add HTTP headers
 		for (it = 0; it < wget_vector_size(headers); it++) {
@@ -291,11 +302,11 @@ wget_http_response_t *wget_http_get(int first_key, ...)
 
 		if (resp->location) {
 			char uri_sbuf[1024];
-			wget_buffer_t uri_buf;
+			wget_buffer uri_buf;
 
 			// if relative location, convert to absolute
 			wget_buffer_init(&uri_buf, uri_sbuf, sizeof(uri_sbuf));
-			wget_iri_relative_to_abs(uri, resp->location, strlen(resp->location), &uri_buf);
+			wget_iri_relative_to_abs(uri, resp->location, -1, &uri_buf);
 
 			if (bits.free_uri)
 				wget_iri_free(&uri);

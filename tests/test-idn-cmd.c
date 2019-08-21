@@ -59,9 +59,8 @@ int main(void)
 		0);
 
 	// test-idn-cmd
-	snprintf(options, sizeof(options),
-		"--iri -rH -e http_proxy=localhost:%d --local-encoding=EUC-JP " euc_jp_hostname,
-		wget_test_get_http_server_port());
+	wget_snprintf(options, sizeof(options),
+		"--iri -rH -e http_proxy=localhost:{{port}} -e https_proxy=localhost:{{sslport}} --local-encoding=EUC-JP " euc_jp_hostname);
 
 	wget_test(
 //		WGET_TEST_KEEP_TMPFILES, 1,
@@ -76,9 +75,8 @@ int main(void)
 // UTF-8 command line characters are mangled on MinGW on C locale
 #ifndef _WIN32
 	// test-idn-cmd
-	snprintf(options, sizeof(options),
-		"--iri -rH -e http_proxy=localhost:%d --local-encoding=UTF-8 " utf8_hostname,
-		wget_test_get_http_server_port());
+	wget_snprintf(options, sizeof(options),
+		"--iri -rH -e http_proxy=localhost:{{port}} -e https_proxy=localhost:{{sslport}} --local-encoding=UTF-8 " utf8_hostname);
 
 	wget_test(
 //		WGET_TEST_KEEP_TMPFILES, 1,

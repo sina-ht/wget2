@@ -41,7 +41,8 @@
 
 #include <wget.h>
 
-static int G_GNUC_WGET_NONNULL_ALL _print_word(G_GNUC_WGET_UNUSED void *ctx, const char *word)
+static wget_stringmap_browse_fn _print_word;
+static int WGET_GCC_NONNULL_ALL _print_word(WGET_GCC_UNUSED void *ctx, const char *word, WGET_GCC_UNUSED void *value)
 {
 	printf("%s\n", word);
 	return 0;
@@ -53,16 +54,16 @@ int main(int argc, const char *const *argv)
 	char *buf, *word, *end;
 	size_t length;
 	struct stat st;
-	wget_stringmap_t *map = wget_stringmap_create(1024);
+	wget_stringmap *map = wget_stringmap_create(1024);
 
 	for (it = 1; it < argc; it++) {
 		if ((fd = open(argv[it], O_RDONLY | O_BINARY)) == -1) {
-			fprintf(stderr, "Failed to read open %s\n", argv[it]);
+			wget_fprintf(stderr, "Failed to read open %s\n", argv[it]);
 			continue;
 		}
 
 		if (fstat(fd, &st)) {
-			fprintf(stderr, "Failed to stat %s\n", argv[it]);
+			wget_fprintf(stderr, "Failed to stat %s\n", argv[it]);
 			close(fd);
 			continue;
 		}
@@ -71,13 +72,13 @@ int main(int argc, const char *const *argv)
 
 #ifdef HAVE_MMAP
 		if (!(buf = mmap(NULL, length + 1, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0))) {
-			fprintf(stderr, "Failed to mmap %s (%d)\n", argv[it], errno);
+			wget_fprintf(stderr, "Failed to mmap %s (%d)\n", argv[it], errno);
 			close(fd);
 			continue;
 		}
 #else
 		if (!(buf = wget_malloc(length + 1)) || read(fd, buf, length) != (signed)length) {
-			fprintf(stderr, "Failed to read %s (%d)\n", argv[it], errno);
+			wget_fprintf(stderr, "Failed to read %s (%d)\n", argv[it], errno);
 			close(fd);
 			continue;
 		}
@@ -99,7 +100,7 @@ int main(int argc, const char *const *argv)
 					unique++;
 				}
 */
-				if (wget_stringmap_put(map, word, NULL, 0))
+				if (wget_stringmap_put(map, word, NULL))
 					duple++;
 				else
 					unique++;
@@ -111,7 +112,7 @@ int main(int argc, const char *const *argv)
 #ifdef HAVE_MMAP
 		munmap(buf, length);
 #else
-		free(buf);
+		wget_free(buf);
 #endif
 		close(fd);
 	}
@@ -119,7 +120,7 @@ int main(int argc, const char *const *argv)
 	printf("read %d words, %d uniques, %d doubles\n", unique + duple, unique, duple);
 
 	// const void *keys = stringmap_get_keys(map);
-	wget_stringmap_browse(map, (wget_stringmap_browse_t)_print_word, NULL);
+	wget_stringmap_browse(map, _print_word, NULL);
 
 	wget_stringmap_free(&map);
 

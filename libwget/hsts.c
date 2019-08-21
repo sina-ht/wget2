@@ -48,18 +48,16 @@
  * This is an implementation of RFC 6797.
  */
 
-typedef struct {
-	wget_hsts_db_t
-		parent;
-	char *
+struct wget_hsts_db_st {
+	const char *
 		fname;
-	wget_hashmap_t *
+	wget_hashmap *
 		entries;
-	wget_thread_mutex_t
+	wget_thread_mutex
 		mutex;
 	int64_t
 		load_time;
-} _hsts_db_impl_t;
+};
 
 typedef struct {
 	const char *
@@ -74,12 +72,22 @@ typedef struct {
 		port;
 	bool
 		include_subdomains : 1; // whether or not subdomains are included
-} _hsts_t;
+} hsts_entry;
+
+/// Pointer to the function table
+static const wget_hsts_db_vtable
+	*plugin_vtable;
+
+void wget_hsts_set_plugin(const wget_hsts_db_vtable *vtable)
+{
+	plugin_vtable = vtable;
+}
 
 #ifdef __clang__
 __attribute__((no_sanitize("integer")))
 #endif
-static unsigned int G_GNUC_WGET_PURE _hash_hsts(const _hsts_t *hsts)
+WGET_GCC_PURE
+static unsigned int hash_hsts(const hsts_entry *hsts)
 {
 	unsigned int hash = hsts->port;
 	const unsigned char *p;
@@ -90,7 +98,8 @@ static unsigned int G_GNUC_WGET_PURE _hash_hsts(const _hsts_t *hsts)
 	return hash;
 }
 
-static int G_GNUC_WGET_NONNULL_ALL G_GNUC_WGET_PURE _compare_hsts(const _hsts_t *h1, const _hsts_t *h2)
+WGET_GCC_NONNULL_ALL WGET_GCC_PURE
+static int compare_hsts(const hsts_entry *h1, const hsts_entry *h2)
 {
 	int n;
 
@@ -100,35 +109,37 @@ static int G_GNUC_WGET_NONNULL_ALL G_GNUC_WGET_PURE _compare_hsts(const _hsts_t 
 	return h1->port < h2->port ? -1 : (h1->port > h2->port ? 1 : 0);
 }
 
-static _hsts_t *_init_hsts(_hsts_t *hsts)
+static hsts_entry *init_hsts(hsts_entry *hsts)
 {
-	if (!hsts)
-		hsts = xmalloc(sizeof(_hsts_t));
+	if (!hsts) {
+		if (!(hsts = wget_calloc(1, sizeof(hsts_entry))))
+			return NULL;
+	} else
+		memset(hsts, 0, sizeof(*hsts));
 
-	memset(hsts, 0, sizeof(*hsts));
 	hsts->created = time(NULL);
 
 	return hsts;
 }
 
-static void _deinit_hsts(_hsts_t *hsts)
+static void deinit_hsts(hsts_entry *hsts)
 {
 	if (hsts) {
 		xfree(hsts->host);
 	}
 }
 
-static void _free_hsts(_hsts_t *hsts)
+static void free_hsts(hsts_entry *hsts)
 {
 	if (hsts) {
-		_deinit_hsts(hsts);
+		deinit_hsts(hsts);
 		xfree(hsts);
 	}
 }
 
-static _hsts_t *_new_hsts(const char *host, uint16_t port, time_t maxage, int include_subdomains)
+static hsts_entry *new_hsts(const char *host, uint16_t port, time_t maxage, int include_subdomains)
 {
-	_hsts_t *hsts = _init_hsts(NULL);
+	hsts_entry *hsts = init_hsts(NULL);
 
 	hsts->host = wget_strdup(host);
 	hsts->port = port ? port : 443;
@@ -159,18 +170,15 @@ static _hsts_t *_new_hsts(const char *host, uint16_t port, time_t maxage, int in
  * This function is thread-safe and can be called from multiple threads concurrently.
  * Any implementation for this function must be thread-safe as well.
  */
-int wget_hsts_host_match(const wget_hsts_db_t *hsts_db, const char *host, uint16_t port)
+int wget_hsts_host_match(const wget_hsts_db *hsts_db, const char *host, uint16_t port)
 {
-	if (hsts_db && hsts_db->vtable && hsts_db->vtable->host_match)
-		return hsts_db->vtable->host_match(hsts_db, host, port);
-	else
-		return 0;
-}
-static int impl_hsts_db_host_match(const wget_hsts_db_t *hsts_db, const char *host, uint16_t port)
-{
-	_hsts_db_impl_t *hsts_db_priv = (_hsts_db_impl_t *) hsts_db;
+	if (plugin_vtable)
+		return plugin_vtable->host_match(hsts_db, host, port);
 
-	_hsts_t hsts, *hstsp;
+	if (!hsts_db)
+		return 0;
+
+	hsts_entry hsts, *hstsp;
 	const char *p;
 	int64_t now = time(NULL);
 
@@ -179,13 +187,13 @@ static int impl_hsts_db_host_match(const wget_hsts_db_t *hsts_db, const char *ho
 	// we assume the scheme is HTTP
 	hsts.port = (port == 80 ? 443 : port);
 	hsts.host = host;
-	if (wget_hashmap_get(hsts_db_priv->entries, &hsts, &hstsp) && hstsp->expires >= now)
+	if (wget_hashmap_get(hsts_db->entries, &hsts, &hstsp) && hstsp->expires >= now)
 		return 1;
 
 	// now look for a valid subdomain match
 	for (p = host; (p = strchr(p, '.')); ) {
 		hsts.host = ++p;
-		if (wget_hashmap_get(hsts_db_priv->entries, &hsts, &hstsp)
+		if (wget_hashmap_get(hsts_db->entries, &hsts, &hstsp)
 				&& hstsp->include_subdomains && hstsp->expires >= now)
 			return 1;
 	}
@@ -203,17 +211,20 @@ static int impl_hsts_db_host_match(const wget_hsts_db_t *hsts_db, const char *ho
  *
  * This function only works with databases created by wget_hsts_db_init().
  */
-void wget_hsts_db_deinit(wget_hsts_db_t *hsts_db)
+void wget_hsts_db_deinit(wget_hsts_db *hsts_db)
 {
-	_hsts_db_impl_t *hsts_db_priv = (_hsts_db_impl_t *) hsts_db;
+	if (plugin_vtable) {
+		plugin_vtable->deinit(hsts_db);
+		return;
+	}
 
-	if (hsts_db_priv) {
-		xfree(hsts_db_priv->fname);
-		wget_thread_mutex_lock(hsts_db_priv->mutex);
-		wget_hashmap_free(&hsts_db_priv->entries);
-		wget_thread_mutex_unlock(hsts_db_priv->mutex);
+	if (hsts_db) {
+		xfree(hsts_db->fname);
+		wget_thread_mutex_lock(hsts_db->mutex);
+		wget_hashmap_free(&hsts_db->entries);
+		wget_thread_mutex_unlock(hsts_db->mutex);
 
-		wget_thread_mutex_destroy(&hsts_db_priv->mutex);
+		wget_thread_mutex_destroy(&hsts_db->mutex);
 	}
 }
 
@@ -229,33 +240,32 @@ void wget_hsts_db_deinit(wget_hsts_db_t *hsts_db)
  *
  * Newly added entries will be lost unless committed to persistent storage using wget_hsts_db_save().
  */
-void wget_hsts_db_free(wget_hsts_db_t **hsts_db)
+void wget_hsts_db_free(wget_hsts_db **hsts_db)
 {
+	if (plugin_vtable) {
+		plugin_vtable->free(hsts_db);
+		return;
+	}
+
 	if (hsts_db && *hsts_db) {
-		if ((*hsts_db)->vtable)
-			(*hsts_db)->vtable->free(*hsts_db);
-		*hsts_db = NULL;
+		wget_hsts_db_deinit(*hsts_db);
+		xfree(*hsts_db);
 	}
 }
-static void impl_hsts_db_free(wget_hsts_db_t *hsts_db)
-{
-	wget_hsts_db_deinit(hsts_db);
-	xfree(hsts_db);
-}
 
-static void _hsts_db_add_entry(_hsts_db_impl_t *hsts_db_priv, _hsts_t *hsts)
+static void hsts_db_add_entry(wget_hsts_db *hsts_db, hsts_entry *hsts)
 {
-	wget_thread_mutex_lock(hsts_db_priv->mutex);
+	wget_thread_mutex_lock(hsts_db->mutex);
 
 	if (hsts->maxage == 0) {
-		if (wget_hashmap_remove(hsts_db_priv->entries, hsts))
+		if (wget_hashmap_remove(hsts_db->entries, hsts))
 			debug_printf("removed HSTS %s:%hu\n", hsts->host, hsts->port);
-		_free_hsts(hsts);
+		free_hsts(hsts);
 		hsts = NULL;
 	} else {
-		_hsts_t *old;
+		hsts_entry *old;
 
-		if (wget_hashmap_get(hsts_db_priv->entries, hsts, &old)) {
+		if (wget_hashmap_get(hsts_db->entries, hsts, &old)) {
 			if (old->created < hsts->created || old->maxage != hsts->maxage || old->include_subdomains != hsts->include_subdomains) {
 				old->created = hsts->created;
 				old->expires = hsts->expires;
@@ -263,17 +273,17 @@ static void _hsts_db_add_entry(_hsts_db_impl_t *hsts_db_priv, _hsts_t *hsts)
 				old->include_subdomains = hsts->include_subdomains;
 				debug_printf("update HSTS %s:%hu (maxage=%lld, includeSubDomains=%d)\n", old->host, old->port, (long long)old->maxage, old->include_subdomains);
 			}
-			_free_hsts(hsts);
+			free_hsts(hsts);
 			hsts = NULL;
 		} else {
 			// key and value are the same to make wget_hashmap_get() return old 'hsts'
 			// debug_printf("add HSTS %s:%hu (maxage=%lld, includeSubDomains=%d)\n", hsts->host, hsts->port, (long long)hsts->maxage, hsts->include_subdomains);
-			wget_hashmap_put_noalloc(hsts_db_priv->entries, hsts, hsts);
+			wget_hashmap_put(hsts_db->entries, hsts, hsts);
 			// no need to free anything here
 		}
 	}
 
-	wget_thread_mutex_unlock(hsts_db_priv->mutex);
+	wget_thread_mutex_unlock(hsts_db->mutex);
 }
 
 /**
@@ -291,23 +301,23 @@ static void _hsts_db_add_entry(_hsts_db_impl_t *hsts_db_priv, _hsts_t *hsts)
  * This function is thread-safe and can be called from multiple threads concurrently.
  * Any implementation for this function must be thread-safe as well.
  */
-void wget_hsts_db_add(wget_hsts_db_t *hsts_db, const char *host, uint16_t port, time_t maxage, int include_subdomains)
+void wget_hsts_db_add(wget_hsts_db *hsts_db, const char *host, uint16_t port, time_t maxage, int include_subdomains)
 {
-	if (hsts_db && hsts_db->vtable)
-		hsts_db->vtable->add(hsts_db, host, port, maxage, include_subdomains);
+	if (plugin_vtable) {
+		plugin_vtable->add(hsts_db, host, port, maxage, include_subdomains);
+		return;
+	}
+
+	if (hsts_db) {
+		hsts_entry *hsts = new_hsts(host, port, maxage, include_subdomains);
+
+		hsts_db_add_entry(hsts_db, hsts);
+	}
 }
-static void impl_hsts_db_add(wget_hsts_db_t *hsts_db, const char *host, uint16_t port, time_t maxage, int include_subdomains)
+
+static int hsts_db_load(wget_hsts_db *hsts_db, FILE *fp)
 {
-	_hsts_db_impl_t *hsts_db_priv = (_hsts_db_impl_t *) hsts_db;
-
-	_hsts_t *hsts = _new_hsts(host, port, maxage, include_subdomains);
-
-	_hsts_db_add_entry(hsts_db_priv, hsts);
-}
-
-static int _hsts_db_load(_hsts_db_impl_t *hsts_db_priv, FILE *fp)
-{
-	_hsts_t hsts;
+	hsts_entry hsts;
 	struct stat st;
 	char *buf = NULL, *linep, *p;
 	size_t bufsize = 0;
@@ -319,8 +329,8 @@ static int _hsts_db_load(_hsts_db_impl_t *hsts_db_priv, FILE *fp)
 	// there's no need to reload
 
 	if (fstat(fileno(fp), &st) == 0) {
-		if (st.st_mtime != hsts_db_priv->load_time)
-			hsts_db_priv->load_time = st.st_mtime;
+		if (st.st_mtime != hsts_db->load_time)
+			hsts_db->load_time = st.st_mtime;
 		else
 			return 0;
 	}
@@ -338,7 +348,7 @@ static int _hsts_db_load(_hsts_db_impl_t *hsts_db_priv, FILE *fp)
 		while (buflen > 0 && (buf[buflen] == '\n' || buf[buflen] == '\r'))
 			buf[--buflen] = 0;
 
-		_init_hsts(&hsts);
+		init_hsts(&hsts);
 		ok = 0;
 
 		// parse host
@@ -383,16 +393,16 @@ static int _hsts_db_load(_hsts_db_impl_t *hsts_db_priv, FILE *fp)
 			hsts.expires = hsts.maxage ? hsts.created + hsts.maxage : 0;
 			if (hsts.expires < now) {
 				// drop expired entry
-				_deinit_hsts(&hsts);
+				deinit_hsts(&hsts);
 				continue;
 			}
 			ok = 1;
 		}
 
 		if (ok) {
-			_hsts_db_add_entry(hsts_db_priv, wget_memdup(&hsts, sizeof(hsts)));
+			hsts_db_add_entry(hsts_db, wget_memdup(&hsts, sizeof(hsts)));
 		} else {
-			_deinit_hsts(&hsts);
+			deinit_hsts(&hsts);
 			error_printf(_("Failed to parse HSTS line: '%s'\n"), buf);
 		}
 	}
@@ -400,7 +410,7 @@ static int _hsts_db_load(_hsts_db_impl_t *hsts_db_priv, FILE *fp)
 	xfree(buf);
 
 	if (ferror(fp)) {
-		hsts_db_priv->load_time = 0; // reload on next call to this function
+		hsts_db->load_time = 0; // reload on next call to this function
 		return -1;
 	}
 
@@ -419,47 +429,45 @@ static int _hsts_db_load(_hsts_db_impl_t *hsts_db_priv, FILE *fp)
  *
  * If `hsts_db` is NULL this function does nothing and returns 0.
  */
-int wget_hsts_db_load(wget_hsts_db_t *hsts_db)
+int wget_hsts_db_load(wget_hsts_db *hsts_db)
 {
-	if (!hsts_db || !hsts_db->vtable)
+	if (plugin_vtable)
+		return plugin_vtable->load(hsts_db);
+
+	if (!hsts_db)
+		return -1;
+
+	if (!hsts_db->fname || !*hsts_db->fname)
 		return 0;
 
-	return hsts_db->vtable->load(hsts_db);
-}
-// Load the HSTS cache from a flat file
-// Protected by flock()
-static int impl_hsts_db_load(wget_hsts_db_t *hsts_db)
-{
-	_hsts_db_impl_t *hsts_db_priv = (_hsts_db_impl_t *) hsts_db;
-
-	if (!hsts_db_priv->fname || !*hsts_db_priv->fname)
-		return 0;
-
-	if (wget_update_file(hsts_db_priv->fname, (wget_update_load_t) _hsts_db_load, NULL, hsts_db_priv)) {
+	// Load the HSTS cache from a flat file
+	// Protected by flock()
+	if (wget_update_file(hsts_db->fname, (wget_update_load_fn *) hsts_db_load, NULL, hsts_db)) {
 		error_printf(_("Failed to read HSTS data\n"));
 		return -1;
 	} else {
-		debug_printf("Fetched HSTS data from '%s'\n", hsts_db_priv->fname);
+		debug_printf("Fetched HSTS data from '%s'\n", hsts_db->fname);
 		return 0;
 	}
 }
 
-static int G_GNUC_WGET_NONNULL_ALL _hsts_save(FILE *fp, const _hsts_t *hsts)
+WGET_GCC_NONNULL_ALL
+static int hsts_save(FILE *fp, const hsts_entry *hsts)
 {
 	wget_fprintf(fp, "%s %hu %d %lld %lld\n", hsts->host, hsts->port, hsts->include_subdomains, (long long)hsts->created, (long long)hsts->maxage);
 	return 0;
 }
 
-static int _hsts_db_save(void *hsts_db_priv, FILE *fp)
+static int hsts_db_save(void *hsts_db, FILE *fp)
 {
-	wget_hashmap_t *entries = ((_hsts_db_impl_t *) hsts_db_priv)->entries;
+	wget_hashmap *entries = ((wget_hsts_db *) hsts_db)->entries;
 
 	if (wget_hashmap_size(entries) > 0) {
 		fputs("#HSTS 1.0 file\n", fp);
 		fputs("#Generated by Wget2 " PACKAGE_VERSION ". Edit at your own risk.\n", fp);
 		fputs("# <hostname> <port> <incl. subdomains> <created> <max-age>\n", fp);
 
-		wget_hashmap_browse(entries, (wget_hashmap_browse_t) _hsts_save, fp);
+		wget_hashmap_browse(entries, (wget_hashmap_browse_fn *) hsts_save, fp);
 
 		if (ferror(fp))
 			return -1;
@@ -479,72 +487,75 @@ static int _hsts_db_save(void *hsts_db_priv, FILE *fp)
  *
  * If `hsts_db` is NULL this function does nothing.
  */
-int wget_hsts_db_save(wget_hsts_db_t *hsts_db)
+int wget_hsts_db_save(wget_hsts_db *hsts_db)
 {
-	if (hsts_db && hsts_db->vtable)
-		return hsts_db->vtable->save(hsts_db);
-
-	return -1;
-}
-// Save the HSTS cache to a flat file
-// Protected by flock()
-static int impl_hsts_db_save(wget_hsts_db_t *hsts_db)
-{
-	_hsts_db_impl_t *hsts_db_priv = (_hsts_db_impl_t *) hsts_db;
-
 	int size;
 
-	if (!hsts_db_priv->fname || !*hsts_db_priv->fname)
+	if (plugin_vtable)
+		return plugin_vtable->save(hsts_db);
+
+	if (!hsts_db)
 		return -1;
 
-	if (wget_update_file(hsts_db_priv->fname, (wget_update_load_t) _hsts_db_load, _hsts_db_save, hsts_db_priv)) {
-		error_printf(_("Failed to write HSTS file '%s'\n"), hsts_db_priv->fname);
+	if (!hsts_db->fname || !*hsts_db->fname)
+		return -1;
+
+	// Save the HSTS cache to a flat file
+	// Protected by flock()
+	if (wget_update_file(hsts_db->fname, (wget_update_load_fn *) hsts_db_load, hsts_db_save, hsts_db)) {
+		error_printf(_("Failed to write HSTS file '%s'\n"), hsts_db->fname);
 		return -1;
 	}
 
-	if ((size = wget_hashmap_size(hsts_db_priv->entries)))
-		debug_printf("Saved %d HSTS entr%s into '%s'\n", size, size != 1 ? "ies" : "y", hsts_db_priv->fname);
+	if ((size = wget_hashmap_size(hsts_db->entries)))
+		debug_printf("Saved %d HSTS entr%s into '%s'\n", size, size != 1 ? "ies" : "y", hsts_db->fname);
 	else
 		debug_printf("No HSTS entries to save. Table is empty.\n");
 
 	return 0;
 }
 
-//vtable
-static struct wget_hsts_db_vtable vtable = {
-	.load = impl_hsts_db_load,
-	.save = impl_hsts_db_save,
-	.host_match = impl_hsts_db_host_match,
-	.add = impl_hsts_db_add,
-	.free = impl_hsts_db_free
-};
-
 /**
  * \param[in] hsts_db Previously created HSTS database on which wget_hsts_db_deinit() has been called, or NULL
  * \param[in] fname The file where the data is stored, or NULL.
- * \return A new wget_hsts_db_t
+ * \return A new wget_hsts_db
  *
  * Constructor for the default implementation of HSTS database.
  *
  * This function does no file IO, data is read only when \ref wget_hsts_db_load "wget_hsts_db_load()" is called.
  */
-wget_hsts_db_t *wget_hsts_db_init(wget_hsts_db_t *hsts_db, const char *fname)
+wget_hsts_db *wget_hsts_db_init(wget_hsts_db *hsts_db, const char *fname)
 {
-	_hsts_db_impl_t *hsts_db_priv = (_hsts_db_impl_t *) hsts_db;
+	if (plugin_vtable)
+		return plugin_vtable->init(hsts_db, fname);
 
-	if (!hsts_db_priv)
-		hsts_db_priv = xmalloc(sizeof(_hsts_db_impl_t));
+	if (fname) {
+		if (!(fname = wget_strdup(fname)))
+			return NULL;
+	}
 
-	memset(hsts_db_priv, 0, sizeof(*hsts_db_priv));
-	hsts_db_priv->parent.vtable = &vtable;
-	if (fname)
-		hsts_db_priv->fname = wget_strdup(fname);
-	hsts_db_priv->entries = wget_hashmap_create(16, (wget_hashmap_hash_t)_hash_hsts, (wget_hashmap_compare_t)_compare_hsts);
-	wget_hashmap_set_key_destructor(hsts_db_priv->entries, (wget_hashmap_key_destructor_t)_free_hsts);
-	wget_hashmap_set_value_destructor(hsts_db_priv->entries, (wget_hashmap_value_destructor_t)_free_hsts);
-	wget_thread_mutex_init(&hsts_db_priv->mutex);
+	wget_hashmap *entries = wget_hashmap_create(16, (wget_hashmap_hash_fn *) hash_hsts, (wget_hashmap_compare_fn *) compare_hsts);
+	if (!entries) {
+		xfree(fname);
+		return NULL;
+	}
 
-	return (wget_hsts_db_t *) hsts_db_priv;
+	if (!hsts_db) {
+		if (!(hsts_db = wget_calloc(1, sizeof(struct wget_hsts_db_st)))) {
+			wget_hashmap_free(&entries);
+			xfree(fname);
+			return NULL;
+		}
+	} else
+		memset(hsts_db, 0, sizeof(*hsts_db));
+
+	hsts_db->fname = fname;
+	hsts_db->entries = entries;
+	wget_hashmap_set_key_destructor(hsts_db->entries, (wget_hashmap_key_destructor *) free_hsts);
+	wget_hashmap_set_value_destructor(hsts_db->entries, (wget_hashmap_value_destructor *) free_hsts);
+	wget_thread_mutex_init(&hsts_db->mutex);
+
+	return hsts_db;
 }
 
 /**
@@ -557,13 +568,10 @@ wget_hsts_db_t *wget_hsts_db_init(wget_hsts_db_t *hsts_db, const char *fname)
  * This function does no file IO, data is read or written only when wget_hsts_db_load() or wget_hsts_db_save()
  * is called.
  */
-void wget_hsts_db_set_fname(wget_hsts_db_t *hsts_db, const char *fname)
+void wget_hsts_db_set_fname(wget_hsts_db *hsts_db, const char *fname)
 {
-	_hsts_db_impl_t *hsts_db_priv = (_hsts_db_impl_t *) hsts_db;
-
-	xfree(hsts_db_priv->fname);
-	if (fname)
-		hsts_db_priv->fname = wget_strdup(fname);
+	xfree(hsts_db->fname);
+	hsts_db->fname = wget_strdup(fname);
 }
 
 /**@}*/

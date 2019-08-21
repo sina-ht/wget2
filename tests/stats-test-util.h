@@ -90,25 +90,14 @@ static void run_stats_test_with_option(const char *option_str)
 
 
 	static const char *stats_format[] = {
-		"human",
+//		"human",
 		"csv",
 	};
 
 	char options[128];
 
-	// test stats option without additional params
-	wget_test(
-		// WGET_TEST_KEEP_TMPFILES, 1,
-		WGET_TEST_OPTIONS, option_str,
-		WGET_TEST_REQUEST_URL, urls[0].name + 1,
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{	NULL } },
-		0);
-
 	// test stats option without format
-	snprintf(options, sizeof(options), "%s=-", option_str);
+	wget_snprintf(options, sizeof(options), "%s=-", option_str);
 	wget_test(
 		// WGET_TEST_KEEP_TMPFILES, 1,
 		WGET_TEST_OPTIONS, options,
@@ -121,7 +110,7 @@ static void run_stats_test_with_option(const char *option_str)
 
 	for (unsigned it2 = 0; it2 < countof(stats_format); it2++) {
 		// test stats option with format
-		snprintf(options, sizeof(options), "%s=%s:-", option_str, stats_format[it2]);
+		wget_snprintf(options, sizeof(options), "%s=%s:-", option_str, stats_format[it2]);
 		wget_test(
 			// WGET_TEST_KEEP_TMPFILES, 1,
 			WGET_TEST_OPTIONS, options,
@@ -134,7 +123,7 @@ static void run_stats_test_with_option(const char *option_str)
 	}
 
 	for (unsigned it2 = 0; it2 < countof(stats_format); it2++) {
-		snprintf(options, sizeof(options), "%s=%s:stats", option_str, stats_format[it2]);
+		wget_snprintf(options, sizeof(options), "%s=%s:stats", option_str, stats_format[it2]);
 		wget_test(
 			// WGET_TEST_KEEP_TMPFILES, 1,
 			WGET_TEST_OPTIONS, options,
@@ -147,22 +136,8 @@ static void run_stats_test_with_option(const char *option_str)
 			0);
 	}
 
-	// test stats option without additional params With -r
-	snprintf(options, sizeof(options), "%s -r -nH", option_str);
-	wget_test(
-		// WGET_TEST_KEEP_TMPFILES, 1,
-		WGET_TEST_OPTIONS, options,
-		WGET_TEST_REQUEST_URL, urls[0].name + 1,
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ "index.html", urls[0].body },
-			{ "secondpage.html", urls[1].body },
-			{ "thirdpage.html", urls[2].body },
-			{	NULL } },
-		0);
-
 	// test stats option without format With -r
-	snprintf(options, sizeof(options), "%s=- -r -nH", option_str);
+	wget_snprintf(options, sizeof(options), "%s=- -r -nH", option_str);
 	wget_test(
 		// WGET_TEST_KEEP_TMPFILES, 1,
 		WGET_TEST_OPTIONS, options,
@@ -177,7 +152,7 @@ static void run_stats_test_with_option(const char *option_str)
 
 	for (unsigned it2 = 0; it2 < countof(stats_format); it2++) {
 		// test stats option with format With -r
-		snprintf(options, sizeof(options), "%s=%s:- -r -nH", option_str, stats_format[it2]);
+		wget_snprintf(options, sizeof(options), "%s=%s:- -r -nH", option_str, stats_format[it2]);
 		wget_test(
 			// WGET_TEST_KEEP_TMPFILES, 1,
 			WGET_TEST_OPTIONS, options,
@@ -192,7 +167,7 @@ static void run_stats_test_with_option(const char *option_str)
 	}
 
 	for (unsigned it2 = 0; it2 < countof(stats_format); it2++) {
-		snprintf(options, sizeof(options), "%s=%s:stats -r -nH", option_str, stats_format[it2]);
+		wget_snprintf(options, sizeof(options), "%s=%s:stats -r -nH", option_str, stats_format[it2]);
 		wget_test(
 			// WGET_TEST_KEEP_TMPFILES, 1,
 			WGET_TEST_OPTIONS, options,

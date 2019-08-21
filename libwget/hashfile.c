@@ -53,7 +53,7 @@
  * Get the hashing algorithms list item that corresponds to the named hashing algorithm.
  *
  * This function returns a constant that uniquely identifies a known supported hashing algorithm
- * within libwget. All the supported algorithms are listed in the ::wget_digest_algorithm_t enum.
+ * within libwget. All the supported algorithms are listed in the ::wget_digest_algorithm enum.
  *
  * Algorithm name | Constant
  * -------------- | --------
@@ -66,7 +66,7 @@
  * md2|WGET_DIGTYPE_MD2
  * rmd160|WGET_DIGTYPE_RMD160
  */
-wget_digest_algorithm_t wget_hash_get_algorithm(const char *hashname)
+wget_digest_algorithm wget_hash_get_algorithm(const char *hashname)
 {
 	if (hashname) {
 		if (*hashname == 's' || *hashname == 'S') {
@@ -99,7 +99,7 @@ wget_digest_algorithm_t wget_hash_get_algorithm(const char *hashname)
 #  include <gnutls/crypto.h>
 #endif
 
-struct _wget_hash_hd_st {
+struct wget_hash_hd_st {
 	gnutls_hash_hd_t
 		dig;
 };
@@ -134,7 +134,7 @@ static const gnutls_digest_algorithm_t
  *
  * \note This function's behavior depends on the underlying cryptographic engine libwget was compiled with.
  */
-int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t textlen, void *digest)
+int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
 	if ((unsigned)algorithm < countof(_gnutls_algorithm))
 		return gnutls_hash_fast(_gnutls_algorithm[algorithm], text, textlen, digest);
@@ -152,7 +152,7 @@ int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t t
  * the same amount of data (e.g. 512 bits) but different hash algorithms will output
  * different lengths of data.
  */
-int wget_hash_get_len(wget_digest_algorithm_t algorithm)
+int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_gnutls_algorithm))
 		return gnutls_hash_get_len(_gnutls_algorithm[algorithm]);
@@ -161,7 +161,7 @@ int wget_hash_get_len(wget_digest_algorithm_t algorithm)
 }
 
 /**
- * \param[out] handle Caller-provided pointer to a ::wget_hash_hd_t structure where the handle to this
+ * \param[out] handle Caller-provided pointer to a ::wget_hash_hd structure where the handle to this
  * hashing primitive will be stored, needed in subsequent calls to wget_hash()
  * \param[in] algorithm One of the hashing algorithms returned by wget_hash_get_algorithm()
  * \return Zero on success or a negative value on error
@@ -171,12 +171,12 @@ int wget_hash_get_len(wget_digest_algorithm_t algorithm)
  *
  * After this function returns, wget_hash() might be called as many times as desired.
  */
-int wget_hash_init(wget_hash_hd_t *handle, wget_digest_algorithm_t algorithm)
+int wget_hash_init(wget_hash_hd *handle, wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_gnutls_algorithm))
-		return gnutls_hash_init(&handle->dig, _gnutls_algorithm[algorithm]) == 0 ? 0 : -1;
+		return gnutls_hash_init(&handle->dig, _gnutls_algorithm[algorithm]) == 0 ? WGET_E_SUCCESS : WGET_E_UNKNOWN;
 	else
-		return -1;
+		return WGET_E_INVALID;
 }
 
 /**
@@ -189,7 +189,7 @@ int wget_hash_init(wget_hash_hd_t *handle, wget_digest_algorithm_t algorithm)
  * as many times as desired. Once finished, call wget_hash_deinit() to complete
  * the computation and get the resulting hash.
  */
-int wget_hash(wget_hash_hd_t *handle, const void *text, size_t textlen)
+int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
 {
 	return gnutls_hash(handle->dig, text, textlen) == 0 ? 0 : -1;
 }
@@ -204,7 +204,7 @@ int wget_hash(wget_hash_hd_t *handle, const void *text, size_t textlen)
  * is large enough to store the hash. To get the output length of the chosen algorithm
  * \p algorithm, call wget_hash_get_len().
  */
-void wget_hash_deinit(wget_hash_hd_t *handle, void *digest)
+void wget_hash_deinit(wget_hash_hd *handle, void *digest)
 {
 	gnutls_hash_deinit(handle->dig, digest);
 }
@@ -216,7 +216,7 @@ void wget_hash_deinit(wget_hash_hd_t *handle, void *digest)
 #include <nettle/ripemd160.h>
 #include <nettle/sha2.h>
 
-struct _wget_hash_hd_st {
+struct wget_hash_hd_st {
 	const struct nettle_hash
 		*hash;
 	void
@@ -246,9 +246,9 @@ static const struct nettle_hash *
 #endif
 };
 
-int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t textlen, void *digest)
+int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
-	wget_hash_hd_t dig;
+	wget_hash_hd dig;
 
 	if (wget_hash_init(&dig, algorithm) == 0) {
 		if (wget_hash(&dig, text, textlen) == 0) {
@@ -260,7 +260,7 @@ int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t t
 	return -1;
 }
 
-int wget_hash_get_len(wget_digest_algorithm_t algorithm)
+int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_nettle_algorithm))
 		return _nettle_algorithm[algorithm]->digest_size;
@@ -268,11 +268,11 @@ int wget_hash_get_len(wget_digest_algorithm_t algorithm)
 		return 0;
 }
 
-int wget_hash_init(wget_hash_hd_t *dig, wget_digest_algorithm_t algorithm)
+int wget_hash_init(wget_hash_hd *dig, wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_nettle_algorithm) && _nettle_algorithm[algorithm]) {
 		dig->hash = _nettle_algorithm[algorithm];
-		dig->context = xmalloc(dig->hash->context_size);
+		dig->context = wget_malloc(dig->hash->context_size);
 		dig->hash->init(dig->context);
 		return 0;
 	}
@@ -280,13 +280,13 @@ int wget_hash_init(wget_hash_hd_t *dig, wget_digest_algorithm_t algorithm)
 	return -1;
 }
 
-int wget_hash(wget_hash_hd_t *dig, const void *text, size_t textlen)
+int wget_hash(wget_hash_hd *dig, const void *text, size_t textlen)
 {
 	dig->hash->update(dig->context, textlen, text);
 	return 0;
 }
 
-void wget_hash_deinit(wget_hash_hd_t *dig, void *digest)
+void wget_hash_deinit(wget_hash_hd *dig, void *digest)
 {
 	dig->hash->digest(dig->context, dig->hash->digest_size, digest);
 	xfree(dig->context);
@@ -297,7 +297,7 @@ void wget_hash_deinit(wget_hash_hd_t *dig, void *digest)
   #include <gcrypt.h>
 #endif
 
-struct _wget_hash_hd_st {
+struct wget_hash_hd_st {
 	int
 		algorithm;
 	gcry_md_hd_t
@@ -316,9 +316,9 @@ static const int _gcrypt_algorithm[WGET_DIGTYPE_MAX] = {
 	[WGET_DIGTYPE_SHA512] = GCRY_MD_SHA512
 };
 
-int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t textlen, void *digest)
+int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
-	wget_hash_hd_t dig;
+	wget_hash_hd dig;
 
 	if (wget_hash_init(&dig, algorithm) == 0) {
 		if (wget_hash(&dig, text, textlen) == 0) {
@@ -330,7 +330,7 @@ int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t t
 	return -1;
 }
 
-int wget_hash_get_len(wget_digest_algorithm_t algorithm)
+int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_gcrypt_algorithm))
 		return gcry_md_get_algo_dlen(_gcrypt_algorithm[algorithm]);
@@ -338,7 +338,7 @@ int wget_hash_get_len(wget_digest_algorithm_t algorithm)
 		return 0;
 }
 
-int wget_hash_init(wget_hash_hd_t *dig, wget_digest_algorithm_t algorithm)
+int wget_hash_init(wget_hash_hd *dig, wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_gcrypt_algorithm)) {
 		dig->algorithm = _gcrypt_algorithm[algorithm];
@@ -349,13 +349,13 @@ int wget_hash_init(wget_hash_hd_t *dig, wget_digest_algorithm_t algorithm)
 	return -1;
 }
 
-int wget_hash(wget_hash_hd_t *dig, const void *text, size_t textlen)
+int wget_hash(wget_hash_hd *dig, const void *text, size_t textlen)
 {
 	gcry_md_write(dig->context, text, textlen);
 	return 0;
 }
 
-void wget_hash_deinit(wget_hash_hd_t *dig, void *digest)
+void wget_hash_deinit(wget_hash_hd *dig, void *digest)
 {
 	gcry_md_final(dig->context);
 	void *ret = gcry_md_read(dig->context, dig->algorithm);
@@ -445,16 +445,16 @@ static struct _algorithm {
 	}
 };
 
-struct _wget_hash_hd_st {
+struct wget_hash_hd_st {
 	const struct _algorithm
 		*algorithm;
 	void
 		*context;
 };
 
-int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t textlen, void *digest)
+int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
-	wget_hash_hd_t dig;
+	wget_hash_hd dig;
 
 	if (wget_hash_init(&dig, algorithm) == 0) {
 		if (wget_hash(&dig, text, textlen) == 0) {
@@ -466,7 +466,7 @@ int wget_hash_fast(wget_digest_algorithm_t algorithm, const void *text, size_t t
 	return -1;
 }
 
-int wget_hash_get_len(wget_digest_algorithm_t algorithm)
+int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_algorithm))
 		return _algorithm[algorithm].digest_len;
@@ -474,12 +474,12 @@ int wget_hash_get_len(wget_digest_algorithm_t algorithm)
 		return 0;
 }
 
-int wget_hash_init(wget_hash_hd_t *dig, wget_digest_algorithm_t algorithm)
+int wget_hash_init(wget_hash_hd *dig, wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_algorithm)) {
 		if (_algorithm[algorithm].ctx_len) {
 			dig->algorithm = &_algorithm[algorithm];
-			dig->context = xmalloc(dig->algorithm->ctx_len);
+			dig->context = wget_malloc(dig->algorithm->ctx_len);
 			dig->algorithm->init(dig->context);
 			return 0;
 		}
@@ -488,13 +488,13 @@ int wget_hash_init(wget_hash_hd_t *dig, wget_digest_algorithm_t algorithm)
 	return -1;
 }
 
-int wget_hash(wget_hash_hd_t *dig, const void *text, size_t textlen)
+int wget_hash(wget_hash_hd *dig, const void *text, size_t textlen)
 {
 	dig->algorithm->process(text, textlen, dig->context);
 	return 0;
 }
 
-void wget_hash_deinit(wget_hash_hd_t *dig, void *digest)
+void wget_hash_deinit(wget_hash_hd *dig, void *digest)
 {
 	dig->algorithm->finish(dig->context, digest);
 	xfree(dig->context);
@@ -517,21 +517,21 @@ void wget_hash_deinit(wget_hash_hd_t *dig, void *digest)
  */
 int wget_hash_file_fd(const char *hashname, int fd, char *digest_hex, size_t digest_hex_size, off_t offset, off_t length)
 {
-	wget_digest_algorithm_t algorithm;
-	int ret=-1;
+	wget_digest_algorithm algorithm;
+	int ret = WGET_E_UNKNOWN;
 	struct stat st;
 
 	if (digest_hex_size)
 		*digest_hex=0;
 
 	if (fd == -1 || fstat(fd, &st) != 0)
-		return -1;
+		return WGET_E_IO;
 
 	if (length == 0)
 		length = st.st_size;
 
 	if (offset + length > st.st_size)
-		return -1;
+		return WGET_E_INVALID;
 
 	debug_printf("%s hashing pos %llu, length %llu...\n", hashname, (unsigned long long)offset, (unsigned long long)length);
 
@@ -544,20 +544,20 @@ int wget_hash_file_fd(const char *hashname, int fd, char *digest_hex, size_t dig
 		if (buf != MAP_FAILED) {
 			if (wget_hash_fast(algorithm, buf, length, digest) == 0) {
 				wget_memtohex(digest, sizeof(digest), digest_hex, digest_hex_size);
-				ret = 0;
+				ret = WGET_E_SUCCESS;
 			}
 			munmap(buf, length);
 		} else {
 #endif
 			// Fallback to read
 			ssize_t nbytes = 0;
-			wget_hash_hd_t dig;
+			wget_hash_hd dig;
 			char tmp[65536];
 
-			if (wget_hash_init(&dig, algorithm)) {
+			if ((ret = wget_hash_init(&dig, algorithm))) {
 				error_printf(_("%s: Hash type '%s' not supported by linked crypto engine\n"), __func__, hashname);
 				close(fd);
-				return -1;
+				return ret;
 			}
 
 			while (length > 0 && (nbytes = read(fd, tmp, sizeof(tmp))) > 0) {
@@ -573,11 +573,11 @@ int wget_hash_file_fd(const char *hashname, int fd, char *digest_hex, size_t dig
 			if (nbytes < 0) {
 				error_printf(_("%s: Failed to read %llu bytes\n"), __func__, (unsigned long long)length);
 				close(fd);
-				return -1;
+				return WGET_E_IO;
 			}
 
 			wget_memtohex(digest, sizeof(digest), digest_hex, digest_hex_size);
-			ret = 0;
+			ret = WGET_E_SUCCESS;
 #ifdef HAVE_MMAP
 		}
 #endif

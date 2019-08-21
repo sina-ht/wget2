@@ -71,8 +71,8 @@ void *yyrealloc(void *p, size_t size) {
 void wget_css_parse_buffer(
 	const char *buf,
 	size_t len,
-	wget_css_parse_uri_cb_t callback_uri,
-	wget_css_parse_encoding_cb_t callback_encoding,
+	wget_css_parse_uri_callback *callback_uri,
+	wget_css_parse_encoding_callback *callback_encoding,
 	void *user_ctx)
 {
 	int token;
@@ -160,8 +160,8 @@ void wget_css_parse_buffer(
 
 void wget_css_parse_file(
 	const char *fname,
-	wget_css_parse_uri_cb_t callback_uri,
-	wget_css_parse_encoding_cb_t callback_encoding,
+	wget_css_parse_uri_callback *callback_uri,
+	wget_css_parse_encoding_callback *callback_encoding,
 	void *user_ctx)
 {
 	if (strcmp(fname,"-")) {
@@ -174,7 +174,7 @@ void wget_css_parse_file(
 				size_t nread = st.st_size;
 				char *buf = mmap(NULL, nread + 1, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
 #else
-				char *buf=xmalloc(st.st_size+1);
+				char *buf=wget_malloc(st.st_size+1);
 				size_t nread=read(fd,buf,st.st_size);
 #endif
 
@@ -197,7 +197,7 @@ void wget_css_parse_file(
 		// maybe should use yy_scan_bytes instead of buffering into memory.
 		char tmp[4096];
 		ssize_t nbytes;
-		wget_buffer_t *buf = wget_buffer_alloc(4096);
+		wget_buffer *buf = wget_buffer_alloc(4096);
 
 		while ((nbytes = read(STDIN_FILENO, tmp, sizeof(tmp))) > 0) {
 			wget_buffer_memcat(buf, tmp, nbytes);

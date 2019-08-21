@@ -50,7 +50,7 @@
  */
 size_t wget_vasprintf(char **strp, const char *fmt, va_list args)
 {
-	wget_buffer_t buf;
+	wget_buffer buf;
 
 	wget_buffer_init(&buf, NULL, 128);
 
@@ -58,7 +58,7 @@ size_t wget_vasprintf(char **strp, const char *fmt, va_list args)
 
 	if (strp) {
 		// shrink memory to real usage
-		*strp = xrealloc(buf.data, len + 1);
+		*strp = wget_realloc(buf.data, len + 1);
 	} else {
 		// behave like C99/POSIX snprintf - just return the length
 		xfree(buf.data);
@@ -128,13 +128,13 @@ char *wget_aprintf(const char *fmt, ...)
  * \param[in] fp FILE pointer
  * \param[in] fmt Printf-like format specifier
  * \param[in] args List of arguments
- * \return Pointer to 0-terminated string in memory
+ * \return Number of bytes written or -1 on error
  *
  * Prints arguments to stream \p fp and returns number of bytes written.
  */
 size_t wget_vfprintf(FILE *fp, const char *fmt, va_list args)
 {
-	wget_buffer_t buf;
+	wget_buffer buf;
 	char sbuf[1024];
 	size_t rc;
 
@@ -156,7 +156,7 @@ size_t wget_vfprintf(FILE *fp, const char *fmt, va_list args)
  * \param[in] fp FILE pointer
  * \param[in] fmt Printf-like format specifier
  * \param[in] ... List of arguments
- * \return Pointer to 0-terminated string in memory
+ * \return Number of bytes written or -1 on error
  *
  * Prints arguments to stream \p fp and returns number of bytes written.
  */
@@ -166,6 +166,24 @@ size_t wget_fprintf(FILE *fp, const char *fmt, ...)
 
 	va_start(args, fmt);
 	size_t rc = wget_vfprintf(fp, fmt, args);
+	va_end(args);
+
+	return rc;
+}
+
+/**
+ * \param[in] fmt Printf-like format specifier
+ * \param[in] ... List of arguments
+ * \return Number of bytes written or -1 on error
+ *
+ * Prints arguments to `stdout` and returns number of bytes written.
+ */
+size_t wget_printf(const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	size_t rc = wget_vfprintf(stdout, fmt, args);
 	va_end(args);
 
 	return rc;
@@ -185,7 +203,7 @@ size_t wget_fprintf(FILE *fp, const char *fmt, ...)
  */
 size_t wget_vsnprintf(char *str, size_t size, const char *fmt, va_list args)
 {
-	wget_buffer_t buf;
+	wget_buffer buf;
 	char sbuf[1024];
 
 	wget_buffer_init(&buf, sbuf, sizeof(sbuf));

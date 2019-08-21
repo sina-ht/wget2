@@ -65,40 +65,39 @@ static const unsigned char
 	};
 
 /**Gets the hostname of the remote endpoint.
- * \param conn a wget_http_connection_t
+ * \param conn a wget_http_connection
  * \return A string containing hostname. Returned memory is owned by
  *         _conn_ and should not be modified or freed.
  */
-const char *wget_http_get_host(const wget_http_connection_t *conn)
+const char *wget_http_get_host(const wget_http_connection *conn)
 {
 	return conn->esc_host;
 }
 
 /**Gets the port number of the remote endpoint.
- * \param conn a wget_http_connection_t
+ * \param conn a wget_http_connection
  * \return A string containing port number. Returned memory is owned by
  *         _conn_ and should not be modified or freed.
  */
-uint16_t wget_http_get_port(const wget_http_connection_t *conn)
+uint16_t wget_http_get_port(const wget_http_connection *conn)
 {
 	return conn->port;
 }
 
 /**Get the scheme used by the connection.
- * \param conn a wget_http_connection_t
- * \return A string containing scheme. Returned memory is owned by
- *         _conn_ and should not be modified or freed.
+ * \param conn a wget_http_connection
+ * \return A WGET_IRI_SCHEM_* value.
  */
-const char *wget_http_get_scheme(const wget_http_connection_t *conn)
+wget_iri_scheme wget_http_get_scheme(const wget_http_connection *conn)
 {
 	return conn->scheme;
 }
 
 /**Gets the protocol used by the connection
- * \param conn a wget_http_connection_t
+ * \param conn a wget_http_connection
  * \return Either WGET_PROTOCOL_HTTP_1_1 or WGET_PROTOCOL_HTTP_2_0
  */
-int wget_http_get_protocol(const wget_http_connection_t *conn)
+int wget_http_get_protocol(const wget_http_connection *conn)
 {
 	return conn->protocol;
 }
@@ -230,15 +229,15 @@ const char *wget_parse_name_fixed(const char *s, const char **name, size_t *name
 	return *s == ':' ? s + 1 : s;
 }
 
-static int G_GNUC_WGET_NONNULL_ALL compare_param(wget_http_header_param_t *p1, wget_http_header_param_t *p2)
+static int WGET_GCC_NONNULL_ALL compare_param(wget_http_header_param *p1, wget_http_header_param *p2)
 {
 	return wget_strcasecmp_ascii(p1->name, p2->name);
 }
 
-void wget_http_add_param(wget_vector_t **params, wget_http_header_param_t *param)
+void wget_http_add_param(wget_vector **params, wget_http_header_param *param)
 {
-	if (!*params) *params = wget_vector_create(4, (wget_vector_compare_t)compare_param);
-	wget_vector_add(*params, param, sizeof(*param));
+	if (!*params) *params = wget_vector_create(4, (wget_vector_compare_fn *) compare_param);
+	wget_vector_add_memdup(*params, param, sizeof(*param));
 }
 
 /*
@@ -272,7 +271,7 @@ void wget_http_add_param(wget_vector_t **params, wget_http_header_param_t *param
   reg-rel-type   = LOALPHA *( LOALPHA | DIGIT | "." | "-" )
   ext-rel-type   = URI
 */
-const char *wget_http_parse_link(const char *s, wget_http_link_t *link)
+const char *wget_http_parse_link(const char *s, wget_http_link *link)
 {
 	memset(link, 0, sizeof(*link));
 
@@ -328,7 +327,7 @@ const char *wget_http_parse_link(const char *s, wget_http_link_t *link)
 // instance-digest = digest-algorithm "=" <encoded digest output>
 // digest-algorithm = token
 
-const char *wget_http_parse_digest(const char *s, wget_http_digest_t *digest)
+const char *wget_http_parse_digest(const char *s, wget_http_digest *digest)
 {
 	memset(digest, 0, sizeof(*digest));
 
@@ -360,7 +359,7 @@ const char *wget_http_parse_digest(const char *s, wget_http_digest_t *digest)
 // auth-scheme = token
 // auth-param  = token "=" ( token | quoted-string )
 
-const char *wget_http_parse_challenge(const char *s, wget_http_challenge_t *challenge)
+const char *wget_http_parse_challenge(const char *s, wget_http_challenge *challenge)
 {
 	memset(challenge, 0, sizeof(*challenge));
 
@@ -375,7 +374,7 @@ const char *wget_http_parse_challenge(const char *s, wget_http_challenge_t *chal
 		return s;
 	}
 
-	wget_http_header_param_t param;
+	wget_http_header_param param;
 	do {
 		const char *old = s;
 		s = wget_http_parse_param(s, &param.name, &param.value);
@@ -392,7 +391,7 @@ const char *wget_http_parse_challenge(const char *s, wget_http_challenge_t *chal
 
 			if (!challenge->params)
 				challenge->params = wget_stringmap_create_nocase(8);
-			wget_stringmap_put_noalloc(challenge->params, param.name, param.value);
+			wget_stringmap_put(challenge->params, param.name, param.value);
 		}
 
 		while (c_isblank(*s)) s++;
@@ -404,14 +403,14 @@ const char *wget_http_parse_challenge(const char *s, wget_http_challenge_t *chal
 	return s;
 }
 
-const char *wget_http_parse_challenges(const char *s, wget_vector_t *challenges)
+const char *wget_http_parse_challenges(const char *s, wget_vector *challenges)
 {
-	wget_http_challenge_t challenge;
+	wget_http_challenge challenge;
 
 	while (*s) {
 		s = wget_http_parse_challenge(s, &challenge);
 		if (challenge.auth_scheme) {
-			wget_vector_add(challenges, &challenge, sizeof(challenge));
+			wget_vector_add_memdup(challenges, &challenge, sizeof(challenge));
 		}
 	}
 
@@ -433,7 +432,7 @@ const char *wget_http_parse_location(const char *s, const char **location)
 	 */
 
 	for (p = s; *s && *s != '\r' && *s != '\n'; s++);
-	while (s > p && c_isdigit(*(s - 1))) s--; // remove trailing spaces (OWS - optional white space)
+	while (s > p && c_isblank(*(s - 1))) s--; // remove trailing spaces (OWS - optional white space)
 
 	*location = wget_strmemdup(p, s - p);
 
@@ -447,14 +446,14 @@ const char *wget_http_parse_location(const char *s, const char **location)
 // attribute               = token
 // value                   = token | quoted-string
 
-const char *wget_http_parse_transfer_encoding(const char *s, char *transfer_encoding)
+const char *wget_http_parse_transfer_encoding(const char *s, wget_transfer_encoding *transfer_encoding)
 {
 	while (c_isblank(*s)) s++;
 
 	if (!wget_strcasecmp_ascii(s, "identity"))
-		*transfer_encoding = transfer_encoding_identity;
+		*transfer_encoding = wget_transfer_encoding_identity;
 	else
-		*transfer_encoding = transfer_encoding_chunked;
+		*transfer_encoding = wget_transfer_encoding_chunked;
 
 	while (wget_http_istoken(*s)) s++;
 
@@ -469,7 +468,7 @@ const char *wget_http_parse_transfer_encoding(const char *s, char *transfer_enco
 
 const char *wget_http_parse_content_type(const char *s, const char **content_type, const char **charset)
 {
-	wget_http_header_param_t param;
+	wget_http_header_param param;
 	const char *p;
 
 	while (c_isblank(*s)) s++;
@@ -513,7 +512,7 @@ const char *wget_http_parse_content_type(const char *s, const char **content_typ
 
 const char *wget_http_parse_content_disposition(const char *s, const char **filename)
 {
-	wget_http_header_param_t param;
+	wget_http_header_param param;
 	char *p;
 
 	if (filename) {
@@ -613,11 +612,11 @@ const char *wget_http_parse_content_disposition(const char *s, const char **file
 //	       pin-sha256="E9CZ9INDbd+2eRQozYqqbQ2yXLVKB9+xcprMF+44U1g=";
 //	       pin-sha256="LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=";
 //	       max-age=10000; includeSubDomains
-const char *wget_http_parse_public_key_pins(const char *s, wget_hpkp_t *hpkp)
+const char *wget_http_parse_public_key_pins(const char *s, wget_hpkp *hpkp)
 {
-	wget_http_header_param_t param;
+	wget_http_header_param param;
 
-	wget_hpkp_set_include_subdomains(hpkp, 0);
+	wget_hpkp_set_include_subdomains(hpkp, false);
 
 	while (*s) {
 		s = wget_http_parse_param(s, &param.name, &param.value);
@@ -630,7 +629,7 @@ const char *wget_http_parse_public_key_pins(const char *s, wget_hpkp_t *hpkp)
 			}
 		} else {
 			if (!wget_strcasecmp_ascii(param.name, "includeSubDomains"))
-				wget_hpkp_set_include_subdomains(hpkp, 1);
+				wget_hpkp_set_include_subdomains(hpkp, true);
 		}
 
 		xfree(param.name);
@@ -649,7 +648,7 @@ const char *wget_http_parse_public_key_pins(const char *s, wget_hpkp_t *hpkp)
 
 const char *wget_http_parse_strict_transport_security(const char *s, time_t *maxage, char *include_subdomains)
 {
-	wget_http_header_param_t param;
+	wget_http_header_param param;
 
 	*maxage = 0;
 	*include_subdomains = 0;
@@ -1035,31 +1034,39 @@ static long long get_current_time(void)
  httponly-av       = "HttpOnly"
  extension-av      = <any CHAR except CTLs or ";">
 */
-const char *wget_http_parse_setcookie(const char *s, wget_cookie_t **cookie)
+const char *wget_http_parse_setcookie(const char *s, wget_cookie **cookie)
 {
 	return wget_cookie_parse_setcookie(s, cookie);
 }
 
-int wget_http_parse_header_line(wget_http_response_t *resp, const char *name, size_t namelen, const char *value, size_t valuelen)
+static void cookie_free(void *cookie)
+{
+	if (cookie)
+		wget_cookie_free((wget_cookie **) &cookie);
+}
+
+int wget_http_parse_header_line(wget_http_response *resp, const char *name, size_t namelen, const char *value, size_t valuelen)
 {
 	if (!name || !value)
-		return -1;
+		return WGET_E_INVALID;
 
 	char valuebuf[256];
 	char *value0;
-	int ret = 0;
+	int ret = WGET_E_SUCCESS;
 
-	if (valuelen < sizeof(valuebuf))
+	if (valuelen < sizeof(valuebuf)) {
 		wget_strmemcpy(value0 = valuebuf, sizeof(valuebuf), value, valuelen);
-	else
-		value0 = wget_strmemdup(value, valuelen);
+	} else {
+		if (!(value0 = wget_strmemdup(value, valuelen)))
+			return WGET_E_MEMORY;
+	}
 
 	switch (*name | 0x20) {
 	case ':':
 		if (!memcmp(name, ":status", namelen) && valuelen == 3) {
 			resp->code = ((value[0] - '0') * 10 + (value[1] - '0')) * 10 + (value[2] - '0');
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'c':
 		if (!wget_strncasecmp_ascii(name, "content-encoding", namelen)) {
@@ -1078,34 +1085,34 @@ int wget_http_parse_header_line(wget_http_response_t *resp, const char *name, si
 		} else if (!wget_strncasecmp_ascii(name, "Content-Security-Policy", namelen)) {
 			resp->csp = 1;
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'd':
 		if (!wget_strncasecmp_ascii(name, "digest", namelen)) {
 			// https://tools.ietf.org/html/rfc3230
-			wget_http_digest_t digest;
+			wget_http_digest digest;
 			wget_http_parse_digest(value0, &digest);
 			// debug_printf("%s: %s\n",digest.algorithm,digest.encoded_digest);
 			if (!resp->digests) {
 				resp->digests = wget_vector_create(4, NULL);
-				wget_vector_set_destructor(resp->digests, (wget_vector_destructor_t)wget_http_free_digest);
+				wget_vector_set_destructor(resp->digests, (wget_vector_destructor *) wget_http_free_digest);
 			}
-			wget_vector_add(resp->digests, &digest, sizeof(digest));
+			wget_vector_add_memdup(resp->digests, &digest, sizeof(digest));
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'e':
 		if (!wget_strncasecmp_ascii(name, "etag", namelen)) {
 			if (!resp->etag)
 				wget_http_parse_etag(value0, &resp->etag);
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'i':
 		if (!wget_strncasecmp_ascii(name, "icy-metaint", namelen)) {
 			resp->icy_metaint = atoi(value0);
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'l':
 		if (!wget_strncasecmp_ascii(name, "last-modified", namelen)) {
@@ -1116,16 +1123,16 @@ int wget_http_parse_header_line(wget_http_response_t *resp, const char *name, si
 				wget_http_parse_location(value0, &resp->location);
 		} else if (resp->code / 100 == 3 && !wget_strncasecmp_ascii(name, "link", namelen)) {
 			// debug_printf("s=%.31s\n",s);
-			wget_http_link_t link;
+			wget_http_link link;
 			wget_http_parse_link(value0, &link);
 			// debug_printf("link->uri=%s\n",link.uri);
 			if (!resp->links) {
 				resp->links = wget_vector_create(8, NULL);
-				wget_vector_set_destructor(resp->links, (wget_vector_destructor_t)wget_http_free_link);
+				wget_vector_set_destructor(resp->links, (wget_vector_destructor *) wget_http_free_link);
 			}
-			wget_vector_add(resp->links, &link, sizeof(link));
+			wget_vector_add_memdup(resp->links, &link, sizeof(link));
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'p':
 		if (!wget_strncasecmp_ascii(name, "public-key-pins", namelen)) {
@@ -1136,67 +1143,80 @@ int wget_http_parse_header_line(wget_http_response_t *resp, const char *name, si
 			}
 		}
 		else if (!wget_strncasecmp_ascii(name, "proxy-authenticate", namelen)) {
-			wget_http_challenge_t challenge;
-			wget_http_parse_challenge(value0, &challenge);
+			wget_http_challenge *challenge = wget_malloc(sizeof(wget_http_challenge));
+
+			if (!challenge) {
+				ret = WGET_E_MEMORY;
+				goto out;
+			}
+
+			wget_http_parse_challenge(value0, challenge);
 
 			if (!resp->challenges) {
 				resp->challenges = wget_vector_create(2, NULL);
-				wget_vector_set_destructor(resp->challenges, (wget_vector_destructor_t)wget_http_free_challenge);
+				wget_vector_set_destructor(resp->challenges, (wget_vector_destructor *) wget_http_free_challenge);
 			}
-			wget_vector_add(resp->challenges, &challenge, sizeof(challenge));
+			wget_vector_add(resp->challenges, challenge);
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 's':
 		if (!wget_strncasecmp_ascii(name, "set-cookie", namelen)) {
 			// this is a parser. content validation must be done by higher level functions.
-			wget_cookie_t *cookie;
+			wget_cookie *cookie;
 			wget_http_parse_setcookie(value0, &cookie);
 
 			if (cookie) {
 				if (!resp->cookies) {
 					resp->cookies = wget_vector_create(4, NULL);
-					wget_vector_set_destructor(resp->cookies, (wget_vector_destructor_t) wget_cookie_deinit);
+					wget_vector_set_destructor(resp->cookies, cookie_free);
 				}
-				wget_vector_add_noalloc(resp->cookies, cookie);
+				wget_vector_add(resp->cookies, cookie);
 			}
 		}
 		else if (!wget_strncasecmp_ascii(name, "strict-transport-security", namelen)) {
 			resp->hsts = 1;
 			wget_http_parse_strict_transport_security(value0, &resp->hsts_maxage, &resp->hsts_include_subdomains);
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 't':
 		if (!wget_strncasecmp_ascii(name, "transfer-encoding", namelen)) {
 			wget_http_parse_transfer_encoding(value0, &resp->transfer_encoding);
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'w':
 		if (!wget_strncasecmp_ascii(name, "www-authenticate", namelen)) {
-			wget_http_challenge_t challenge;
-			wget_http_parse_challenge(value0, &challenge);
+			wget_http_challenge *challenge = wget_malloc(sizeof(wget_http_challenge));
+
+			if (!challenge) {
+				ret = WGET_E_MEMORY;
+				goto out;
+			}
+
+			wget_http_parse_challenge(value0, challenge);
 
 			if (!resp->challenges) {
 				resp->challenges = wget_vector_create(2, NULL);
-				wget_vector_set_destructor(resp->challenges, (wget_vector_destructor_t)wget_http_free_challenge);
+				wget_vector_set_destructor(resp->challenges, (wget_vector_destructor *) wget_http_free_challenge);
 			}
-			wget_vector_add(resp->challenges, &challenge, sizeof(challenge));
+			wget_vector_add(resp->challenges, challenge);
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	case 'x':
 		if (!wget_strncasecmp_ascii(name, "x-archive-orig-last-modified", namelen)) {
 			resp->last_modified = wget_http_parse_full_date(value0);
 		} else
-			ret = -1;
+			ret = WGET_E_UNKNOWN;
 		break;
 	default:
-		ret = -1;
+		ret = WGET_E_UNKNOWN;
 		break;
 	}
 
+out:
 	if (value0 != valuebuf)
 		xfree(value0);
 
@@ -1205,11 +1225,13 @@ int wget_http_parse_header_line(wget_http_response_t *resp, const char *name, si
 
 /* content of <buf> will be destroyed */
 /* buf must be 0-terminated */
-wget_http_response_t *wget_http_parse_response_header(char *buf)
+wget_http_response *wget_http_parse_response_header(char *buf)
 {
 	char *eol;
 
-	wget_http_response_t *resp = xcalloc(1, sizeof(wget_http_response_t));
+	wget_http_response *resp = wget_calloc(1, sizeof(wget_http_response));
+	if (!resp)
+		return NULL;
 
 	if (sscanf(buf, " HTTP/%3hd.%3hd %3hd %31[^\r\n] ",
 		&resp->major, &resp->minor, &resp->code, resp->reason) >= 3) {
@@ -1264,52 +1286,55 @@ wget_http_response_t *wget_http_parse_response_header(char *buf)
 	return resp;
 }
 
-int wget_http_free_param(wget_http_header_param_t *param)
+void wget_http_free_param(wget_http_header_param *param)
 {
 	xfree(param->name);
 	xfree(param->value);
-	return 0;
+	xfree(param);
 }
 
-void wget_http_free_link(wget_http_link_t *link)
+void wget_http_free_link(wget_http_link *link)
 {
 	xfree(link->uri);
 	xfree(link->type);
+	xfree(link);
 }
 
-void wget_http_free_links(wget_vector_t **links)
+void wget_http_free_links(wget_vector **links)
 {
 	wget_vector_free(links);
 }
 
-void wget_http_free_digest(wget_http_digest_t *digest)
+void wget_http_free_digest(wget_http_digest *digest)
 {
 	xfree(digest->algorithm);
 	xfree(digest->encoded_digest);
+	xfree(digest);
 }
 
-void wget_http_free_digests(wget_vector_t **digests)
+void wget_http_free_digests(wget_vector **digests)
 {
 	wget_vector_free(digests);
 }
 
-void wget_http_free_challenge(wget_http_challenge_t *challenge)
+void wget_http_free_challenge(wget_http_challenge *challenge)
 {
 	xfree(challenge->auth_scheme);
 	wget_stringmap_free(&challenge->params);
+	xfree(challenge);
 }
 
-void wget_http_free_challenges(wget_vector_t **challenges)
+void wget_http_free_challenges(wget_vector **challenges)
 {
 	wget_vector_free(challenges);
 }
 
-void wget_http_free_cookies(wget_vector_t **cookies)
+void wget_http_free_cookies(wget_vector **cookies)
 {
 	wget_vector_free(cookies);
 }
 
-void wget_http_free_hpkp_entries(wget_hpkp_t **hpkp)
+void wget_http_free_hpkp_entries(wget_hpkp **hpkp)
 {
 	if (hpkp) {
 		wget_hpkp_free(*hpkp);
@@ -1317,7 +1342,7 @@ void wget_http_free_hpkp_entries(wget_hpkp_t **hpkp)
 	}
 }
 
-void wget_http_free_response(wget_http_response_t **resp)
+void wget_http_free_response(wget_http_response **resp)
 {
 	if (resp && *resp) {
 		wget_http_free_links(&(*resp)->links);
@@ -1338,7 +1363,7 @@ void wget_http_free_response(wget_http_response_t **resp)
 }
 
 /* for security reasons: set all freed pointers to NULL */
-void wget_http_free_request(wget_http_request_t **req)
+void wget_http_free_request(wget_http_request **req)
 {
 	if (req && *req) {
 		wget_buffer_deinit(&(*req)->esc_resource);

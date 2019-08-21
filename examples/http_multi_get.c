@@ -45,9 +45,9 @@ int main(void)
 		"https://www.google.de/2.html",
 		"https://www.google.de/4.html",
 	};
-	wget_iri_t *iris[countof(urls)] = { NULL };
-	wget_http_request_t *reqs[countof(urls)] = { NULL };
-	wget_http_connection_t *conn = NULL;
+	wget_iri *iris[countof(urls)] = { NULL };
+	wget_http_request *reqs[countof(urls)] = { NULL };
+	wget_http_connection *conn = NULL;
 
 
 	wget_global_init(
@@ -58,7 +58,7 @@ int main(void)
 		0);
 
 	// SSL: share Wget's OCSP cache for speed improvements
-	wget_ocsp_db_t *ocsp_db = wget_ocsp_db_init(NULL, OCSP_DB);
+	wget_ocsp_db *ocsp_db = wget_ocsp_db_init(NULL, OCSP_DB);
 	wget_ocsp_db_load(ocsp_db);
 	wget_ssl_set_config_string(WGET_SSL_OCSP_CACHE, (const char *) ocsp_db);
 
@@ -105,7 +105,7 @@ int main(void)
 	}
 
 	for (;;) {
-		wget_http_response_t *resp = wget_http_get_response(conn);
+		wget_http_response *resp = wget_http_get_response(conn);
 
 		if (!resp)
 			goto out; // done or severe error

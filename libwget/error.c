@@ -38,11 +38,12 @@
  * Convert an internal libwget error code to a humanly readable string.
  * The returned pointer must not be de-allocated by the caller.
  */
-const char *wget_strerror(int err)
+const char *wget_strerror(wget_error err)
 {
 	switch (err) {
 	case WGET_E_SUCCESS: return _("Success");
 	case WGET_E_UNKNOWN: return _("General error");
+	case WGET_E_MEMORY: return _("No memory");
 	case WGET_E_INVALID: return _("Invalid value");
 	case WGET_E_TIMEOUT: return _("Timeout");
 	case WGET_E_CONNECT: return _("Connect error");
@@ -53,6 +54,8 @@ const char *wget_strerror(int err)
 	case WGET_E_GPG_VER_FAIL: return _("GPG signature is bad");
 	case WGET_E_GPG_VER_ERR: return _("GPG error");
 	case WGET_E_XML_PARSE_ERR: return _("Failed to parse XML");
+	case WGET_E_OPEN: return _("Failed to open file");
+	case WGET_E_IO: return _("I/O error");
 	default: return _("Unknown error");
 	}
 }

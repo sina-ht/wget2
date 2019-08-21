@@ -40,19 +40,29 @@
  * @{
  *
  * The purpose of this set of functions is to parse a
- * Robots Exlusion Standard file into a data structure
+ * Robots Exclusion Standard file into a data structure
  * for easy access.
  */
 
-static void _free_path(wget_string_t *path)
+struct wget_robots_st {
+	wget_vector
+		*paths;    //!< paths found in robots.txt (element: wget_string)
+	wget_vector
+		*sitemaps; //!< sitemaps found in robots.txt (element: char *)
+};
+
+static void path_free(void *path)
 {
-	xfree(path->p);
+	wget_string *p = path;
+
+	xfree(p->p);
+	xfree(p);
 }
 
 /**
  * \param[in] data Memory with robots.txt content (with trailing 0-byte)
  * \param[in] client Name of the client / user-agent
- * \return Return an allocated ROBOTS structure or NULL on error
+ * \return Return an allocated wget_robots structure or NULL on error
  *
  * The function parses the robots.txt \p data and returns a ROBOTS structure
  * including a list of the disallowed paths and including a list of the sitemap
@@ -60,18 +70,19 @@ static void _free_path(wget_string_t *path)
  *
  * The ROBOTS structure has to be freed by calling wget_robots_free().
  */
-wget_robots_t *wget_robots_parse(const char *data, const char *client)
+int wget_robots_parse(wget_robots **_robots, const char *data, const char *client)
 {
-	wget_robots_t *robots;
-	wget_string_t path;
+	wget_robots *robots;
+	wget_string path;
 	size_t client_length = client ? strlen(client) : 0;
 	int collect = 0;
 	const char *p;
 
-	if (!data || !*data)
-		return NULL;
+	if (!data || !*data || !_robots)
+		return WGET_E_INVALID;
 
-	robots = xcalloc(1, sizeof (wget_robots_t));
+	if (!(robots = wget_calloc(1, sizeof(wget_robots))))
+		return WGET_E_MEMORY;
 
 	do {
 		if (collect < 2 && !wget_strncasecmp_ascii(data, "User-agent:", 11)) {
@@ -94,13 +105,18 @@ wget_robots_t *wget_robots_parse(const char *data, const char *client)
 				collect = 2;
 			} else {
 				if (!robots->paths) {
-					robots->paths = wget_vector_create(32, NULL);
-					wget_vector_set_destructor(robots->paths, (wget_vector_destructor_t)_free_path);
+					if (!(robots->paths = wget_vector_create(32, NULL)))
+						goto oom;
+					wget_vector_set_destructor(robots->paths, path_free);
 				}
 				for (p = data; *p && !isspace(*p); p++);
 				path.len = p - data;
-				path.p = wget_strmemdup(data, path.len);
-				wget_vector_add(robots->paths, &path, sizeof(path));
+				if (!(path.p = wget_strmemdup(data, path.len)))
+					goto oom;
+				if (wget_vector_add_memdup(robots->paths, &path, sizeof(path)) < 0) {
+					xfree(path.p);
+					goto oom;
+				}
 			}
 		}
 		else if (!wget_strncasecmp_ascii(data, "Sitemap:", 8)) {
@@ -108,8 +124,14 @@ wget_robots_t *wget_robots_parse(const char *data, const char *client)
 			for (p = data; *p && !isspace(*p); p++);
 
 			if (!robots->sitemaps)
-				robots->sitemaps = wget_vector_create(4, NULL);
-			wget_vector_add_noalloc(robots->sitemaps, wget_strmemdup(data, p - data));
+				if (!(robots->sitemaps = wget_vector_create(4, NULL)))
+					goto oom;
+
+			char *sitemap = wget_strmemdup(data, p - data);
+			if (!sitemap)
+				goto oom;
+			if (wget_vector_add(robots->sitemaps, sitemap) < 0)
+				goto oom;
 		}
 
 		if ((data = strchr(data, '\n')))
@@ -119,23 +141,28 @@ wget_robots_t *wget_robots_parse(const char *data, const char *client)
 /*
 	for (int it = 0; it < wget_vector_size(robots->paths); it++) {
 		ROBOTS_PATH *path = wget_vector_get(robots->paths, it);
-		info_printf("path '%s'\n", path->path);
+		debug_printf("path '%s'\n", path->path);
 	}
 	for (int it = 0; it < wget_vector_size(robots->sitemaps); it++) {
 		const char *sitemap = wget_vector_get(robots->sitemaps, it);
-		info_printf("sitemap '%s'\n", sitemap);
+		debug_printf("sitemap '%s'\n", sitemap);
 	}
 */
 
-	return robots;
+	*(_robots) = robots;
+	return WGET_E_SUCCESS;
+
+oom:
+	wget_robots_free(&robots);
+	return WGET_E_MEMORY;
 }
 
 /**
- * \param[in,out] robots Pointer to Pointer to ROBOTS structure
+ * \param[in,out] robots Pointer to Pointer to wget_robots structure
  *
- * wget_robots_free() free's the formerly allocated ROBOTS structure.
+ * wget_robots_free() free's the formerly allocated wget_robots structure.
  */
-void wget_robots_free(wget_robots_t **robots)
+void wget_robots_free(wget_robots **robots)
 {
 	if (robots && *robots) {
 		wget_vector_free(&(*robots)->paths);
@@ -143,6 +170,56 @@ void wget_robots_free(wget_robots_t **robots)
 		xfree(*robots);
 		*robots = NULL;
 	}
+}
+
+/**
+ * @param robots Pointer to instance of wget_robots
+ * @return Returns the number of paths listed in \p robots
+ */
+int wget_robots_get_path_count(wget_robots *robots)
+{
+	if (robots)
+		return wget_vector_size(robots->paths);
+
+	return 0;
+}
+
+/**
+ * @param robots Pointer to instance of wget_robots
+ * @param index Index of the wanted path
+ * @return Returns the path at \p index or NULL
+ */
+wget_string *wget_robots_get_path(wget_robots *robots, int index)
+{
+	if (robots && robots->paths)
+		return wget_vector_get(robots->paths, index);
+
+	return NULL;
+}
+
+/**
+ * @param robots Pointer to instance of wget_robots
+ * @return Returns the number of sitemaps listed in \p robots
+ */
+int wget_robots_get_sitemap_count(wget_robots *robots)
+{
+	if (robots)
+		return wget_vector_size(robots->sitemaps);
+
+	return 0;
+}
+
+/**
+ * @param robots Pointer to instance of wget_robots
+ * @param index Index of the wanted sitemap URL
+ * @return Returns the sitemap URL at \p index or NULL
+ */
+const char *wget_robots_get_sitemap(wget_robots *robots, int index)
+{
+	if (robots && robots->sitemaps)
+		return wget_vector_get(robots->sitemaps, index);
+
+	return NULL;
 }
 
 /**@}*/

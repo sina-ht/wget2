@@ -74,11 +74,14 @@ static ssize_t _getline_internal(char **buf, size_t *bufsize,
 	char *p;
 
 	if (!buf || !bufsize)
-		return -1;
+		return WGET_E_INVALID;
 
 	if (!*buf || !*bufsize) {
 		// first call
-		*buf = xmalloc(*bufsize = 10240);
+		if (!(p = wget_malloc(10240)))
+			return WGET_E_MEMORY;
+		*buf = p;
+		*bufsize = 10240;
 		sizep = (size_t *)(void *)(*buf + *bufsize - 2 * sizeof(size_t));
 		sizep[0] = sizep[1] = 0;
 	} else {
@@ -115,7 +118,10 @@ static ssize_t _getline_internal(char **buf, size_t *bufsize,
 			ptrdiff_t off = ((char *)sizep)-*buf;
 			size_t *old;
 
-			*buf = xrealloc(*buf, *bufsize = *bufsize * 2);
+			if (!(p = wget_realloc(*buf, *bufsize = *bufsize * 2)))
+				return WGET_E_MEMORY;
+
+			*buf = p;
 			old = (size_t *)(void *)(*buf + off);
 			sizep = (size_t *)(void *)(*buf + *bufsize - 2 * sizeof(size_t));
 			sizep[0] = old[0];
@@ -155,7 +161,7 @@ static ssize_t _getline_internal(char **buf, size_t *bufsize,
  * \param[out] buf Pointer to a pointer that will be set up by the function to point to the read line
  * \param[out] bufsize Pointer to a variable where the length of the read line will be put
  * \param[in] fd File descriptor for an open file
- * \return The length of the last line read
+ * \return The length of the last line read or a WGET_E_* error code (< 0)
  *
  * Behaves identically as wget_getline(), but uses a file descriptor instead of a stream.
  */
@@ -168,7 +174,7 @@ ssize_t wget_fdgetline(char **buf, size_t *bufsize, int fd)
  * \param[out] buf Pointer to a pointer that will be set up by the function to point to the read line
  * \param[out] bufsize Pointer to a variable where the length of the read line will be put
  * \param[in] fp Pointer to an open file's stream handle (`FILE *`)
- * \return The length of the last line read
+ * \return The length of the last line read or a WGET_E_* error code (< 0)
  *
  * This function will read a line from the open file handle \p fp. This function reads input characters
  * until either a newline character (`\\n`) is found or EOF is reached. A block of memory large enough to hold the read line
@@ -347,7 +353,10 @@ char *wget_read_file(const char *fname, size_t *size)
 			if (fstat(fd, &st) == 0) {
 				off_t total = 0;
 
-				buf = xmalloc(st.st_size + 1);
+				if (!(buf = wget_malloc(st.st_size + 1))) {
+					close(fd);
+					return NULL;
+				}
 
 				while (total < st.st_size && (nread = read(fd, buf + total, st.st_size - total)) > 0) {
 					total += nread;
@@ -369,7 +378,7 @@ char *wget_read_file(const char *fname, size_t *size)
 	} else {
 		// read data from STDIN.
 		char tmp[4096];
-		wget_buffer_t buffer;
+		wget_buffer buffer;
 
 		wget_buffer_init(&buffer, NULL, 4096);
 
@@ -394,7 +403,7 @@ char *wget_read_file(const char *fname, size_t *size)
  * \param[in] load_func Pointer to the loader function
  * \param[in] save_func Pointer to the saver function
  * \param[in] context Context data
- * \return 0 on success, or -1 on error
+ * \return 0 on success, or WGET_E_* on error
  *
  * This function updates the file named \p fname atomically. It lets two caller-provided functions do the actual updating.
  * A lock file is created first under `/tmp` to ensure exclusive access to the file. Other processes attempting to call
@@ -407,7 +416,7 @@ char *wget_read_file(const char *fname, size_t *size)
  * performing no further actions.
  */
 int wget_update_file(const char *fname,
-	wget_update_load_t load_func, wget_update_load_t save_func, void *context)
+	wget_update_load_fn *load_func, wget_update_load_fn *save_func, void *context)
 {
 	FILE *fp;
 	const char *tmpdir, *basename;
@@ -422,6 +431,9 @@ int wget_update_file(const char *fname,
 		tmpdir = "/tmp";
 
 	basename = base_name(fname);
+
+	if (!basename)
+		return WGET_E_MEMORY;
 
 	// create a per-usr tmp file name
 	size_t tmplen = strlen(tmpdir);
@@ -441,11 +453,14 @@ int wget_update_file(const char *fname,
 
 	xfree(basename);
 
+	if (!lockfile)
+		return WGET_E_MEMORY;
+
 	// create & open the lock file
 	if ((lockfd = open(lockfile, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1) {
 		error_printf(_("Failed to create '%s' (%d)\n"), lockfile, errno);
 		xfree(lockfile);
-		return -1;
+		return WGET_E_OPEN;
 	}
 
 	// set the lock
@@ -453,7 +468,7 @@ int wget_update_file(const char *fname,
 		close(lockfd);
 		error_printf(_("Failed to lock '%s' (%d)\n"), lockfile, errno);
 		xfree(lockfile);
-		return -1;
+		return WGET_E_IO;
 	}
 
 	xfree(lockfile);
@@ -464,7 +479,7 @@ int wget_update_file(const char *fname,
 			if (errno != ENOENT) {
 				close(lockfd);
 				error_printf(_("Failed to read open '%s' (%d)\n"), fname, errno);
-				return -1;
+				return WGET_E_OPEN;
 			}
 		}
 
@@ -473,7 +488,7 @@ int wget_update_file(const char *fname,
 			if (load_func(context, fp)) {
 				fclose(fp);
 				close(lockfd);
-				return -1;
+				return WGET_E_UNKNOWN;
 			}
 
 			fclose(fp);
@@ -487,7 +502,7 @@ int wget_update_file(const char *fname,
 		if ((fd = mkstemp(tmpfile)) == -1) {
 			close(lockfd);
 			error_printf(_("Failed to open tmpfile '%s' (%d)\n"), tmpfile, errno);
-			return -1;
+			return WGET_E_OPEN;
 		}
 
 		// open the output stream from fd
@@ -496,7 +511,7 @@ int wget_update_file(const char *fname,
 			close(fd);
 			close(lockfd);
 			error_printf(_("Failed to write open '%s' (%d)\n"), tmpfile, errno);
-			return -1;
+			return WGET_E_OPEN;
 		}
 
 		// write into temp file
@@ -504,7 +519,7 @@ int wget_update_file(const char *fname,
 			unlink(tmpfile);
 			fclose(fp);
 			close(lockfd);
-			return -1;
+			return WGET_E_UNKNOWN;
 		}
 
 		// write buffers and close temp file
@@ -512,7 +527,7 @@ int wget_update_file(const char *fname,
 			unlink(tmpfile);
 			close(lockfd);
 			error_printf(_("Failed to write/close '%s' (%d)\n"), tmpfile, errno);
-			return -1;
+			return WGET_E_IO;
 		}
 
 		// rename written file (now complete without errors) to FNAME
@@ -520,7 +535,7 @@ int wget_update_file(const char *fname,
 			close(lockfd);
 			error_printf(_("Failed to rename '%s' to '%s' (%d)\n"), tmpfile, fname, errno);
 			error_printf(_("Take manually care for '%s'\n"), tmpfile);
-			return -1;
+			return WGET_E_IO;
 		}
 
 		debug_printf("Successfully updated '%s'.\n", fname);
@@ -528,7 +543,7 @@ int wget_update_file(const char *fname,
 
 	close(lockfd);
 
-	return 0;
+	return WGET_E_SUCCESS;
 }
 
 /**
@@ -548,14 +563,14 @@ int wget_truncate(const char *path, off_t length)
 	int fd, rc;
 
 	if (!path)
-		return -1;
+		return WGET_E_INVALID;
 
 	if ((fd = open(path, O_RDWR|O_BINARY)) == -1)
-		return -1;
+		return WGET_E_OPEN;
 
 	rc = ftruncate(fd, length);
 	close(fd);
-	return rc;
+	return rc ? WGET_E_IO : WGET_E_SUCCESS;
 }
 
 /**@}*/
