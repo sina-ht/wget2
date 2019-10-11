@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2014 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2014 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -103,5 +103,27 @@ int main(void)
 			{	NULL } },
 		0);
 
-	exit(0);
+	wget_test(
+		WGET_TEST_OPTIONS, "-r -nH --no-clobber",
+		WGET_TEST_REQUEST_URL, "index2.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[1].name + 1, urls[1].body },
+			{ urls[3].name + 1, urls[3].body },
+			// { "subdir.1", urls[2].body, 0 }, // file not saved since it already exists as directory and --no-clobber is given
+			{	NULL } },
+		0);
+
+	wget_test(
+		WGET_TEST_OPTIONS, "-r -nH --no-clobber --page-requisites",
+		WGET_TEST_REQUEST_URL, "index2.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[1].name + 1, urls[1].body },
+			{ urls[3].name + 1, urls[3].body },
+			// { "subdir.1", urls[2].body, 0 }, // file not saved since it already exists as directory and --no-clobber is given
+			{	NULL } },
+		0);
+
+	exit(EXIT_SUCCESS);
 }

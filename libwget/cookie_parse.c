@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -269,7 +269,7 @@ const char *wget_cookie_parse_setcookie(const char *s, wget_cookie **_cookie)
 		// skip over delimiter and remove leading whitespace from cookie value
 		for (s++; c_isspace(*s);) s++;
 
-/* RFC compliancy is too strict
+/* RFC compliance is too strict
 		if (*s == '\"')
 			s++;
 		// cookie-octet      = %x21 / %x23-2B / %x2D-3A / %x3C-5B / %x5D-7E
@@ -388,7 +388,7 @@ static int cookie_normalize_cookie(const wget_iri *iri, wget_cookie *cookie)
 	if (cookie->maxage)
 		cookie->expires = cookie->maxage;
 
-	cookie->persistent = !!cookie->expires;
+	cookie->persistent = cookie->expires != 0;
 
 	// convert domain to lowercase
 	wget_strtolower((char *)cookie->domain);

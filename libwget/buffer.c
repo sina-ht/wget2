@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -50,22 +50,88 @@
  * in it by the user. On the other hand, the **size** is the total number of slots in the buffer, either occupied
  * or not.
  *
+ * The stored data is always 0-terminated, so you safely use it with standard string functions.
+ *
  * The functions here allow you to easily work with buffers, providing shortcuts to commonly used
  * memory and string management operations and avoiding usual pitfalls, such as buffer overflows.
  * They provide a higher-level abstraction to working with memory than the @link libwget-mem memory management functions@endlink.
+ *
+ * If your application uses memory allocation functions that may return %NULL values (e.g. like the standard libc functions),
+ * you have to check the `error` value before using the result. If set, it indicates that a memory allocation failure
+ * occurred during internal (re-)allocation.
+ *
+ * Example with wget_buffer on the stack (initial 16 bytes heap allocation)
+ * ```
+ * wget_buffer buf;
+ *
+ * wet_buffer_init(&buf, NULL, 16);
+ *
+ * wget_buffer_strcpy(&buf, "A");
+ * wget_buffer_strcat(&buf, "B");
+ * wget_buffer_memcat(&buf, "C", 1);
+ * wget_buffer_memset_append(&buf, 'D', 1);
+ * wget_buffer_printf_append(&buf, "%s", "E");
+ *
+ * // buf.data now contains the 0-terminated string "ABCDE"
+ * printf("buf.data = %s\n", buf.data);
+ *
+ * wget_buffer_deinit(&buf);
+ * ```
+ *
+ * Example with wget_buffer on the stack and 16 bytes initial stack buffer (no heap allocation is needed)
+ * ```
+ * wget_buffer buf;
+ * char sbuf[16];
+ *
+ * wet_buffer_init(&buf, sbuf, sizeof(sbuf));
+ *
+ * wget_buffer_strcpy(&buf, "A");
+ * wget_buffer_strcat(&buf, "B");
+ * wget_buffer_memcat(&buf, "C", 1);
+ * wget_buffer_memset_append(&buf, 'D', 1);
+ * wget_buffer_printf_append(&buf, "%s", "E");
+ *
+ * // buf.data now contains the 0-terminated string "ABCDE"
+ * printf("buf.data = %s\n", buf.data);
+ *
+ * wget_buffer_deinit(&buf);
+ * ```
+ *
+ * Example on how to check for memory failure and how to transfer buffer data
+ * ```
+ * wget_buffer buf;
+ *
+ * wet_buffer_init(&buf, NULL, 16);
+ *
+ * wget_buffer_strcpy(&buf, "A");
+ * wget_buffer_strcat(&buf, "B");
+ * wget_buffer_memcat(&buf, "C", 1);
+ * wget_buffer_memset_append(&buf, 'D', 1);
+ * wget_buffer_printf_append(&buf, "%s", "E");
+ *
+ *	if (buf.error)
+ *		panic("No memory !");
+ *
+ *	// transfer ownership away from wget_buffer
+ *	char *ret = buf.data;
+ *	buf.data = NULL; // avoid double frees
+ *
+ * wget_buffer_deinit(&buf);
+ *
+ *	return ret; // the caller must free() this value after use
+ * ```
  */
 
 /**
- * \param[in] buf An existing buffer, or NULL.
+ * \param[in] buf Pointer to the buffer that should become initialized.
  * \param[in] data Initial contents of the buffer. Might be NULL.
  * \param[in] size Initial length of the buffer. Might be zero (will default to 128 bytes).
- * \return A new buffer (if \p buf is NULL), or the provided buffer, with new contents.
+ * \return WGET_E_SUCCESS or WGET_E_MEMORY in case of a memory allocation failure.
  *
  * Create a new buffer.
  *
- * If \p data is NULL, the buffer will be empty, but it will be pre-allocated with \p size bytes,
- * all filled with zeros. This will make future operations on the buffer faster since there will be
- * less re-allocations needed.
+ * If \p data is NULL, the buffer will be empty, but it will be pre-allocated with \p size bytes.
+ * This will make future operations on the buffer faster since there will be less re-allocations needed.
  *
  * <b>If \p size is zero, the buffer will be pre-allocated with 128 bytes.</b>
  *
@@ -81,19 +147,11 @@
  *  there, but will not touch the old buffer. The new buffer _will_ be freed by these functions since it's been
  *  allocated by libwget internally and thus it knows it can be freed without harm.
  *
- * If an existing buffer is provided in \p buf, it will be re-allocated with the provided \p data and \p size
+ * If an existing buffer is provided in \p buf, it will be initialized with the provided \p data and \p size
  * according to the rules stated above.
  */
-wget_buffer *wget_buffer_init(wget_buffer *buf, char *data, size_t size)
+int wget_buffer_init(wget_buffer *buf, char *data, size_t size)
 {
-	if (!buf) {
-		if (!(buf = wget_malloc(sizeof(wget_buffer))))
-			return NULL;
-		buf->release_buf = 1;
-	} else {
-		buf->release_buf = 0;
-	}
-
 	if (data && likely(size)) {
 		buf->size = size - 1;
 		buf->data = data;
@@ -101,17 +159,21 @@ wget_buffer *wget_buffer_init(wget_buffer *buf, char *data, size_t size)
 		buf->release_data = 0;
 	} else {
 		if (!size)
-			size = 128;
+			size = 127;
 		buf->size = size;
-		if (!(buf->data = wget_malloc(size + 1)))
-			return NULL;
+		if (!(buf->data = wget_malloc(size + 1))) {
+			buf->error = 1;
+			return WGET_E_MEMORY;
+		}
 		*buf->data = 0; // always 0 terminate data to allow string functions
 		buf->release_data = 1;
 	}
 
+	buf->error = 0;
+	buf->release_buf = 0;
 	buf->length = 0;
 
-	return buf;
+	return WGET_E_SUCCESS;
 }
 
 /**
@@ -126,33 +188,47 @@ wget_buffer *wget_buffer_init(wget_buffer *buf, char *data, size_t size)
  */
 wget_buffer *wget_buffer_alloc(size_t size)
 {
-	return wget_buffer_init(NULL, NULL, size);
+	wget_buffer *buf;
+
+	if (!(buf = wget_malloc(sizeof(wget_buffer))))
+		return NULL;
+
+	if (wget_buffer_init(buf, NULL, size) < 0) {
+		xfree(buf);
+		return NULL;
+	}
+
+	buf->release_buf = 1;
+
+	return buf;
 }
 
-static int _buffer_realloc(wget_buffer *buf, size_t size)
+static int buffer_realloc(wget_buffer *buf, size_t size)
 {
 	char *old_data = buf->data;
 
-	if (!(buf->data = wget_malloc(size + 1))) {
+	if (buf->release_data)
+		buf->data = wget_realloc(buf->data, size + 1);
+	else
+		buf->data = wget_malloc(size + 1);
+
+	if (!buf->data) {
 		buf->data = old_data;
+		buf->error = 1;
 		return WGET_E_MEMORY;
 	}
 
-	buf->size = size;
-
-	if (likely(old_data)) {
-		if (buf->length)
+	if (!buf->release_data) {
+		if (likely(old_data) && buf->length)
 			memcpy(buf->data, old_data, buf->length + 1);
 		else
 			*buf->data = 0; // always 0 terminate data to allow string functions
 
-		if (buf->release_data)
-			xfree(old_data);
-	} else {
-		*buf->data = 0; // always 0 terminate data to allow string functions
+		buf->release_data = 1;
 	}
 
-	buf->release_data = 1;
+	buf->size = size;
+
 	return WGET_E_SUCCESS;
 }
 
@@ -170,7 +246,7 @@ int wget_buffer_ensure_capacity(wget_buffer *buf, size_t size)
 {
 	if (likely(buf)) {
 		if (buf->size < size)
-			return _buffer_realloc(buf, size);
+			return buffer_realloc(buf, size);
 	}
 
 	return WGET_E_SUCCESS;
@@ -191,16 +267,13 @@ int wget_buffer_ensure_capacity(wget_buffer *buf, size_t size)
  */
 void wget_buffer_deinit(wget_buffer *buf)
 {
-	if (likely(!buf))
-		return;
-
 	if (buf->release_data) {
 		xfree(buf->data);
 		buf->release_data = 0;
 	}
 
 	if (buf->release_buf)
-		xfree(buf);
+		wget_free(buf); // do not use xfree() since buf is NONNULL
 }
 
 /**
@@ -217,7 +290,7 @@ void wget_buffer_deinit(wget_buffer *buf)
  */
 void wget_buffer_free(wget_buffer **buf)
 {
-	if (likely(buf)) {
+	if (likely(buf && *buf)) {
 		wget_buffer_deinit(*buf);
 		*buf = NULL;
 	}
@@ -309,7 +382,7 @@ size_t wget_buffer_memcat(wget_buffer *buf, const void *data, size_t length)
 
 	if (likely(length)) {
 		if (buf->size < buf->length + length)
-			if (_buffer_realloc(buf, buf->size * 2 + length) != WGET_E_SUCCESS)
+			if (buffer_realloc(buf, buf->size * 2 + length) != WGET_E_SUCCESS)
 				return buf->length;
 
 		if (likely(data))
@@ -446,7 +519,7 @@ size_t wget_buffer_memset_append(wget_buffer *buf, char c, size_t length)
 
 	if (likely(length)) {
 		if (unlikely(buf->size < buf->length + length))
-			if (_buffer_realloc(buf, buf->size * 2 + length) != WGET_E_SUCCESS)
+			if (buffer_realloc(buf, buf->size * 2 + length) != WGET_E_SUCCESS)
 				return buf->length;
 
 		memset(buf->data + buf->length, c, length);

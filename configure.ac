@@ -3,17 +3,16 @@
 CFLAGS=$CFLAGS
 LDFLAGS=$LDFLAGS
 
-AC_PREREQ([2.67])
-AC_INIT([wget2], [1.99.1], [bug-wget@gnu.org], [wget2], [https://savannah.gnu.org/projects/wget])
+AC_PREREQ([2.69])
+AC_INIT([wget2],[1.99.2],[bug-wget@gnu.org],[wget2],[https://savannah.gnu.org/projects/wget])
 
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
 
-AM_INIT_AUTOMAKE([subdir-objects parallel-tests gnu dist-lzip])
+AM_INIT_AUTOMAKE([subdir-objects parallel-tests gnu -Wno-portability dist-lzip])
 
 CFLAGS=$CFLAGS
 AC_USE_SYSTEM_EXTENSIONS
-AC_GNU_SOURCE
 
 AC_CANONICAL_HOST
 case $host_os in
@@ -49,7 +48,7 @@ AC_PROG_CC_STDC
 #
 AC_PROG_CC_C99
 if test "$ac_cv_prog_cc_c99" = "no"; then
-  AC_ERROR([Compiler does not support C99. Aborting.])
+  AC_MSG_ERROR(Compiler does not support C99. Aborting.)
 fi
 
 gl_EARLY
@@ -202,12 +201,13 @@ if test -n "$WARN_CFLAGS"; then
     GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-unused-macros -Wno-missing-field-initializers"
     GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-gnu-zero-variadic-macro-arguments -Wno-conditional-uninitialized"
     GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-comma -Wno-assign-enum -Wno-unreachable-code -Wno-error"
-    GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-missing-field-initializers"
+    GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-missing-field-initializers -Wno-used-but-marked-unused"
 
     # remove all flags from GNULIB_WARN_FLAGS that are already in CFLAGS
     # wget_WORD_REMOVE([GNULIB_WARN_CFLAGS], [$GNULIB_WARN_CFLAGS], [$CFLAGS])
   fi
 
+  AC_SUBST([MANYWARNINGS], [-DWGET_MANYWARNINGS])
   AC_SUBST([WARN_CFLAGS])
   AC_SUBST([GNULIB_WARN_CFLAGS])
 fi
@@ -372,7 +372,7 @@ AM_CONDITIONAL([WITH_PANDOC], [ test -n "$PANDOC" ])
 #
 # enable creation of man pages
 #
-#AC_ARG_ENABLE(man,[AC_HELP_STRING([--enable-man],
+#AC_ARG_ENABLE(man,[AS_HELP_STRING([--enable-man],
 #                                  [generate man pages [default=auto]])],enable_man=yes,enable_man=no)
 
 #AM_CONDITIONAL(ENABLE_MAN, test x$enable_man != xno)
@@ -437,8 +437,9 @@ AC_LINK_IFELSE(
 
 PKG_PROG_PKG_CONFIG
 
-AC_ARG_WITH(gnutls, AS_HELP_STRING([--without-gnutls], [disable GNUTLS SSL support]), with_gnutls=$withval, with_gnutls=yes)
-AS_IF([test "x$with_gnutls" != "xno"], [
+AC_ARG_WITH(ssl, AS_HELP_STRING([--with-ssl], [Use SSL/TLS with specified library. Options: 'gnutls' (default), 'openssl', 'wolfssl' or 'none']), with_ssl=$withval, with_ssl=gnutls)
+
+AS_IF([test "x$with_ssl" == "xgnutls"], [
   PKG_CHECK_MODULES([GNUTLS], [gnutls], [
     with_gnutls=yes
     LIBS="$GNUTLS_LIBS $LIBS"
@@ -449,19 +450,42 @@ AS_IF([test "x$with_gnutls" != "xno"], [
       [with_gnutls=yes; AC_DEFINE([WITH_GNUTLS], [1], [Use GnuTLS])],
       [with_gnutls=no;  AC_MSG_WARN(*** GNUTLS was not found. You will not be able to use HTTPS. Fallback to libnettle for hashing and checksumming.)])
   ])
-  AC_CHECK_HEADERS([gnutls/crypto.h], [], [], [#include <gnutls/gnutls.h>])
 
-  AC_SEARCH_LIBS(gnutls_hash, gnutls, [with_gnutls_hash=yes])
-  AS_IF([test "x$with_gnutls" = xyes], [
+  AS_IF([test "x$with_gnutls" == xyes], [
+    AC_SEARCH_LIBS(gnutls_hash, gnutls, [with_gnutls_hash=yes])
+    AS_IF([test "x$with_gnutls_hash" == xyes],
+      [AC_CHECK_HEADERS([gnutls/crypto.h], [], [], [#include <gnutls/gnutls.h>])])
     AC_CHECK_HEADERS([gnutls/ocsp.h])
     AC_CHECK_FUNCS(gnutls_srp_server_get_username gnutls_transport_get_int)
   ])
 ])
-AM_CONDITIONAL([WITH_GNUTLS], [test "x$with_gnutls" = xyes])
 
-AC_ARG_WITH(wolfssl, AS_HELP_STRING([--without-wolfssl], [disable WolfSSL support]), with_wolfssl=$withval)
-AS_IF([test "x$with_wolfssl" = xyes], [
-  echo "*** $with_wolfssl"
+AS_IF([test "x$with_ssl" == "xopenssl"], [
+  PKG_CHECK_MODULES([OPENSSL], [openssl], [
+    with_openssl=yes
+    LIBS="$OPENSSL_LIBS $LIBS"
+    CFLAGS="$OPENSSL_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_OPENSSL], [1], [Use OpenSSL])
+  ], [
+    AC_SEARCH_LIBS(SSL_CTX_new, openssl,
+      [with_openssl=yes; AC_DEFINE([WITH_OPENSSL], [1], [Use OpenSSL])],
+      [with_openssl=no;  AC_MSG_WARN(*** OpenSSL was not found.)
+    ])
+  ])
+
+  AS_IF([test "x$with_openssl" == xyes], [
+    AC_CHECK_HEADERS([openssl/ssl.h])
+    AC_CHECK_HEADERS([openssl/x509_vfy.h])
+    AC_CHECK_FUNCS(SSL_new X509_STORE_add_lookup)
+
+    AC_SEARCH_LIBS(EVP_MD_CTX_new, crypto,
+      [with_libcrypto=yes; AC_DEFINE([WITH_LIBCRYPTO], [1], [Use libcrypto])],
+      [with_libcrypto=no; AC_MSG_WARN(*** LIBCRYPTO was not found. Fallback to libwolfcrypt for hashing and checksumming.)
+    ])
+  ])
+])
+
+AS_IF([test "x$with_ssl" = "xwolfssl"], [
   PKG_CHECK_MODULES([WOLFSSL], [wolfssl], [
     with_wolfssl=yes
     LIBS="$WOLFSSL_LIBS $LIBS"
@@ -472,32 +496,40 @@ AS_IF([test "x$with_wolfssl" = xyes], [
       [with_wolfssl=yes; AC_DEFINE([WITH_WOLFSSL], [1], [Use WolfSSL])],
       [with_wolfssl=no;  AC_MSG_WARN(*** WolfSSL was not found. You will not be able to use HTTPS.)])
   ])
+
+  AS_IF([test "x$with_wolfssl" = xyes], [
+    with_libwolfcrypt=yes
+    AC_DEFINE([WITH_LIBWOLFCRYPT], [1], [Use wolfcrypt])
+  ])
 ])
+
+AM_CONDITIONAL([WITH_GNUTLS], [test "x$with_gnutls" = xyes])
+AM_CONDITIONAL([WITH_OPENSSL], [test "x$with_openssl" = xyes])
 AM_CONDITIONAL([WITH_WOLFSSL], [test "x$with_wolfssl" = xyes])
 
-AM_CONDITIONAL([WITH_TLS], [test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes])
-AS_IF([test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes], [
+AM_CONDITIONAL([WITH_TLS], [test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes || test "x$with_openssl" = xyes])
+AS_IF([test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes || test "x$with_openssl" = xyes], [
   AC_DEFINE([WITH_TLS], [1], [Built with TLS support])
-])
+], [AC_DEFINE([WITH_TLS], [0], [No TLS support])])
 
-AS_IF([test "x$with_gnutls" != xyes || test "x$with_gnutls_hash" != xyes], [
+AS_IF([(test "x$with_gnutls" != xyes || test "x$with_gnutls_hash" != xyes) && test "x$with_libwolfcrypt" != xyes && test "x$with_libcrypto" != xyes], [
   PKG_CHECK_MODULES([NETTLE], nettle, [
-      with_libnettle=yes
-      LIBS="$NETTLE_LIBS $LIBS"
-      CFLAGS="$NETTLE_CFLAGS $CFLAGS"
-      AC_DEFINE([WITH_LIBNETTLE], [1], [Use libnettle])
-    ], [
-      AC_SEARCH_LIBS(nettle_md5_init, nettle,
-        [with_libnettle=yes; AC_DEFINE([WITH_LIBNETTLE], [1], [Use libnettle])],
-        [with_libnettle=no;  AC_MSG_WARN(*** LIBNETTLE was not found. Fallback to libgcrypt for hashing and checksumming.)])
-    ])
+    with_libnettle=yes
+    LIBS="$NETTLE_LIBS $LIBS"
+    CFLAGS="$NETTLE_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_LIBNETTLE], [1], [Use libnettle])
+  ], [
+     with_libnettle=no
+     AC_MSG_WARN(*** LIBNETTLE was not found. Fallback to libgcrypt for hashing and checksumming.)
+  ])
 
   AS_IF([test "x$with_libnettle" != xyes], [
     AC_SEARCH_LIBS(gcry_check_version, gcrypt,
       [with_gcrypt=yes; AC_DEFINE([WITH_GCRYPT], [1], [Use libgcrypt]) AC_CHECK_HEADERS([gcrypt.h])],
-      [with_gcrypt=no;  AC_MSG_WARN(*** LIBGCRYPT was not found. Metalink checksumming and HTTP authentication are not available.)])
+      [with_gcrypt=no;  AC_MSG_WARN(*** LIBGCRYPT was not found. Fallback to gnulib for hashing and checksumming.)])
   ])
 ])
+
 AM_CONDITIONAL([WITH_LIBNETTLE], [test "x$with_libnettle" = xyes])
 AM_CONDITIONAL([WITH_CRYPT], [test "x$with_gcrypt" = xyes])
 
@@ -551,7 +583,7 @@ AM_CONDITIONAL([WITH_LIBNGHTTP2], [test "x$with_libnghttp2" = xyes])
 AC_ARG_WITH(bzip2, AS_HELP_STRING([--without-bzip2], [disable bzip2 compression support]), with_bzip2=$withval, with_bzip2=yes)
 AS_IF([test "x$with_bzip2" != xno], [
   AC_SEARCH_LIBS(BZ2_bzDecompress, bz2,
-    [with_bzip2=yes; AC_DEFINE([WITH_BZIP2], [1], [Use libbz2])],
+    [with_bzip2=yes; AC_SUBST([BZ2_LIBS], -lbz2) AC_DEFINE([WITH_BZIP2], [1], [Use libbz2])],
     [with_bzip2=no;  AC_MSG_WARN(*** libbz2 was not found. You will not be able to use BZIP2 (de)compression)])
 ])
 AM_CONDITIONAL([WITH_BZIP2], [test "x$with_bzip2" = xyes])
@@ -631,6 +663,21 @@ AS_IF([test "x$with_zstd" != xno], [
   ])
 ])
 AM_CONDITIONAL([WITH_ZSTD], [test "x$with_zstd" = xyes])
+
+AC_ARG_WITH(lz, AS_HELP_STRING([--without-lzip], [disable lzip compression support]), with_lzip=$withval, with_lzip=yes)
+AS_IF([test "x$with_lzip" != xno], [
+  PKG_CHECK_MODULES([LZIP], liblz, [
+    with_lz=yes
+    LIBS="$LZIP_LIBS $LIBS"
+    CFLAGS="$LZIP_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_LZIP], [1], [Use liblz (lzip)])
+  ], [
+    AC_SEARCH_LIBS(LZ_decompress_open, lz,
+      [with_lzip=yes; AC_DEFINE([WITH_LZIP], [1], [Use liblz (lzip)])],
+      [with_lzip=no;  AC_MSG_WARN(*** liblz was not found. You will not be able to use lzip decompression)])
+  ])
+])
+AM_CONDITIONAL([WITH_LZIP], [test "x$with_lzip" = xyes])
 
 # Support for internationalized domain names.
 # IDN support in Wget2 is provided in multiple ways:
@@ -791,17 +838,12 @@ AC_FUNC_MMAP
 AC_CHECK_FUNCS([\
  strlcpy getuid fmemopen])
 
-# needed for src/version-text.h
-YEAR=`date +%Y`
-AC_SUBST([YEAR], $YEAR)
-
 AC_CONFIG_FILES([Makefile
                  lib/Makefile
                  include/Makefile
                  include/wget/Makefile
                  libwget/Makefile
                  src/Makefile
-                 src/version-text.h
                  examples/Makefile
                  unit-tests/Makefile
                  tests/Makefile
@@ -811,6 +853,12 @@ AC_CONFIG_FILES([Makefile
                  docs/libwget.doxy
                  docs/wget2_md2man.sh])
 AC_OUTPUT
+
+# Check if expected TLS library was found and print it
+AS_IF([test "x$with_ssl" == xwolfssl && test "x$with_wolfssl" == xno], [ssl_enabled="(not found)"],
+  [test "x$with_ssl" == xopenssl && test "x$with_openssl" == xno], [ssl_enabled="(not found)"],
+  [test "x$with_ssl" == xgnutls && test "x$with_gnutls" == xno], [ssl_enabled="(not found)"],
+  [])
 
 AC_MSG_NOTICE([Summary of build options:
 
@@ -822,12 +870,13 @@ AC_MSG_NOTICE([Summary of build options:
   LDFlags:            ${LDFLAGS}
   Libs:               ${LIBS}
   Library types:      shared=${enable_shared}, static=${enable_static}
-  SSL/TLS support:    $with_gnutls $with_wolfssl
+  SSL/TLS support:    $with_ssl $ssl_enabled
   GZIP compression:   $with_zlib
   BZIP2 compression:  $with_bzip2
   LZMA compression:   $with_lzma
   Brotli compression: $with_brotlidec
   Zstd compression:   $with_zstd
+  Lzip compression:   $with_lzip
   IDNA support:       $IDNA_INFO
   PSL support:        $with_libpsl
   HSTS support:       $with_libhsts

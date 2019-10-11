@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2013 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2013 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -52,7 +52,7 @@ int main(int argc WGET_GCC_UNUSED, const char *const *argv WGET_GCC_UNUSED)
 
 	// execute an HTTP GET request and return the response
 	resp = wget_http_get(
-		WGET_HTTP_URL, "http://example.com",
+		WGET_HTTP_URL, "https://example.com",
 		// WGET_HTTP_URL_ENCODING, "utf-8",
 		WGET_HTTP_HEADER_ADD, "User-Agent", "Mozilla/5.0",
 		WGET_HTTP_HEADER_ADD, "Accept-Encoding", "gzip, deflate",

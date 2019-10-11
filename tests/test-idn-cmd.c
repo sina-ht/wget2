@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2013 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2013 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -89,5 +89,5 @@ int main(void)
 		0);
 #endif
 
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2013 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2013 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -42,5 +42,5 @@ int main(void)
 		WGET_TEST_EXPECTED_ERROR_CODE, 3, // fails with older Wget (<= 1.14)
 		0);
 
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

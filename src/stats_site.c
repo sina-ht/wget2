@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2018-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -60,9 +60,9 @@ typedef struct {
 		mime_type;
 	bool
 		redirect : 1; //!< Was this a redirection ?
-	time_t
+	int64_t
 		last_modified;
-} site_stats_t;
+} site_stats_data;
 
 static wget_vector
 	*data;
@@ -78,7 +78,7 @@ static FILE
 
 static void free_stats(void *stats)
 {
-	site_stats_t *s = stats;
+	site_stats_data *s = stats;
 
 	if (s) {
 		xfree(s->mime_type);
@@ -120,7 +120,7 @@ void stats_site_add(wget_http_response *resp, wget_gpg_info_t *gpg_info)
 
 			// fill stringmap with existing stats data
 			for (int it = 0; it < wget_vector_size(data); it++) {
-				site_stats_t *e = wget_vector_get(data, it);
+				site_stats_data *e = wget_vector_get(data, it);
 
 				wget_stringmap_put(docs, e->iri->uri, e);
 			}
@@ -132,11 +132,11 @@ void stats_site_add(wget_http_response *resp, wget_gpg_info_t *gpg_info)
 		if ((p = strrchr(uri, '.')))
 			*p = 0;
 
-		site_stats_t *doc;
-		wget_stringmap_get(docs, uri, &doc);
+		site_stats_data *doc;
+		int rc = wget_stringmap_get(docs, uri, &doc);
 		xfree(uri);
 
-		if (doc) {
+		if (rc && doc) {
 			if (gpg_info->valid_sigs)
 				doc->signature_status = 1;
 			else if (gpg_info->invalid_sigs)
@@ -153,14 +153,14 @@ void stats_site_add(wget_http_response *resp, wget_gpg_info_t *gpg_info)
 		wget_thread_mutex_unlock(mutex);
 	}
 
-	site_stats_t *doc = wget_calloc(1, sizeof(site_stats_t));
+	site_stats_data *doc = wget_calloc(1, sizeof(site_stats_data));
 
 	doc->id = job->id;
 	doc->parent_id = job->parent_id;
 	doc->iri = iri;
 	doc->status = resp->code;
 	doc->encoding = resp->content_encoding;
-	doc->redirect = !!job->redirection_level;
+	doc->redirect = job->redirection_level != 0;
 	doc->mime_type = wget_strdup(resp->content_type);
 	doc->last_modified = resp->last_modified;
 
@@ -189,7 +189,7 @@ void stats_site_add(wget_http_response *resp, wget_gpg_info_t *gpg_info)
 	wget_thread_mutex_unlock(mutex);
 }
 
-static int print_human_entry(FILE *_fp, site_stats_t *doc)
+static int print_human_entry(FILE *_fp, site_stats_data *doc)
 {
 	long long transfer_time = doc->response_end - doc->request_start;
 
@@ -199,7 +199,7 @@ static int print_human_entry(FILE *_fp, site_stats_t *doc)
 	return 0;
 }
 
-static int print_csv_entry(FILE *_fp, site_stats_t *doc)
+static int print_csv_entry(FILE *_fp, site_stats_data *doc)
 {
 	long long transfer_time = doc->response_end - doc->request_start;
 

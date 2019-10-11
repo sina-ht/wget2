@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -105,8 +105,8 @@ struct wget_hash_hd_st {
 };
 
 static const gnutls_digest_algorithm_t
-	_gnutls_algorithm[WGET_DIGTYPE_MAX] = {
-		[WGET_DIGTYPE_UNKNOWN] = GNUTLS_DIG_UNKNOWN,
+	algorithms[WGET_DIGTYPE_MAX] = {
+//		[WGET_DIGTYPE_UNKNOWN] = GNUTLS_DIG_UNKNOWN, // both values are 0
 		[WGET_DIGTYPE_MD2] = GNUTLS_DIG_MD2,
 		[WGET_DIGTYPE_MD5] = GNUTLS_DIG_MD5,
 		[WGET_DIGTYPE_RMD160] = GNUTLS_DIG_RMD160,
@@ -136,10 +136,17 @@ static const gnutls_digest_algorithm_t
  */
 int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
-	if ((unsigned)algorithm < countof(_gnutls_algorithm))
-		return gnutls_hash_fast(_gnutls_algorithm[algorithm], text, textlen, digest);
-	else
-		return -1;
+	if ((unsigned) algorithm >= countof(algorithms))
+		return WGET_E_INVALID;
+
+	gnutls_digest_algorithm_t hashtype = algorithms[algorithm];
+	if (hashtype == GNUTLS_DIG_UNKNOWN)
+		return WGET_E_UNSUPPORTED;
+
+	if (gnutls_hash_fast(algorithms[algorithm], text, textlen, digest) != 0)
+		return WGET_E_UNKNOWN;
+
+	return WGET_E_SUCCESS;
 }
 
 /**
@@ -154,8 +161,8 @@ int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t tex
  */
 int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
-	if ((unsigned)algorithm < countof(_gnutls_algorithm))
-		return gnutls_hash_get_len(_gnutls_algorithm[algorithm]);
+	if ((unsigned)algorithm < countof(algorithms))
+		return gnutls_hash_get_len(algorithms[algorithm]);
 	else
 		return 0;
 }
@@ -171,12 +178,24 @@ int wget_hash_get_len(wget_digest_algorithm algorithm)
  *
  * After this function returns, wget_hash() might be called as many times as desired.
  */
-int wget_hash_init(wget_hash_hd *handle, wget_digest_algorithm algorithm)
+int wget_hash_init(wget_hash_hd **handle, wget_digest_algorithm algorithm)
 {
-	if ((unsigned)algorithm < countof(_gnutls_algorithm))
-		return gnutls_hash_init(&handle->dig, _gnutls_algorithm[algorithm]) == 0 ? WGET_E_SUCCESS : WGET_E_UNKNOWN;
-	else
+	if ((unsigned)algorithm >= countof(algorithms))
 		return WGET_E_INVALID;
+
+	gnutls_digest_algorithm_t hashtype = algorithms[algorithm];
+	if (hashtype == GNUTLS_DIG_UNKNOWN)
+		return WGET_E_UNSUPPORTED;
+
+	if (!(*handle = wget_malloc(sizeof(struct wget_hash_hd_st))))
+		return WGET_E_MEMORY;
+
+	if (gnutls_hash_init(&(*handle)->dig, algorithms[algorithm]) != 0) {
+		xfree(*handle);
+		return WGET_E_UNKNOWN;
+	}
+
+	return WGET_E_SUCCESS;
 }
 
 /**
@@ -197,6 +216,7 @@ int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
 /**
  * \param[in] handle Handle to the hashing primitive returned by a subsequent call to wget_hash_init()
  * \param[out] digest Caller-supplied buffer where the output hash will be placed.
+ * \return 0 on success, < 0 on failure
  *
  * Complete the hash computation by performing final operations, such as padding,
  * and obtain the final result. The result will be placed in the caller-supplied
@@ -204,9 +224,198 @@ int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
  * is large enough to store the hash. To get the output length of the chosen algorithm
  * \p algorithm, call wget_hash_get_len().
  */
-void wget_hash_deinit(wget_hash_hd *handle, void *digest)
+int wget_hash_deinit(wget_hash_hd **handle, void *digest)
 {
-	gnutls_hash_deinit(handle->dig, digest);
+	gnutls_hash_deinit((*handle)->dig, digest);
+
+	xfree(*handle);
+
+	return WGET_E_SUCCESS;
+}
+
+#elif defined WITH_LIBWOLFCRYPT
+#define WOLFSSL_SHA224
+#define WOLFSSL_SHA384
+#define WOLFSSL_SHA512
+#define WC_NO_HARDEN
+#include <wolfssl/wolfcrypt/hash.h>
+
+struct wget_hash_hd_st {
+	wc_HashAlg
+		hash;
+	enum wc_HashType
+		type;
+};
+
+static const enum wc_HashType
+	algorithms[] = {
+		// [WGET_DIGTYPE_UNKNOWN] = WC_HASH_TYPE_NONE, // both values are 0
+		// [WGET_DIGTYPE_MD2] = WC_HASH_TYPE_MD2, // not in wc_hashAlg
+		[WGET_DIGTYPE_MD5] = WC_HASH_TYPE_MD5,
+		[WGET_DIGTYPE_SHA1] = WC_HASH_TYPE_SHA,
+		[WGET_DIGTYPE_SHA224] = WC_HASH_TYPE_SHA224,
+		[WGET_DIGTYPE_SHA256] = WC_HASH_TYPE_SHA256,
+		[WGET_DIGTYPE_SHA384] = WC_HASH_TYPE_SHA384,
+		[WGET_DIGTYPE_SHA512] = WC_HASH_TYPE_SHA512,
+};
+
+int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
+{
+	if ((unsigned) algorithm >= countof(algorithms))
+		return WGET_E_INVALID;
+
+	enum wc_HashType hashtype = algorithms[algorithm];
+	if (hashtype == WC_HASH_TYPE_NONE)
+		return WGET_E_UNSUPPORTED;
+
+	if (wc_Hash(hashtype, text, textlen, digest, wc_HashGetDigestSize(hashtype)) != 0)
+		return WGET_E_UNKNOWN;
+
+	return WGET_E_SUCCESS;
+}
+
+int wget_hash_get_len(wget_digest_algorithm algorithm)
+{
+	if ((unsigned) algorithm < countof(algorithms)) {
+		int ret = wc_HashGetDigestSize(algorithms[algorithm]);
+		if (ret > 0)
+			return ret;
+	}
+
+	return 0;
+}
+
+int wget_hash_init(wget_hash_hd **handle, wget_digest_algorithm algorithm)
+{
+	if ((unsigned) algorithm >= countof(algorithms))
+		return WGET_E_INVALID;
+
+	enum wc_HashType hashtype = algorithms[algorithm];
+	if (hashtype == WC_HASH_TYPE_NONE)
+		return WGET_E_UNSUPPORTED;
+
+	if (!(*handle = wget_malloc(sizeof(struct wget_hash_hd_st))))
+		return WGET_E_MEMORY;
+
+	if (wc_HashInit(&(*handle)->hash, hashtype) != 0) {
+		xfree(*handle);
+		return WGET_E_UNKNOWN;
+	}
+
+	(*handle)->type = hashtype;
+
+	return WGET_E_SUCCESS;
+}
+
+int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
+{
+	if (wc_HashUpdate(&handle->hash, handle->type, text, textlen) == 0)
+		return WGET_E_SUCCESS;
+
+	return WGET_E_UNKNOWN;
+}
+
+int wget_hash_deinit(wget_hash_hd **handle, void *digest)
+{
+	int rc = wc_HashFinal(&(*handle)->hash, (*handle)->type, digest);
+
+	xfree(*handle);
+
+	return rc == 0 ? rc : WGET_E_UNKNOWN;
+}
+
+#elif defined WITH_LIBCRYPTO
+#include <openssl/evp.h>
+
+typedef const EVP_MD *evp_md_func(void);
+
+struct wget_hash_hd_st {
+	EVP_MD_CTX
+		*ctx;
+};
+
+static evp_md_func *
+	algorithms[] = {
+//		[WGET_DIGTYPE_UNKNOWN] = NULL,
+//		[WGET_DIGTYPE_MD2]     = EVP_md2,
+		[WGET_DIGTYPE_MD5]     = EVP_md5,
+		[WGET_DIGTYPE_RMD160]  = EVP_ripemd160,
+		[WGET_DIGTYPE_SHA1]    = EVP_sha1,
+		[WGET_DIGTYPE_SHA224]  = EVP_sha224,
+		[WGET_DIGTYPE_SHA256]  = EVP_sha256,
+		[WGET_DIGTYPE_SHA384]  = EVP_sha384,
+		[WGET_DIGTYPE_SHA512]  = EVP_sha512,
+	};
+
+int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
+{
+	if ((unsigned) algorithm >= countof(algorithms))
+		return WGET_E_INVALID;
+
+	evp_md_func *evp = algorithms[algorithm];
+	if (!evp)
+		return WGET_E_UNSUPPORTED;
+
+	if (EVP_Digest(text, textlen, digest, NULL, evp(), NULL) == 0)
+		return WGET_E_UNKNOWN;
+
+	return WGET_E_SUCCESS;
+}
+
+int wget_hash_get_len(wget_digest_algorithm algorithm)
+{
+	evp_md_func *evp;
+
+	if ((unsigned) algorithm >= countof(algorithms)
+		|| (evp = algorithms[algorithm]) == NULL)
+		return 0;
+
+	return EVP_MD_size(evp());
+}
+
+int wget_hash_init(wget_hash_hd **handle, wget_digest_algorithm algorithm)
+{
+	evp_md_func *evp;
+
+	if ((unsigned) algorithm >= countof(algorithms))
+		return WGET_E_UNSUPPORTED;
+
+	if ((evp = algorithms[algorithm]) == NULL)
+		return WGET_E_UNSUPPORTED;
+
+	if (!(*handle = wget_malloc(sizeof(struct wget_hash_hd_st))))
+		return WGET_E_MEMORY;
+
+	if (!((*handle)->ctx = EVP_MD_CTX_new())) {
+		xfree(*handle);
+		return WGET_E_UNKNOWN;
+	}
+
+	if (EVP_DigestInit_ex((*handle)->ctx, evp(), NULL))
+		return WGET_E_SUCCESS;
+
+	EVP_MD_CTX_free((*handle)->ctx);
+	xfree(*handle);
+
+	return WGET_E_UNKNOWN;
+}
+
+int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
+{
+	if (EVP_DigestUpdate(handle->ctx, text, textlen))
+		return WGET_E_SUCCESS;
+
+	return WGET_E_INVALID;
+}
+
+int wget_hash_deinit(wget_hash_hd **handle, void *digest)
+{
+	EVP_DigestFinal_ex((*handle)->ctx, digest, NULL);
+
+	EVP_MD_CTX_free((*handle)->ctx);
+	xfree(*handle);
+
+	return WGET_E_SUCCESS;
 }
 
 #elif defined WITH_LIBNETTLE
@@ -224,8 +433,8 @@ struct wget_hash_hd_st {
 };
 
 static const struct nettle_hash *
-	_nettle_algorithm[WGET_DIGTYPE_MAX] = {
-		[WGET_DIGTYPE_UNKNOWN] = NULL,
+	algorithms[WGET_DIGTYPE_MAX] = {
+//		[WGET_DIGTYPE_UNKNOWN] = NULL,
 		[WGET_DIGTYPE_MD2] = &nettle_md2,
 		[WGET_DIGTYPE_MD5] = &nettle_md5,
 #ifdef RIPEMD160_DIGEST_SIZE
@@ -248,48 +457,63 @@ static const struct nettle_hash *
 
 int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
-	wget_hash_hd dig;
+	wget_hash_hd *dig;
+	int rc;
 
-	if (wget_hash_init(&dig, algorithm) == 0) {
-		if (wget_hash(&dig, text, textlen) == 0) {
-			wget_hash_deinit(&dig, digest);
-			return 0;
-		}
+	if ((rc = wget_hash_init(&dig, algorithm)) == 0) {
+		rc = wget_hash(dig, text, textlen);
+		wget_hash_deinit(&dig, digest);
 	}
 
-	return -1;
+	return rc;
 }
 
 int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
-	if ((unsigned)algorithm < countof(_nettle_algorithm))
-		return _nettle_algorithm[algorithm]->digest_size;
+	if ((unsigned)algorithm < countof(algorithms))
+		return algorithms[algorithm]->digest_size;
 	else
 		return 0;
 }
 
-int wget_hash_init(wget_hash_hd *dig, wget_digest_algorithm algorithm)
+int wget_hash_init(wget_hash_hd **handle, wget_digest_algorithm algorithm)
 {
-	if ((unsigned)algorithm < countof(_nettle_algorithm) && _nettle_algorithm[algorithm]) {
-		dig->hash = _nettle_algorithm[algorithm];
-		dig->context = wget_malloc(dig->hash->context_size);
-		dig->hash->init(dig->context);
-		return 0;
+	if ((unsigned)algorithm >= countof(algorithms))
+		return WGET_E_INVALID;
+
+	if (!algorithms[algorithm])
+		return WGET_E_UNSUPPORTED;
+
+	wget_hash_hd *h;
+
+	if (!(h = wget_malloc(sizeof(struct wget_hash_hd_st))))
+		return WGET_E_MEMORY;
+
+	h->hash = algorithms[algorithm];
+
+	if (!(h->context = wget_malloc(h->hash->context_size))) {
+		xfree(h);
+		return WGET_E_MEMORY;
 	}
 
-	return -1;
+	h->hash->init(h->context);
+	*handle = h;
+
+	return WGET_E_SUCCESS;
 }
 
-int wget_hash(wget_hash_hd *dig, const void *text, size_t textlen)
+int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
 {
-	dig->hash->update(dig->context, textlen, text);
-	return 0;
+	handle->hash->update(handle->context, textlen, text);
+	return WGET_E_SUCCESS;
 }
 
-void wget_hash_deinit(wget_hash_hd *dig, void *digest)
+int wget_hash_deinit(wget_hash_hd **handle, void *digest)
 {
-	dig->hash->digest(dig->context, dig->hash->digest_size, digest);
-	xfree(dig->context);
+	(*handle)->hash->digest((*handle)->context, (*handle)->hash->digest_size, digest);
+	xfree((*handle)->context);
+	xfree(*handle);
+	return WGET_E_SUCCESS;
 }
 
 #elif defined WITH_GCRYPT
@@ -304,8 +528,8 @@ struct wget_hash_hd_st {
 		context;
 };
 
-static const int _gcrypt_algorithm[WGET_DIGTYPE_MAX] = {
-	[WGET_DIGTYPE_UNKNOWN] = GCRY_MD_NONE,
+static const int algorithms[] = {
+//	[WGET_DIGTYPE_UNKNOWN] = GCRY_MD_NONE,
 	[WGET_DIGTYPE_MD2] = GCRY_MD_MD2,
 	[WGET_DIGTYPE_MD5] = GCRY_MD_MD5,
 	[WGET_DIGTYPE_RMD160] = GCRY_MD_RMD160,
@@ -318,49 +542,61 @@ static const int _gcrypt_algorithm[WGET_DIGTYPE_MAX] = {
 
 int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
-	wget_hash_hd dig;
+	wget_hash_hd *dig;
+	int rc;
 
-	if (wget_hash_init(&dig, algorithm) == 0) {
-		if (wget_hash(&dig, text, textlen) == 0) {
-			wget_hash_deinit(&dig, digest);
-			return 0;
-		}
+	if ((rc = wget_hash_init(&dig, algorithm)) == 0) {
+		rc = wget_hash(dig, text, textlen);
+		wget_hash_deinit(&dig, digest);
 	}
 
-	return -1;
+	return rc;
 }
 
 int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
-	if ((unsigned)algorithm < countof(_gcrypt_algorithm))
-		return gcry_md_get_algo_dlen(_gcrypt_algorithm[algorithm]);
+	if ((unsigned)algorithm < countof(algorithms))
+		return gcry_md_get_algo_dlen(algorithms[algorithm]);
 	else
 		return 0;
 }
 
-int wget_hash_init(wget_hash_hd *dig, wget_digest_algorithm algorithm)
+int wget_hash_init(wget_hash_hd **handle, wget_digest_algorithm algorithm)
 {
-	if ((unsigned)algorithm < countof(_gcrypt_algorithm)) {
-		dig->algorithm = _gcrypt_algorithm[algorithm];
-		gcry_md_open(&dig->context, dig->algorithm, 0);
-		return 0;
-	}
+	if ((unsigned)algorithm >= countof(algorithms))
+		return WGET_E_INVALID;
 
-	return -1;
+	if (!algorithms[algorithm])
+		return WGET_E_UNSUPPORTED;
+
+	wget_hash_hd *h;
+
+	if (!(h = wget_malloc(sizeof(struct wget_hash_hd_st))))
+		return WGET_E_MEMORY;
+
+	h->algorithm = algorithms[algorithm];
+	gcry_md_open(&h->context, h->algorithm, 0);
+
+	*handle = h;
+
+	return WGET_E_SUCCESS;
 }
 
-int wget_hash(wget_hash_hd *dig, const void *text, size_t textlen)
+int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
 {
-	gcry_md_write(dig->context, text, textlen);
+	gcry_md_write(handle->context, text, textlen);
 	return 0;
 }
 
-void wget_hash_deinit(wget_hash_hd *dig, void *digest)
+int wget_hash_deinit(wget_hash_hd **handle, void *digest)
 {
-	gcry_md_final(dig->context);
-	void *ret = gcry_md_read(dig->context, dig->algorithm);
-	memcpy(digest, ret, gcry_md_get_algo_dlen(dig->algorithm));
-	gcry_md_close(dig->context);
+	gcry_md_final((*handle)->context);
+	void *ret = gcry_md_read((*handle)->context, (*handle)->algorithm);
+	memcpy(digest, ret, gcry_md_get_algo_dlen((*handle)->algorithm));
+	gcry_md_close((*handle)->context);
+	xfree(*handle);
+
+	return WGET_E_SUCCESS;
 }
 
 #else // use the gnulib functions
@@ -454,50 +690,64 @@ struct wget_hash_hd_st {
 
 int wget_hash_fast(wget_digest_algorithm algorithm, const void *text, size_t textlen, void *digest)
 {
-	wget_hash_hd dig;
+	wget_hash_hd *dig;
+	int rc;
 
-	if (wget_hash_init(&dig, algorithm) == 0) {
-		if (wget_hash(&dig, text, textlen) == 0) {
-			wget_hash_deinit(&dig, digest);
-			return 0;
-		}
+	if ((rc = wget_hash_init(&dig, algorithm)) == WGET_E_SUCCESS) {
+		rc = wget_hash(dig, text, textlen);
+		wget_hash_deinit(&dig, digest);
 	}
 
-	return -1;
+	return rc;
 }
 
 int wget_hash_get_len(wget_digest_algorithm algorithm)
 {
 	if ((unsigned)algorithm < countof(_algorithm))
-		return _algorithm[algorithm].digest_len;
+		return (int) _algorithm[algorithm].digest_len;
 	else
 		return 0;
 }
 
-int wget_hash_init(wget_hash_hd *dig, wget_digest_algorithm algorithm)
+int wget_hash_init(wget_hash_hd **handle, wget_digest_algorithm algorithm)
 {
-	if ((unsigned)algorithm < countof(_algorithm)) {
-		if (_algorithm[algorithm].ctx_len) {
-			dig->algorithm = &_algorithm[algorithm];
-			dig->context = wget_malloc(dig->algorithm->ctx_len);
-			dig->algorithm->init(dig->context);
-			return 0;
-		}
+	if ((unsigned)algorithm >= countof(_algorithm))
+		return WGET_E_INVALID;
+
+	if (!_algorithm[algorithm].ctx_len)
+		return WGET_E_UNSUPPORTED;
+
+	wget_hash_hd *h;
+
+	if (!(h = wget_malloc(sizeof(struct wget_hash_hd_st))))
+		return WGET_E_MEMORY;
+
+	h->algorithm = &_algorithm[algorithm];
+
+	if (!(h->context = wget_malloc(h->algorithm->ctx_len))) {
+		xfree(h);
+		return WGET_E_MEMORY;
 	}
 
-	return -1;
+	h->algorithm->init(h->context);
+	*handle = h;
+
+	return WGET_E_SUCCESS;
 }
 
-int wget_hash(wget_hash_hd *dig, const void *text, size_t textlen)
+int wget_hash(wget_hash_hd *handle, const void *text, size_t textlen)
 {
-	dig->algorithm->process(text, textlen, dig->context);
+	handle->algorithm->process(text, textlen, handle->context);
 	return 0;
 }
 
-void wget_hash_deinit(wget_hash_hd *dig, void *digest)
+int wget_hash_deinit(wget_hash_hd **handle, void *digest)
 {
-	dig->algorithm->finish(dig->context, digest);
-	xfree(dig->context);
+	(*handle)->algorithm->finish((*handle)->context, digest);
+	xfree((*handle)->context);
+	xfree(*handle);
+
+	return WGET_E_SUCCESS;
 }
 #endif
 
@@ -551,28 +801,33 @@ int wget_hash_file_fd(const char *hashname, int fd, char *digest_hex, size_t dig
 #endif
 			// Fallback to read
 			ssize_t nbytes = 0;
-			wget_hash_hd dig;
+			wget_hash_hd *dig;
 			char tmp[65536];
 
 			if ((ret = wget_hash_init(&dig, algorithm))) {
-				error_printf(_("%s: Hash type '%s' not supported by linked crypto engine\n"), __func__, hashname);
-				close(fd);
+				error_printf(_("%s: Hash init failed for type '%s': %s\n"), __func__, hashname, wget_strerror(ret));
 				return ret;
 			}
 
 			while (length > 0 && (nbytes = read(fd, tmp, sizeof(tmp))) > 0) {
-				wget_hash(&dig, tmp, nbytes);
+				if ((ret = wget_hash(dig, tmp, nbytes))) {
+					error_printf(_("%s: Hash update failed: %s\n"), __func__, wget_strerror(ret));
+					return ret;
+				}
 
 				if (nbytes <= length)
 					length -= nbytes;
 				else
 					length = 0;
 			}
-			wget_hash_deinit(&dig, digest);
+
+			if ((ret = wget_hash_deinit(&dig, digest))) {
+				error_printf(_("%s: Hash finalization failed: %s\n"), __func__, wget_strerror(ret));
+				return ret;
+			}
 
 			if (nbytes < 0) {
 				error_printf(_("%s: Failed to read %llu bytes\n"), __func__, (unsigned long long)length);
-				close(fd);
 				return WGET_E_IO;
 			}
 

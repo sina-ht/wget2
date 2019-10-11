@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -25,6 +25,7 @@
 #include <config.h>
 
 #include <stdlib.h> // exit()
+#include <string.h>
 #include "libtest.h"
 
 int main(void)
@@ -93,5 +94,5 @@ int main(void)
 			{	NULL } },
 		0);
 
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

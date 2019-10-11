@@ -25,6 +25,7 @@
 #include "libtest.h"
 #include "wget.h"
 #include <stdlib.h>
+#include <string.h> // strrchr()
 
 extern wget_test_url_t urls[]; // prevent compiler warning
 int gpg_test(const char *sig_file, int expected_exit);
@@ -82,5 +83,5 @@ int main(void)
 
 	wget_xfree(body);
 #endif
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

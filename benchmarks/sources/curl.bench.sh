@@ -1,4 +1,4 @@
-# Copyright(c) 2018-2019 Free Software Foundation, Inc.
+# Copyright (c) 2018-2019 Free Software Foundation, Inc.
 #
 # This file is part of GNU Wget.
 #
@@ -21,7 +21,7 @@ CURL_BIN="./src/curl"
 
 CURL_BUILD() {
 	./buildconf
-	./configure -q --disable-manual
+	./configure -q --disable-manual --with-gnutls
 	make -s "-j$(nproc)"
 }
 

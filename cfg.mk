@@ -1,34 +1,50 @@
 # Explicit syntax-check exceptions.
 VC_LIST_ALWAYS_EXCLUDE_REGEX = ^data/.*|tests/(files|gpg|certs)/.*|.*\.png|^fuzz/.*\.(in|repro)/.*$$
 
-# Can someone please check if we can replace the @...@ for MACOSX_LIBS to use
-# the $(...) format? Then remove the at_at_check exception
-
-local-checks-to-skip = \
-  sc_cast_of_argument_to_free \
-  sc_immutable_NEWS \
-  sc_makefile_at_at_check \
-  sc_prohibit_atoi_atof \
+# Syntax Check Rules that we want to skip
+#  * sc_immutable_NEWS: I can't make this test ever pass. If someone fixes it,
+#  happy to remove it from here.
+#  * sc_makefile_at_at_check: We seem to use it predominantly for setting
+#  INTL_MACOSX_LIBS. Without access to a mac, there's no way to verify if it
+#  supports usage of the $(VAR) notation
+#  * sc_prohibit_atoi_atof: We use a lot of sscaf() to parse strings
+#  * sc_prohibit_gnu_make_extensions: We use GNU make.
+#  * sc_prohibit_strcmp: I don't like blind adherence to such rules. We try to
+#  use strcmp correctly everywhere
+local-checks-to-skip =            \
+  sc_immutable_NEWS               \
+  sc_makefile_at_at_check         \
+  sc_prohibit_atoi_atof           \
   sc_prohibit_gnu_make_extensions \
   sc_prohibit_strcmp
 
+update-copyright-env = UPDATE_COPYRIGHT_FORCE=1 UPDATE_COPYRIGHT_USE_INTERVALS=1
+
 # Explicit syntax-check exceptions.
+
+## The file is indeed licensed under LGPLv2.1+. But the script doesn't parse that correctly
+exclude_file_name_regexp--sc_GPL_version = ^m4/ax_code_coverage.m4$
+## These are dev specific files and don't need to be localised
 exclude_file_name_regexp--sc_bindtextdomain = ^(tests|unit-tests|examples|fuzz)/.*\.c|^libwget/test_linking.*\.c$$
-exclude_file_name_regexp--sc_po_check = ^examples/|tests/.*\.c$$
-exclude_file_name_regexp--sc_prohibit_magic_number_exit = tests/.*\.c$$
-exclude_file_name_regexp--sc_trailing_blank = docs/DoxygenLayout\.xml|docs/libwget\.doxy\.in|contrib/assignment_template\.txt$$
-exclude_file_name_regexp--sc_two_space_separator_in_usage = \.gitlab-ci\.yml|docs/wget2_manual\.md$$
+## This is a bug in gnulib that I've already reported
+exclude_file_name_regexp--sc_prohibit_magic_number_exit = ^(tests/test-plugin\.c|unit-tests/test-dl\.c)$$
+## Not all c files require the config.h file
 exclude_file_name_regexp--sc_require_config_h = examples/.*\.c|fuzz/main\.c$$
 exclude_file_name_regexp--sc_require_config_h_first = examples/.*\.c|fuzz/main\.c$$
+# do not remove, takes care for dependency subdirs (e.g. when using contrib/mingw script)
 exclude_file_name_regexp--sc_copyright_check = .*gnulib/.*\.c$$
-exclude_file_name_regexp--sc_prohibit_empty_lines_at_EOF = contrib/assignment_template\.txt$$
-exclude_file_name_regexp--sc_prohibit_sprintf = benchmarks/benches/convert\.gp$$
-exclude_file_name_regexp--sc_prohibit_printf = ^(unit-tests/(test\.c|buffer_printf_perf\.c)|examples/.*\.c|libwget/strlcpy\.c)$$
-exclude_file_name_regexp--sc_prohibit_free = ^(cfg\.mk|fuzz/.*\.c|unit-tests/.*\.c)$$
-exclude_file_name_regexp--sc_prohibit_alloc = ^(fuzz/.*\.c)$$
-exclude_file_name_regexp--sc_gettext_printf = ^(fuzz|tests|unit-tests|examples)/.*\.c|.*\.h|libwget/test_linking.*\.c$$
-exclude_file_name_regexp--sc_GPL_version = ^m4/.*\.m4
 
+# The assignment_template is copies as-is into an email. Don't add any headers
+# there. The m4/* files are copied from autoconf-archive and don't follow the
+# same copyright convention
+exclude_file_name_regexp--update-copyright = ^(contrib/assignment_template\.txt|m4/(ax_ac_append_to_file|ax_ac_print_to_file|ax_add_am_macro_static|ax_am_macros_static|ax_check_gnu_make|ax_code_coverage|ax_file_escapes).m4)$$
+
+update-version-year:
+	$(AM_V_at)$(SED) -i "s/(C) 2015-.... Free Software Foundation/(C) 2015-`date +%Y` Free Software Foundation/g" src/options.c
+
+update-copyright: update-version-year
+
+# New syntax-check rules
 sc_prohibit_sprintf:
         @prohibit='\<sprintf *\(' \
         halt='do not use sprintf() as it does not check the output buffer size' \
@@ -59,3 +75,9 @@ sc_gettext_printf:
 	exclude='(//.*\<(wget_|)(info|error)_printf|\<wget_(info|error)_printf\(const |no translation)' \
 	halt='use _() to translate info and error strings' \
 	  $(_sc_search_regexp)
+
+
+exclude_file_name_regexp--sc_gettext_printf = ^(tests|unit-tests|examples|fuzz)/.*\.c|^libwget/test_linking.*\.c$$
+exclude_file_name_regexp--sc_prohibit_alloc = ^(fuzz/.*\.c)$$
+exclude_file_name_regexp--sc_prohibit_free = ^(cfg.mk|fuzz/.*\.c|unit-tests/.*\.c)$$
+exclude_file_name_regexp--sc_prohibit_printf = ^(unit-tests/.*\.c|examples/.*\.c|libwget/strlcpy\.c)$$

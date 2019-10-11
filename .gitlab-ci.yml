@@ -30,6 +30,7 @@ variables:
   BUILD_IMAGES_PROJECT: gnuwget/build-images
   DEBIAN_BUILD: buildenv-debian-stretch
   DEBIAN_TESTING_BUILD: buildenv-debian-testing
+  DEBIAN_STABLEi386_BUILD: buildenv-debian-stable-i386
   DEBIAN_UNSTABLE_BUILD: buildenv-debian-unstable
   DEBIAN_HTTP2_BUILD: buildenv-mhd-http2
   FEDORA_BUILD: buildenv-fedora
@@ -83,6 +84,8 @@ Full+VPATH/Debian:
   tags:
     - shared
     - docker
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -111,6 +114,8 @@ Debian/Testing:
   tags:
     - shared
     - docker
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -133,6 +138,8 @@ Debian/Unstable:
   tags:
     - shared
     - docker
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -148,12 +155,37 @@ Debian/WolfSSL:
   script:
     - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po && touch .manywarnings
-    - ./configure $CONFIGURE_BASE_FLAGS --without-gnutls --with-wolfssl
+    - ./configure $CONFIGURE_BASE_FLAGS --with-ssl=wolfssl
     - make -j$(nproc)
     - make check -j$(nproc)
   tags:
     - shared
     - docker
+  except:
+    - coverity-scan@gnuwget/wget2
+  artifacts:
+    expire_in: 2 weeks
+    when: on_failure
+    paths:
+      - ./*.log
+      - fuzz/*.log
+      - unit-tests/*.log
+      - tests/*.log
+
+Debian/OpenSSL:
+  stage: stage1-testing
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_UNSTABLE_BUILD
+  script:
+    - export CFLAGS="$CFLAGS_DEFAULT"
+    - ./bootstrap --skip-po && touch .manywarnings
+    - ./configure $CONFIGURE_BASE_FLAGS --with-ssl=openssl
+    - make -j$(nproc)
+    - make check -j$(nproc)
+  tags:
+    - shared
+    - docker
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -181,6 +213,8 @@ Minimal/Debian:
     - make -j$(nproc) check
   tags:
     - shared
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -209,6 +243,8 @@ Sanitizers/Debian:
     - make -j$(nproc) check
   tags:
     - shared
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -232,6 +268,7 @@ Scan-Build/Debian:
     - shared
   except:
     - tags
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -252,6 +289,31 @@ Valgrind/Debian:
     - shared
   except:
     - tags
+    - coverity-scan@gnuwget/wget2
+  artifacts:
+    expire_in: 2 weeks
+    when: on_failure
+    paths:
+      - ./*.log
+      - fuzz/*.log
+      - unit-tests/*.log
+      - tests/*.log
+
+Valgrind/i386:
+  stage: stage1-testing
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_STABLEi386_BUILD
+  script:
+    - cp -a /usr/local/gnulib .
+    - export CFLAGS=$CFLAGS_DEFAULT
+    - ./bootstrap --skip-po
+    - ./configure $CONFIGURE_BASE_FLAGS --enable-valgrind-tests --without-gpgme
+    - make -j$(nproc)
+    - make check -j$(nproc)
+  tags:
+    - shared
+  except:
+    - tags
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -274,6 +336,7 @@ Simple/Fedora:
     - shared
   except:
     - tags
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -296,6 +359,7 @@ Alpine:
     - shared
   except:
     - tags
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -350,7 +414,6 @@ pages:
       - public
   only:
     - master
-    - tmp-public-tarball
 
 MinGW64:
   stage: stage1-testing
@@ -365,15 +428,13 @@ MinGW64:
     - echo "WINEPATH=$WINEPATH"
     - ./configure $CONFIGURE_BASE_FLAGS --build=x86_64-pc-linux-gnu --host=$PREFIX --enable-shared
     - make -j$(nproc)
-    - make clean
-    - ./configure $CONFIGURE_BASE_FLAGS --build=x86_64-pc-linux-gnu --host=$PREFIX --enable-shared --disable-threads
-    - make -j$(nproc)
     - make check -j$(nproc) LOG_COMPILER=wine
   tags:
     - shared
     - docker
   except:
     - tags
+    - coverity-scan@gnuwget/wget2
   allow_failure: true
   artifacts:
     expire_in: 2 weeks
@@ -398,6 +459,8 @@ Arch:
   tags:
     - shared
     - docker
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -433,6 +496,8 @@ Tarball:
     - shared
   dependencies:
     - Full+VPATH/Debian
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -472,6 +537,8 @@ Debian/HTTP2:
     - shared
     - docker
   allow_failure: true
+  except:
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -501,12 +568,17 @@ FreeBSD.x86_64:
     - LIBS="-L/usr/local/lib" ./configure --cache-file cache/config.cache --disable-doc
     - gmake -j$(sysctl hw.ncpu | awk '{print $2}')
     - gmake check -j$(sysctl hw.ncpu | awk '{print $2}')
+    - LIBS="-L/usr/local/lib" ./configure --cache-file cache/config.cache --disable-doc --disable-threads
+    - gmake clean
+    - gmake -j$(sysctl hw.ncpu | awk '{print $2}')
+    - gmake check -j$(sysctl hw.ncpu | awk '{print $2}')
   tags:
     - freebsd
   only:
     - branches@gnuwget/wget2
   except:
     - tags
+    - coverity-scan@gnuwget/wget2
   artifacts:
     expire_in: 1 week
     when: on_failure
@@ -515,3 +587,27 @@ FreeBSD.x86_64:
       - fuzz/*.log
       - tests/*.log
       - unit-tests/*.log
+
+coverity:
+  stage: stage1-testing
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$FEDORA_BUILD
+  script:
+    - wget https://scan.coverity.com/download/linux64 --post-data "token=$COVERITY_SCAN_TOKEN&project=$COVERITY_SCAN_PROJECT_NAME" -O /tmp/coverity_tool.tgz
+    - tar xfz /tmp/coverity_tool.tgz
+    - ./bootstrap --skip-po
+    - CFLAGS="-g -Og" ./configure --cache-file cache/config.cache --disable-doc
+    - cov-analysis-linux64-*/bin/cov-build --dir cov-int make -j$(nproc)
+    - tar cfz cov-int.tar.gz cov-int
+    - curl https://scan.coverity.com/builds?project=$COVERITY_SCAN_PROJECT_NAME
+      --form token=$COVERITY_SCAN_TOKEN --form email=tim.ruehsen@gmx.de
+      --form file=@cov-int.tar.gz --form version="`git describe --tags`"
+      --form description="CI build"
+  tags:
+    - shared
+  only:
+    - coverity-scan@gnuwget/wget2
+  artifacts:
+    expire_in: 1 week
+    when: on_failure
+    paths:
+      - cov-int/*.txt

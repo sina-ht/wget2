@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -27,5 +27,5 @@
 int main(void)
 {
 	run_stats_test_with_option("--stats-tls");
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

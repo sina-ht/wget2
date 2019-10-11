@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -46,7 +46,7 @@
  * Iteration can be done by calling the wget_list_browse() function,
  * so the list structure doesn't need to be exposed.
  *
- * This datatype is used by the Wget tool to implement the job queue (append and remove).
+ * This datatype is used by the Wget2 tool to implement the job queue (append and remove).
  *
  * See wget_list_append() for an example on how to use lists.
  */

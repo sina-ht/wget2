@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012-2015 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012-2015 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -28,15 +28,14 @@
 #ifndef WGET_WGET_H
 #define WGET_WGET_H
 
-#include <stddef.h>
+#include <stddef.h> // size_t
 #include <sys/types.h>
 #include <unistd.h>
-#include <stdarg.h>
-#include <stdio.h>
+#include <stdarg.h> // va_list
+#include <stdio.h> // FILE
 #include <stdlib.h>
-#include <time.h>
-#include <stdbool.h>
-#include <inttypes.h>
+#include <stdbool.h> // bool
+#include <stdint.h> // int64_t
 
 #ifdef WGETVER_FILE
 #   include WGETVER_FILE
@@ -191,7 +190,7 @@
 #  define NULLABLE
 #else
 #  define RETURNS_NONNULL
-#  if defined __clang_major__
+#  if defined __clang_major__ && defined WGET_MANYWARNINGS
 #    define NULLABLE _Nullable
 #  else
 #    define NULLABLE
@@ -267,6 +266,7 @@ typedef enum {
 	WGET_E_XML_PARSE_ERR = -12, /* XML parsing failed */
 	WGET_E_OPEN = -13, /* Failed to open file */
 	WGET_E_IO = -14, /* General I/O error (read/write/stat/...) */
+	WGET_E_UNSUPPORTED = -15, /* Unsupported function */
 } wget_error;
 
 WGETAPI const char *
@@ -375,7 +375,7 @@ WGETAPI int
 	wget_memiconv(const char *src_encoding, const void *src, size_t srclen, const char *dst_encoding, char **out, size_t *outlen);
 WGETAPI char * NULLABLE
 	wget_striconv(const char *src, const char *src_encoding, const char *dst_encoding) WGET_GCC_MALLOC;
-WGETAPI int
+WGETAPI bool
 	wget_str_needs_encoding(const char *s) WGET_GCC_PURE;
 WGETAPI bool
 	wget_str_is_valid_utf8(const char *utf8) WGET_GCC_PURE;
@@ -545,17 +545,18 @@ typedef struct {
 		size; //!< capacity of 'data' (terminating 0 byte doesn't count here)
 	bool
 		release_data : 1, //!< 'data' has been malloc'ed and must be freed
-		release_buf : 1; //!< wget_buffer structure has been malloc'ed and must be freed
+		release_buf : 1, //!< wget_buffer structure has been malloc'ed and must be freed
+		error : 1; //!< a memory failure occurred, the result in 'data' is likely erroneous
 } wget_buffer;
 
-WGETAPI wget_buffer *
-	wget_buffer_init(wget_buffer *buf, char *data, size_t size);
-WGETAPI wget_buffer *
-	wget_buffer_alloc(size_t size) WGET_GCC_MALLOC WGET_GCC_ALLOC_SIZE(1);
 WGETAPI int
-	wget_buffer_ensure_capacity(wget_buffer *buf, size_t size);
+	wget_buffer_init(wget_buffer *buf, char *data, size_t size) WGET_GCC_NONNULL((1));
+WGETAPI wget_buffer *
+	wget_buffer_alloc(size_t size) WGET_GCC_MALLOC WGET_GCC_ALLOC_SIZE(1) RETURNS_NONNULL LIBWGET_WARN_UNUSED_RESULT;
+WGETAPI int
+	wget_buffer_ensure_capacity(wget_buffer *buf, size_t size) LIBWGET_WARN_UNUSED_RESULT;
 WGETAPI void
-	wget_buffer_deinit(wget_buffer *buf);
+	wget_buffer_deinit(wget_buffer *buf) WGET_GCC_NONNULL((1));
 WGETAPI void
 	wget_buffer_free(wget_buffer **buf);
 WGETAPI void
@@ -762,7 +763,7 @@ WGETAPI void
 WGETAPI void
 	wget_hashmap_clear(wget_hashmap *h);
 WGETAPI int
-	wget_hashmap_get(const wget_hashmap *h, const void *key, void **value);
+	wget_hashmap_get(const wget_hashmap *h, const void *key, void **value) WGET_GCC_UNUSED_RESULT;
 #define wget_hashmap_get(a, b, c) wget_hashmap_get((a), (b), (void **)(c))
 WGETAPI int
 	wget_hashmap_contains(const wget_hashmap *h, const void *key);
@@ -868,7 +869,7 @@ int wget_stringmap_put(wget_stringmap *h, const char *key, const void *value)
  *
  * Neither \p h nor \p key must be %NULL.
  */
-static inline
+static inline WGET_GCC_UNUSED_RESULT
 int wget_stringmap_get(const wget_stringmap *h, const char *key, void **value)
 {
 	return wget_hashmap_get(h, key, value);
@@ -1143,7 +1144,8 @@ typedef enum {
 	wget_content_encoding_bzip2 = 5,
 	wget_content_encoding_brotli = 6,
 	wget_content_encoding_zstd = 7,
-	wget_content_encoding_max = 8
+	wget_content_encoding_lzip = 8,
+	wget_content_encoding_max = 9
 } wget_content_encoding;
 
 WGETAPI WGET_GCC_PURE wget_content_encoding
@@ -1155,7 +1157,7 @@ WGETAPI wget_decompressor * NULLABLE
 WGETAPI void
 	wget_decompress_close(wget_decompressor *dc);
 WGETAPI int
-	wget_decompress(wget_decompressor *dc, char *src, size_t srclen);
+	wget_decompress(wget_decompressor *dc, const char *src, size_t srclen);
 WGETAPI void
 	wget_decompress_set_error_handler(wget_decompressor *dc, wget_decompressor_error_handler *error_handler);
 WGETAPI void * NULLABLE
@@ -1366,7 +1368,7 @@ WGETAPI void
 WGETAPI void
 	wget_cookie_db_free(wget_cookie_db **cookie_db);
 WGETAPI void
-	wget_cookie_set_keep_session_cookies(wget_cookie_db *cookie_db, int keep);
+	wget_cookie_set_keep_session_cookies(wget_cookie_db *cookie_db, bool keep);
 WGETAPI int
 	wget_cookie_db_save(wget_cookie_db *cookie_db, const char *fname);
 WGETAPI int
@@ -1391,14 +1393,14 @@ typedef struct wget_hsts_db_st wget_hsts_db;
  * \ingroup libwget-hsts
  *
  * It is possible to implement a custom HSTS database as a plugin.
- * See tests/test-plugin-dummy.c and tests/Makefile.am fro details.
+ * See tests/test-plugin-dummy.c and tests/Makefile.am for details.
  */
 
 typedef int wget_hsts_host_match_fn(const wget_hsts_db *, const char *hsts_db, uint16_t port);
 typedef wget_hsts_db *wget_hsts_db_init_fn(wget_hsts_db *hsts_db, const char *fname);
 typedef void wget_hsts_db_deinit_fn(wget_hsts_db *hsts_db);
 typedef void wget_hsts_db_free_fn(wget_hsts_db **hsts_db);
-typedef void wget_hsts_db_add_fn(wget_hsts_db *hsts_db, const char *host, uint16_t port, time_t maxage, int include_subdomains);
+typedef void wget_hsts_db_add_fn(wget_hsts_db *hsts_db, const char *host, uint16_t port, int64_t maxage, bool include_subdomains);
 typedef int wget_hsts_db_save_fn(wget_hsts_db *hsts_db);
 typedef int wget_hsts_db_load_fn(wget_hsts_db *hsts_db);
 typedef void wget_hsts_db_set_fname_fn(wget_hsts_db *hsts_db, const char *fname);
@@ -1476,7 +1478,7 @@ typedef struct wget_hpkp_st wget_hpkp;
  * \ingroup libwget-hpkp
  *
  * It is possible to implement a custom HPKP database as a plugin.
- * See tests/test-plugin-dummy.c and tests/Makefile.am fro details.
+ * See tests/test-plugin-dummy.c and tests/Makefile.am for details.
  */
 
 typedef wget_hpkp_db *wget_hpkp_db_init_fn(wget_hpkp_db *hpkp_db, const char *fname);
@@ -1513,7 +1515,7 @@ WGETAPI void
 WGETAPI void
 	wget_hpkp_set_host(wget_hpkp *hpkp, const char *host);
 WGETAPI void
-	wget_hpkp_set_maxage(wget_hpkp *hpkp, time_t maxage);
+	wget_hpkp_set_maxage(wget_hpkp *hpkp, int64_t maxage);
 WGETAPI void
 	wget_hpkp_set_include_subdomains(wget_hpkp *hpkp, bool include_subdomains);
 WGETAPI int
@@ -1524,7 +1526,7 @@ WGETAPI void
 	wget_hpkp_get_pins(wget_hpkp *hpkp, const char **pin_types, size_t *sizes, const void **pins);
 WGETAPI const char *
 	wget_hpkp_get_host(wget_hpkp *hpkp);
-WGETAPI time_t
+WGETAPI int64_t
 	wget_hpkp_get_maxage(wget_hpkp *hpkp);
 WGETAPI bool
 	wget_hpkp_get_include_subdomains(wget_hpkp *hpkp);
@@ -1556,7 +1558,7 @@ WGETAPI void
 WGETAPI void
 	wget_tls_session_free(wget_tls_session *tls_session);
 WGETAPI wget_tls_session * NULLABLE
-	wget_tls_session_new(const char *host, time_t maxage, const void *data, size_t data_size);
+	wget_tls_session_new(const char *host, int64_t maxage, const void *data, size_t data_size);
 WGETAPI int
 	wget_tls_session_get(const wget_tls_session_db *tls_session_db, const char *host, void **data, size_t *size);
 WGETAPI wget_tls_session_db * NULLABLE
@@ -1589,7 +1591,7 @@ typedef struct wget_ocsp_db_st wget_ocsp_db;
  * \ingroup libwget-ocsp
  *
  * It is possible to implement a custom OCSP database as a plugin.
- * See tests/test-plugin-dummy.c and tests/Makefile.am fro details.
+ * See tests/test-plugin-dummy.c and tests/Makefile.am for details.
  */
 
 typedef wget_ocsp_db *wget_ocsp_db_init_fn(wget_ocsp_db *ocsp_db, const char *fname);
@@ -1597,8 +1599,8 @@ typedef void wget_ocsp_db_deinit_fn(wget_ocsp_db *ocsp_db);
 typedef void wget_ocsp_db_free_fn(wget_ocsp_db **ocsp_db);
 typedef bool wget_ocsp_fingerprint_in_cache_fn(const wget_ocsp_db *ocsp_db, const char *fingerprint, int *valid);
 typedef bool wget_ocsp_hostname_is_valid_fn(const wget_ocsp_db *ocsp_db, const char *hostname);
-typedef void wget_ocsp_db_add_fingerprint_fn(wget_ocsp_db *ocsp_db, const char *fingerprint, time_t maxage, bool valid);
-typedef void wget_ocsp_db_add_host_fn(wget_ocsp_db *ocsp_db, const char *host, time_t maxage);
+typedef void wget_ocsp_db_add_fingerprint_fn(wget_ocsp_db *ocsp_db, const char *fingerprint, int64_t maxage, bool valid);
+typedef void wget_ocsp_db_add_host_fn(wget_ocsp_db *ocsp_db, const char *host, int64_t maxage);
 typedef int wget_ocsp_db_save_fn(wget_ocsp_db *ocsp_db);
 typedef int wget_ocsp_db_load_fn(wget_ocsp_db *ocsp_db);
 
@@ -1744,7 +1746,7 @@ typedef struct {
 	char
 		attr[16]; //!< name of the attribute containing the URL, e.g. 'href'
 	char
-		dir[16]; //!< name of the HTML tag containing the URL, e.g. 'a'
+		tag[16]; //!< name of the HTML tag containing the URL, e.g. 'a'
 	bool
 		link_inline : 1; //!< 1 = rel was 'stylesheet' or 'shortcut icon'
 } wget_html_parsed_url;
@@ -1897,12 +1899,12 @@ WGETAPI int
 WGETAPI void
 	wget_tcp_set_connect_timeout(wget_tcp *tcp, int timeout);
 WGETAPI void
-	wget_tcp_set_tcp_fastopen(wget_tcp *tcp, int tcp_fastopen);
+	wget_tcp_set_tcp_fastopen(wget_tcp *tcp, bool tcp_fastopen);
 WGETAPI void
-	wget_tcp_set_tls_false_start(wget_tcp *tcp, int false_start);
+	wget_tcp_set_tls_false_start(wget_tcp *tcp, bool false_start);
 WGETAPI void
-	wget_tcp_set_ssl(wget_tcp *tcp, int ssl);
-WGETAPI int
+	wget_tcp_set_ssl(wget_tcp *tcp, bool ssl);
+WGETAPI bool
 	wget_tcp_get_ssl(wget_tcp *tcp) WGET_GCC_PURE;
 WGETAPI const char * NULLABLE
 	wget_tcp_get_ip(wget_tcp *tcp) WGET_GCC_PURE;
@@ -1914,9 +1916,9 @@ WGETAPI void
 	wget_tcp_set_ssl_ca_file(wget_tcp *tcp, const char *cafile);
 WGETAPI void
 	wget_tcp_set_ssl_key_file(wget_tcp *tcp, const char *certfile, const char *keyfile);
-WGETAPI char
+WGETAPI bool
 	wget_tcp_get_tcp_fastopen(wget_tcp *tcp) WGET_GCC_PURE;
-WGETAPI char
+WGETAPI bool
 	wget_tcp_get_tls_false_start(wget_tcp *tcp) WGET_GCC_PURE;
 WGETAPI int
 	wget_tcp_get_family(wget_tcp *tcp) WGET_GCC_PURE;
@@ -2143,14 +2145,16 @@ struct wget_http_response_st {
 		header; //!< the raw header data if requested by the application
 	wget_buffer *
 		body; //!< the body data
+	long long
+		response_end; //!< when this response was received
 	size_t
 		content_length; //!< length of the body data
 	size_t
 		cur_downloaded,
 		accounted_for;	// reported to bar
-	time_t
+	int64_t
 		last_modified;
-	time_t
+	int64_t
 		hsts_maxage;
 	char
 		reason[32]; //!< reason string after the status code
@@ -2165,15 +2169,14 @@ struct wget_http_response_st {
 	wget_transfer_encoding
 		transfer_encoding;
 	char
-		content_encoding,
+		content_encoding;
+	bool
 		hsts_include_subdomains,
 		keep_alive;
 	bool
 		content_length_valid : 1,
 		hsts : 1, //!< if hsts_maxage and hsts_include_subdomains are valid
 		csp : 1;
-	long long
-		response_end; //!< when this response was received
 };
 
 typedef struct wget_http_connection_st wget_http_connection;
@@ -2202,7 +2205,7 @@ WGETAPI const char *
 	wget_http_parse_name(const char *s, const char **name) WGET_GCC_NONNULL_ALL;
 WGETAPI const char *
 	wget_parse_name_fixed(const char *s, const char **name, size_t *namelen) WGET_GCC_NONNULL_ALL;
-WGETAPI time_t
+WGETAPI int64_t
 	wget_http_parse_full_date(const char *s) WGET_GCC_NONNULL_ALL;
 WGETAPI const char *
 	wget_http_parse_link(const char *s, wget_http_link *link) WGET_GCC_NONNULL_ALL;
@@ -2223,18 +2226,18 @@ WGETAPI const char *
 WGETAPI const char *
 	wget_http_parse_content_disposition(const char *s, const char **filename) WGET_GCC_NONNULL((1));
 WGETAPI const char *
-	wget_http_parse_strict_transport_security(const char *s, time_t *maxage, char *include_subdomains) WGET_GCC_NONNULL((1));
+	wget_http_parse_strict_transport_security(const char *s, int64_t *maxage, bool *include_subdomains) WGET_GCC_NONNULL_ALL;
 WGETAPI const char *
 	wget_http_parse_public_key_pins(const char *s, wget_hpkp *hpkp) WGET_GCC_NONNULL((1));
 WGETAPI const char *
-	wget_http_parse_connection(const char *s, char *keep_alive) WGET_GCC_NONNULL_ALL;
+	wget_http_parse_connection(const char *s, bool *keep_alive) WGET_GCC_NONNULL_ALL;
 WGETAPI const char *
 	wget_http_parse_setcookie(const char *s, wget_cookie **cookie) WGET_GCC_NONNULL((1));
 WGETAPI const char *
 	wget_http_parse_etag(const char *s, const char **etag) WGET_GCC_NONNULL((1));
 
 WGETAPI char *
-	wget_http_print_date(time_t t, char *buf, size_t bufsize) WGET_GCC_NONNULL_ALL;
+	wget_http_print_date(int64_t t, char *buf, size_t bufsize) WGET_GCC_NONNULL_ALL;
 
 WGETAPI void
 	wget_http_add_param(wget_vector **params, wget_http_header_param *param) WGET_GCC_NONNULL_ALL;
@@ -2379,11 +2382,11 @@ WGETAPI int
 WGETAPI int
 	wget_hash_get_len(wget_digest_algorithm algorithm) WGET_GCC_CONST;
 WGETAPI int
-	wget_hash_init(wget_hash_hd *dig, wget_digest_algorithm algorithm);
+	wget_hash_init(wget_hash_hd **dig, wget_digest_algorithm algorithm);
 WGETAPI int
 	wget_hash(wget_hash_hd *handle, const void *text, size_t textlen);
-WGETAPI void
-	wget_hash_deinit(wget_hash_hd *handle, void *digest);
+WGETAPI int
+	wget_hash_deinit(wget_hash_hd **handle, void *digest);
 
 /*
  * Hash file routines
@@ -2807,10 +2810,10 @@ typedef struct
 		version,
 		cert_chain_size;
 	char
-		http_protocol,
-		false_start,
-		tfo;
+		http_protocol;
 	bool
+		false_start,
+		tfo,
 		tls_con,
 		resumed;
 } wget_tls_stats_data;

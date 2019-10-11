@@ -1,4 +1,4 @@
-AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(CODE_COVERAGE_CFLAGS) -DBUILDING_LIBWGET
+AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(CODE_COVERAGE_CFLAGS) $(MANYWARNINGS) -DBUILDING_LIBWGET
 
 lib_LTLIBRARIES = libwget.la
 
@@ -12,10 +12,14 @@ libwget_la_SOURCES = \
 if WITH_GNUTLS
   libwget_la_SOURCES += ssl_gnutls.c
 else
+if WITH_OPENSSL
+  libwget_la_SOURCES += ssl_openssl.c
+else
 if WITH_WOLFSSL
   libwget_la_SOURCES += ssl_wolfssl.c
 else
   libwget_la_SOURCES += ssl_none.c
+endif
 endif
 endif
 
@@ -49,6 +53,9 @@ test_linking_LDADD = libwget.la ../lib/libgnu.la
 # gnulib needs config.h included before any gnulib header files
 css_tokenizer.c: $(srcdir)/css_tokenizer.lex css_tokenizer.h
 	$(AM_V_GEN)
-	$(AM_V_at)$(LEX) -w -t $(srcdir)/css_tokenizer.lex | $(SED) 's/fprintf/wget_fprintf/g' > $@
+	$(AM_V_at)$(LEX) -w -o $@ $(srcdir)/css_tokenizer.lex
+	$(AM_V_at)$(SED) 's/fprintf/wget_fprintf/g' $@ >$@.tmp
+	$(AM_V_at)mv $@.tmp $@
+	$(AM_V_at)rm -f lex.yy.c
 
 DISTCLEANFILES = css_tokenizer.c

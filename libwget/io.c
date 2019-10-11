@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -34,23 +34,13 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <errno.h>
-#ifdef HAVE_POLL
-	#include <poll.h>
-#elif defined _WIN32
-	#undef select
-	#include <io.h>
-	#include <winsock2.h>
-	#include <msvc-nothrow.h> // make _get_osfhandle() return error
-#else
-	#include <sys/time.h>
-	#include <sys/select.h>
-#endif
+#include <poll.h>
 #include "dirname.h"
 
 #include <wget.h>
 #include "private.h"
 
-static ssize_t __read(const void *f, char *dst, size_t len)
+static ssize_t read_fp(const void *f, char *dst, size_t len)
 {
 	FILE *fp = (FILE *)f;
 	ssize_t ret = (ssize_t)fread(dst, 1, len, fp);
@@ -59,15 +49,16 @@ static ssize_t __read(const void *f, char *dst, size_t len)
 	return ret;
 }
 
-static ssize_t __readfd(const void *f, char *dst, size_t len)
+static ssize_t read_fd(const void *f, char *dst, size_t len)
 {
 	int *fd = (int *)f;
 	return read(*fd, dst, len);
 }
 
-static ssize_t _getline_internal(char **buf, size_t *bufsize,
-		       const void *f,
-		       ssize_t (*reader)(const void *f, char *dst, size_t len))
+static ssize_t getline_internal(
+	char **buf, size_t *bufsize,
+	const void *f,
+	ssize_t (*reader)(const void *f, char *dst, size_t len))
 {
 	ssize_t nbytes = 0;
 	size_t *sizep, length = 0;
@@ -167,7 +158,7 @@ static ssize_t _getline_internal(char **buf, size_t *bufsize,
  */
 ssize_t wget_fdgetline(char **buf, size_t *bufsize, int fd)
 {
-	return _getline_internal(buf, bufsize, (void *)&fd, __readfd);
+	return getline_internal(buf, bufsize, (void *)&fd, read_fd);
 }
 
 /**
@@ -197,7 +188,7 @@ ssize_t wget_fdgetline(char **buf, size_t *bufsize, int fd)
  */
 ssize_t wget_getline(char **buf, size_t *bufsize, FILE *fp)
 {
-	return _getline_internal(buf, bufsize, (void *)fp, __read);
+	return getline_internal(buf, bufsize, (void *)fp, read_fp);
 }
 
 /**
@@ -218,8 +209,6 @@ ssize_t wget_getline(char **buf, size_t *bufsize, FILE *fp)
 int wget_ready_2_transfer(int fd, int timeout, int mode)
 {
 	int rc = -1;
-
-#ifdef HAVE_POLL
 	struct pollfd pollfd;
 
 	pollfd.fd = fd;
@@ -241,47 +230,7 @@ int wget_ready_2_transfer(int fd, int timeout, int mode)
 			rc |= WGET_IO_WRITABLE;
 	}
 
-#else
-#ifdef _WIN32
-	//Get OS specific handle
-	int pfd = _get_osfhandle(fd);
-#else
-	int pfd = fd;
-#endif
-	fd_set fdset;
-	fd_set *rd = NULL, *wr = NULL;
-	struct timeval tmoval, *tmo = NULL;
-
-	if (fd >= FD_SETSIZE) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	FD_ZERO(&fdset);
-	FD_SET(pfd, &fdset);
-
-	if (mode & WGET_IO_READABLE)
-		rd = &fdset;
-	if (mode & WGET_IO_WRITABLE)
-		wr = &fdset;
-
-	if (timeout >= 0) {
-		tmoval.tv_sec = timeout / 1000L;
-		tmoval.tv_usec = (timeout % 1000) * 1000;
-		tmo = &tmoval;
-	}
-
-	if ((rc = select (pfd + 1, rd, wr, NULL, tmo)) >= 0) {
-		rc = 0;
-		if (rd && FD_ISSET(pfd, rd))
-			rc |= WGET_IO_READABLE;
-		if (wr && FD_ISSET(pfd, wr))
-			rc |= WGET_IO_WRITABLE;
-	}
-
-#endif
-
-  return rc;
+	return rc;
 }
 
 /**

@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -45,8 +45,8 @@
 #include <glob.h>
 #include <fcntl.h>
 #include <time.h>
+#include <limits.h> // LLONG_MAX, INT_MAX
 #include <sys/stat.h>
-//#include <netdb.h>
 #include <spawn.h>
 #include "getpass.h"
 
@@ -66,10 +66,10 @@
 
 static void set_allocation_functions(void);
 
-static exit_status_t
+static exit_status_e
 	exit_status;
 
-void set_exit_status(exit_status_t status)
+void set_exit_status(exit_status_e status)
 {
 	// use Wget exit status scheme:
 	// - error code 0 is default
@@ -86,7 +86,7 @@ void set_exit_status(exit_status_t status)
 	}
 }
 
-exit_status_t get_exit_status(void)
+exit_status_e get_exit_status(void)
 {
 	return exit_status;
 }
@@ -126,7 +126,17 @@ struct optionw {
 	    *help_str[4];
 };
 
-#include "version-text.h"
+static const char version_text[] =
+"\n"
+"Copyright (C) 2012-2015 Tim Ruehsen\n"
+"Copyright (C) 2015-2019 Free Software Foundation, Inc.\n"
+"\n"
+"License GPLv3+: GNU GPL version 3 or later\n"
+"<http://www.gnu.org/licenses/gpl.html>.\n"
+"This is free software: you are free to change and redistribute it.\n"
+"There is NO WARRANTY, to the extent permitted by law.\n"
+"\n"
+"Please send bug reports and questions to <bug-wget@gnu.org>.";
 
 static int print_version(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const char *val, WGET_GCC_UNUSED const char invert)
 {
@@ -225,6 +235,12 @@ static int print_version(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const cha
 	" -bzip2"
 #endif
 
+#if defined WITH_LZIP
+	" +lzip"
+#else
+	" -lzip"
+#endif
+
 #if defined WITH_LIBNGHTTP2
 	" +http2"
 #else
@@ -239,9 +255,9 @@ static int print_version(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const cha
 	);
 #endif // #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
-	puts(_version_text);
+	puts(version_text);
 
-	set_exit_status(WG_EXIT_STATUS_NO_ERROR);
+	set_exit_status(EXIT_STATUS_NO_ERROR);
 	return -1; // stop processing & exit
 }
 
@@ -266,7 +282,7 @@ static int parse_uint16(option_t opt, const char *val, WGET_GCC_UNUSED const cha
 }
 
 // parse '2.5k' locale independent
-static int _parse_double_modifier(const char *in, double *d, char *c)
+static int parse_double_modifier(const char *in, double *d, char *c)
 {
 	bool minus = false;
 
@@ -311,7 +327,7 @@ static int parse_numbytes(option_t opt, const char *val, WGET_GCC_UNUSED const c
 			return 0;
 		}
 
-		if (_parse_double_modifier(val, &num, &modifier) >= 1 && num >= 0) {
+		if (parse_double_modifier(val, &num, &modifier) >= 1 && num >= 0) {
 			if (modifier) {
 				switch (c_tolower(modifier)) {
 				case 'k': num *= 1024; break;
@@ -427,7 +443,7 @@ static int parse_header(option_t opt, const char *val, WGET_GCC_UNUSED const cha
 	return 0;
 }
 
-static const char *_strchrnul_esc(const char *s, char c)
+static const char *strchrnul_esc(const char *s, char c)
 {
 	const char *p;
 
@@ -441,7 +457,7 @@ static const char *_strchrnul_esc(const char *s, char c)
 	return p; // pointer to trailing \0
 }
 
-static char *_strmemdup_esc(const char *s, size_t size)
+static char *strmemdup_esc(const char *s, size_t size)
 {
    const char *p, *e;
 	size_t newsize = 0;
@@ -481,13 +497,13 @@ static int parse_stringlist_expand(option_t opt, const char *val, int expand, in
 			v = *((wget_vector **)opt->var) = wget_vector_create(8, (wget_vector_compare_fn *) strcmp);
 
 		for (s = p = val; *p; s = p + 1) {
-			if ((p = _strchrnul_esc(s, ',')) != s) {
+			if ((p = strchrnul_esc(s, ',')) != s) {
 				if (wget_vector_size(v) >= max_entries) {
 					wget_debug_printf("%s: More than %d entries, ignoring overflow\n", __func__, max_entries);
 					return -1;
 				}
 
-				const char *fname = _strmemdup_esc(s, p - s);
+				const char *fname = strmemdup_esc(s, p - s);
 
 				if (expand && *s == '~') {
 					wget_vector_add(v, shell_expand(fname));
@@ -580,7 +596,7 @@ static void tag_free(void *tag)
 	}
 }
 
-static void WGET_GCC_NONNULL_ALL _add_tag(wget_vector *v, const char *begin, const char *end)
+static void WGET_GCC_NONNULL_ALL add_tag(wget_vector *v, const char *begin, const char *end)
 {
 	wget_html_tag *tag = wget_malloc(sizeof(wget_html_tag));
 	const char *attribute;
@@ -599,7 +615,7 @@ static void WGET_GCC_NONNULL_ALL _add_tag(wget_vector *v, const char *begin, con
 		tag_free(tag); // avoid double entries
 }
 
-static int WGET_GCC_NONNULL_ALL _compare_tag(const wget_html_tag *t1, const wget_html_tag *t2)
+static int WGET_GCC_NONNULL_ALL compare_tag(const wget_html_tag *t1, const wget_html_tag *t2)
 {
 	int n;
 
@@ -625,13 +641,13 @@ static int parse_taglist(option_t opt, const char *val, WGET_GCC_UNUSED const ch
 		const char *s, *p;
 
 		if (!v) {
-			v = *((wget_vector **)opt->var) = wget_vector_create(8, (wget_vector_compare_fn *) _compare_tag);
+			v = *((wget_vector **)opt->var) = wget_vector_create(8, (wget_vector_compare_fn *) compare_tag);
 			wget_vector_set_destructor(v, tag_free);
 		}
 
 		for (s = p = val; *p; s = p + 1) {
 			if ((p = strchrnul(s, ',')) != s)
-				_add_tag(v, s, p);
+				add_tag(v, s, p);
 		}
 	} else {
 		wget_vector_free(opt->var);
@@ -683,7 +699,7 @@ static int parse_timeout(option_t opt, const char *val, WGET_GCC_UNUSED const ch
 	if (wget_strcasecmp_ascii(val, "INF") && wget_strcasecmp_ascii(val, "INFINITY")) {
 		char modifier = 0;
 
-		if (_parse_double_modifier(val, &fval, &modifier) >= 1 && fval >= 0) {
+		if (parse_double_modifier(val, &fval, &modifier) >= 1 && fval >= 0) {
 			if (modifier) {
 				switch (c_tolower(modifier)) {
 				case 's': fval *= 1000; break;
@@ -983,11 +999,11 @@ static int parse_report_speed_type(option_t opt, const char *val, WGET_GCC_UNUSE
 static int parse_https_enforce(option_t opt, const char *val, WGET_GCC_UNUSED const char invert)
 {
 	if (!wget_strcasecmp_ascii(val, "hard"))
-		*((char *)opt->var) = WGET_HTTPS_ENFORCE_HARD;
+		*((https_enforce_mode *)opt->var) = HTTPS_ENFORCE_HARD;
 	else if (!wget_strcasecmp_ascii(val, "soft"))
-		*((char *)opt->var) = WGET_HTTPS_ENFORCE_SOFT;
+		*((https_enforce_mode *)opt->var) = HTTPS_ENFORCE_SOFT;
 	else if (!wget_strcasecmp_ascii(val, "none"))
-		*((char *)opt->var) = WGET_HTTPS_ENFORCE_NONE;
+		*((https_enforce_mode *)opt->var) = HTTPS_ENFORCE_NONE;
 	else if (!val[0]) {
 		error_printf(_("Missing required type specifier\n"));
 		return -1;
@@ -1009,12 +1025,12 @@ static int parse_verify_sig(option_t opt, const char *val, const char invert)
 				error_printf(_("no-verify-sig cannot take additional arguments\n"));
 				return -1;
 			} else {
-				*((char *)opt->var) = WGET_GPG_VERIFY_DISABLED;
+				*((gpg_verify_mode *)opt->var) = GPG_VERIFY_DISABLED;
 			}
 		} else if (!val || !wget_strcasecmp_ascii(val, "fail"))
-			*((char *)opt->var) = WGET_GPG_VERIFY_SIG_FAIL;
+			*((gpg_verify_mode *)opt->var) = GPG_VERIFY_SIG_FAIL;
 		else if (!wget_strcasecmp_ascii(val, "no-fail"))
-			*((char *)opt->var) = WGET_GPG_VERIFY_SIG_NO_FAIL;
+			*((gpg_verify_mode *)opt->var) = WGET_GPG_VERIFY_SIG_NO_FAIL;
 		else {
 			error_printf(_("Invalid option specifier: %s\n"), val);
 			return -1;
@@ -1087,6 +1103,10 @@ static int parse_compression(option_t opt, const char *val, const char invert)
 			if (type == wget_content_encoding_zstd)
 				not_built = 1;
 #endif
+#ifndef WITH_LZIP
+			if (type == wget_content_encoding_lzip)
+				not_built = 1;
+#endif
 
 			if (not_built) {
 				wget_error_printf(_("Lib for type %s not built"), wget_content_encoding_to_name(type));
@@ -1123,7 +1143,7 @@ static int list_plugins(WGET_GCC_UNUSED option_t opt,
 	}
 	wget_vector_free(&v);
 
-	set_exit_status(WG_EXIT_STATUS_NO_ERROR);
+	set_exit_status(EXIT_STATUS_NO_ERROR);
 	return -1; // stop processing & exit
 }
 
@@ -1135,7 +1155,7 @@ static int print_plugin_help(WGET_GCC_UNUSED option_t opt,
 
 	plugin_db_show_help();
 
-	set_exit_status(WG_EXIT_STATUS_NO_ERROR);
+	set_exit_status(EXIT_STATUS_NO_ERROR);
 	return -1; // stop processing & exit
 }
 
@@ -1185,7 +1205,7 @@ struct config config = {
 	.netrc = 1,
 	.waitretry = 10 * 1000,
 #ifdef WITH_GPGME
-	.verify_sig = WGET_GPG_VERIFY_DISABLED,
+	.verify_sig = GPG_VERIFY_DISABLED,
 	.verify_save_failed = 0,
 #endif
 	.metalink = 1,
@@ -1197,7 +1217,8 @@ struct config config = {
 	.local_db = 1,
 	.report_speed = WGET_REPORT_SPEED_BYTES,
 	.default_http_port = 80,
-	.default_https_port = 443
+	.default_https_port = 443,
+	.if_modified_since = 1
 };
 
 static int parse_execute(option_t opt, const char *val, const char invert);
@@ -1322,7 +1343,7 @@ static const struct optionw options[] = {
 		"compression", &config.compression, parse_compression, -1, 0,
 		SECTION_HTTP,
 		{ "Customize Accept-Encoding with\n",
-		   "identity, gzip, deflate, xz, lzma, br, bzip2, zstd\n",
+		   "identity, gzip, deflate, xz, lzma, br, bzip2, zstd, lzip\n",
 		   "and any combination of it\n",
 		   "no-compression means no Accept-Encoding\n"
 		}
@@ -1680,6 +1701,13 @@ static const struct optionw options[] = {
 		  "variables. Use comma to separate proxies.\n"
 		}
 	},
+	{ "if-modified-since", &config.if_modified_since, parse_bool, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "Do not send If-Modified-Since header in -N mode.\n"
+		  "Send preliminary HEAD request instead. This has only\n",
+		  "effect in -N mode.\n"
+		}
+	},
 	{ "ignore-case", &config.ignore_case, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "Ignore case when matching files. (default: off)\n"
@@ -2026,7 +2054,7 @@ static const struct optionw options[] = {
 		  " (default: off)\n"
 		}
 	},
-	{ "retry-on-http-status", &config.http_retry_on_status, parse_stringlist, 1, 0,
+	{ "retry-on-http-error", &config.http_retry_on_error, parse_stringlist, 1, 0,
 		SECTION_DOWNLOAD,
 		{ "Specify a list of http statuses in which the download will be retried\n"
 		}
@@ -2248,7 +2276,7 @@ static const struct optionw options[] = {
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 static int print_help(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const char *val, WGET_GCC_UNUSED const char invert)
 {
-	set_exit_status(WG_EXIT_STATUS_NO_ERROR);
+	set_exit_status(EXIT_STATUS_NO_ERROR);
 	return -1; // stop processing & exit
 }
 #else
@@ -2345,7 +2373,7 @@ static int print_help(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const char *
  * Using rm logfile + wget achieves the old behaviour...
  *
  */
-	set_exit_status(WG_EXIT_STATUS_NO_ERROR);
+	set_exit_status(EXIT_STATUS_NO_ERROR);
 	return -1; // stop processing & exit
 }
 #endif
@@ -2514,7 +2542,7 @@ static int parse_execute(WGET_GCC_UNUSED option_t opt, const char *val, WGET_GCC
 	return set_long_option(val, NULL, 1);
 }
 
-static int _parse_option(char *linep, char **name, char **val)
+static int parse_option(char *linep, char **name, char **val)
 {
 	int quote;
 
@@ -2573,7 +2601,7 @@ static int _parse_option(char *linep, char **name, char **val)
 // - format is 'name value', where value might be enclosed in ' or "
 // - values enclosed in " or ' might contain \\, \" and \'
 
-static int WGET_GCC_NONNULL((1)) _read_config(const char *cfgfile, int expand)
+static int WGET_GCC_NONNULL((1)) read_config_expand(const char *cfgfile, int expand)
 {
 	static int level; // level of recursions to prevent endless include loops
 	FILE *fp;
@@ -2597,13 +2625,13 @@ static int WGET_GCC_NONNULL((1)) _read_config(const char *cfgfile, int expand)
 
 			for (it = 0; it < globbuf.gl_pathc && ret == 0; it++) {
 				if (globbuf.gl_pathv[it][strlen(globbuf.gl_pathv[it])-1] != '/') {
-					ret = _read_config(globbuf.gl_pathv[it], 0);
+					ret = read_config_expand(globbuf.gl_pathv[it], 0);
 				}
 			}
 
 			globfree(&globbuf);
 		} else {
-			ret = _read_config(cfgfile, 0);
+			ret = read_config_expand(cfgfile, 0);
 		}
 
 		level--;
@@ -2653,7 +2681,7 @@ static int WGET_GCC_NONNULL((1)) _read_config(const char *cfgfile, int expand)
 			linep = linebuf.data;
 		}
 
-		found = _parse_option(linep, &name, &val);
+		found = parse_option(linep, &name, &val);
 
 		if (found == 1) {
 			// debug_printf("%s = %s\n",name,val);
@@ -2662,7 +2690,7 @@ static int WGET_GCC_NONNULL((1)) _read_config(const char *cfgfile, int expand)
 		} else if (found == 2) {
 			// debug_printf("%s %s\n",name,val);
 			if (!strcmp(name, "include")) {
-				ret = _read_config(val, 1);
+				ret = read_config_expand(val, 1);
 			} else {
 				if ((rc = set_long_option(name, NULL, 0)) < 0)
 					ret = rc;
@@ -2688,10 +2716,10 @@ static bool read_config(void)
 	bool ret = true;
 
 	if (config.system_config)
-		ret = _read_config(config.system_config, 1);
+		ret = read_config_expand(config.system_config, 1);
 
 	if (config.user_config)
-		ret &= _read_config(config.user_config, 1);
+		ret &= read_config_expand(config.user_config, 1);
 
 	return ret;
 }
@@ -2926,12 +2954,13 @@ static int use_askpass(void)
 static wget_dns_cache *dns_cache;
 static wget_dns *dns;
 
-static int _preload_dns_cache(const char *fname)
+static int preload_dns_cache(const char *fname)
 {
 	FILE *fp;
 	char buf[256], ip[64], name[256];
 
-	if (!strcmp(fname, "-"))
+	// wget_options_fuzzer sets config.dont_write, avoid waiting for stdin input forever
+	if (!strcmp(fname, "-") && !config.dont_write)
 		fp = stdin;
 	else if (!(fp = fopen(fname, "r"))) {
 		error_printf(_("Failed to open %s"), fname);
@@ -3092,7 +3121,7 @@ static void stats_callback_ocsp(wget_ocsp_stats_data *stats, void *ctx)
 	}
 }
 
-static const char *_tlsversion_string(int v)
+static const char *tlsversion_string(int v)
 {
 	switch (v) {
 	case 1: return "SSL3";
@@ -3110,7 +3139,7 @@ static void stats_callback_tls(wget_tls_stats_data *stats, void *ctx)
 
 	if (config.stats_tls_args->format == WGET_STATS_FORMAT_HUMAN) {
 		wget_fprintf(fp, "  %s:\n", stats->hostname);
-		wget_fprintf(fp, "    Version         : %s\n", _tlsversion_string(stats->version));
+		wget_fprintf(fp, "    Version         : %s\n", tlsversion_string(stats->version));
 		wget_fprintf(fp, "    False Start     : %s\n", ON_OFF_DASH(stats->false_start));
 		wget_fprintf(fp, "    TFO             : %s\n", ON_OFF_DASH(stats->tfo));
 		wget_fprintf(fp, "    ALPN Protocol   : %s\n", stats->alpn_protocol ? stats->alpn_protocol : "-");
@@ -3180,7 +3209,7 @@ int init(int argc, const char **argv)
 		config.logfile = config.logfile_append;
 		config.logfile_append = NULL;
 	}
-	else if (config.logfile && strcmp(config.logfile,"-") && !config.dont_write) {
+	else if (config.logfile && strcmp(config.logfile, "-") && !config.dont_write) {
 		int fd = open(config.logfile, O_WRONLY | O_TRUNC);
 
 		if (fd != -1)
@@ -3226,7 +3255,7 @@ int init(int argc, const char **argv)
 		}
 
 		if (plugin_db_load_from_envvar()) {
-			set_exit_status(WG_EXIT_STATUS_PARSE_INIT);
+			set_exit_status(EXIT_STATUS_PARSE_INIT);
 			return -1; // stop processing & exit
 		}
 	}
@@ -3240,7 +3269,7 @@ int init(int argc, const char **argv)
 		return -1;
 
 	if (plugin_db_help_forwarded()) {
-		set_exit_status(WG_EXIT_STATUS_NO_ERROR);
+		set_exit_status(EXIT_STATUS_NO_ERROR);
 		return -1; // stop processing & exit
 	}
 
@@ -3249,7 +3278,7 @@ int init(int argc, const char **argv)
 		config.logfile = config.logfile_append;
 		config.logfile_append = NULL;
 	}
-	else if (config.logfile && strcmp(config.logfile,"-") && !config.dont_write) {
+	else if (config.logfile && strcmp(config.logfile, "-") && !config.dont_write) {
 		// truncate logfile
 		int fd = open(config.logfile, O_WRONLY | O_TRUNC);
 
@@ -3261,7 +3290,7 @@ int init(int argc, const char **argv)
 
 	if (config.https_only && config.https_enforce)
 		// disable https enforce if https-only is enabled
-		config.https_enforce = WGET_HTTPS_ENFORCE_NONE;
+		config.https_enforce = HTTPS_ENFORCE_NONE;
 
 	wget_iri_set_defaultport(WGET_IRI_SCHEME_HTTP, config.default_http_port);
 	wget_iri_set_defaultport(WGET_IRI_SCHEME_HTTPS, config.default_https_port);
@@ -3271,7 +3300,7 @@ int init(int argc, const char **argv)
 		config.max_threads = 1;
 
 	// truncate output document
-	if (config.output_document && strcmp(config.output_document,"-") && !config.dont_write) {
+	if (config.output_document && strcmp(config.output_document, "-") && !config.dont_write) {
 		int fd = open(config.output_document, O_WRONLY | O_TRUNC | O_BINARY);
 
 		if (fd != -1)
@@ -3393,6 +3422,25 @@ int init(int argc, const char **argv)
 	if (config.start_pos && config.continue_download) {
 		error_printf(_("Specifying both --start-pos and --continue is not recommended; --continue will be disabled"));
 		config.continue_download = 0;
+	}
+
+	if (config.timestamping) {
+		if (config.output_document) {
+			error_printf(_("WARNING: timestamping does nothing in combination with -O"));
+			config.timestamping = 0;
+		}
+		if (!config.clobber) {
+			error_printf(_("Can't timestamp and not clobber old files at the same time"));
+			config.timestamping = 0;
+		}
+		if (config.spider) {
+			error_printf(_("WARNING: timestamping does nothing in combination with spider"));
+			config.timestamping = 0;
+		}
+		if (config.chunk_size && config.if_modified_since) {
+			error_printf(_("WARNING: timestamping and chunk-size only work together without If-Modified-Since"));
+			config.if_modified_since = 0;
+		}
 	}
 
 	if (config.mirror)
@@ -3581,7 +3629,7 @@ int init(int argc, const char **argv)
 	}
 
 	if (config.dns_cache_preload)
-		_preload_dns_cache(config.dns_cache_preload);
+		preload_dns_cache(config.dns_cache_preload);
 
 	return n;
 }
@@ -3701,7 +3749,7 @@ void deinit(void)
 	wget_vector_free(&config.exclude_directories);
 	wget_vector_free(&config.save_content_on);
 	wget_vector_free(&config.mime_types);
-	wget_vector_free(&config.http_retry_on_status);
+	wget_vector_free(&config.http_retry_on_error);
 	wget_vector_free(&config.domains);
 	wget_vector_free(&config.exclude_domains);
 	wget_vector_free(&config.follow_tags);
@@ -3802,17 +3850,16 @@ int selftest_options(void)
 		static struct {
 			const char
 				*argv[3];
-			char
+			bool
 				result;
 		} test_bool_short[] = {
 			{ { "", "-r", "-" }, 1 },
 		};
 
 		// save config values
-		char recursive = config.recursive;
+		bool recursive = config.recursive;
 
 		for (it = 0; it < countof(test_bool_short); it++) {
-			config.recursive = 2; // invalid bool value
 			parse_command_line(3, test_bool_short[it].argv);
 			if (config.recursive != test_bool_short[it].result) {
 				error_printf(_("%s: Failed to parse bool short option #%zu (=%d)\n"), __func__, it, config.recursive);
@@ -3839,14 +3886,12 @@ int selftest_options(void)
 		};
 
 		for (it = 0; it < countof(test_bool); it++) {
-			config.recursive = 2; // invalid bool value
 			parse_command_line(2, test_bool[it].argv);
 			if (config.recursive != test_bool[it].result) {
 				error_printf(_("%s: Failed to parse bool long option #%zu (%d)\n"), __func__, it, config.recursive);
 				ret = 1;
 			}
 
-			config.recursive = 2; // invalid bool value
 			parse_command_line(3, test_bool[it].argv);
 			if (config.recursive != test_bool[it].result) {
 				error_printf(_("%s: Failed to parse bool long option #%zu (%d)\n"), __func__, it, config.recursive);

@@ -1,7 +1,7 @@
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\" -DLOCALEDIR=\"$(localedir)\"
 
 LDADD = $(CODE_COVERAGE_LIBS) $(LIBOBJS) ../lib/libgnu.a
-AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(CODE_COVERAGE_CFLAGS)
+AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(CODE_COVERAGE_CFLAGS) -DMALLOC_RETURNS_NONNULL
 AM_CPPFLAGS = -I$(top_srcdir)/include/wget -I$(srcdir) -I$(top_builddir)/lib -I$(top_srcdir)/lib \
  $(CODE_COVERAGE_CPPLAGS) \
  -DWGETVER_FILE=\"$(top_builddir)/include/wget/wgetver.h\" \
@@ -23,8 +23,7 @@ wget2_SOURCES =\
  options.c wget_options.h\
  testing.c wget_testing.h\
  wget_xattr.h \
- utils.c wget_utils.h \
- version-text.h
+ utils.c wget_utils.h
 
 if WITH_GPGME
   wget2_SOURCES += gpgme.c wget_gpgme.h

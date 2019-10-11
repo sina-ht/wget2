@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -33,6 +33,7 @@
 #include <c-ctype.h>
 #include <time.h>
 #include <errno.h>
+#include <stdint.h>
 
 #include <wget.h>
 #include "private.h"
@@ -623,7 +624,7 @@ const char *wget_http_parse_public_key_pins(const char *s, wget_hpkp *hpkp)
 
 		if (param.value) {
 			if (!wget_strcasecmp_ascii(param.name, "max-age")) {
-				wget_hpkp_set_maxage(hpkp, (time_t)atoll(param.value));
+				wget_hpkp_set_maxage(hpkp, (int64_t) atoll(param.value));
 			} else if (!wget_strncasecmp_ascii(param.name, "pin-", 4)) {
 				wget_hpkp_pin_add(hpkp, param.name + 4, param.value);
 			}
@@ -646,7 +647,7 @@ const char *wget_http_parse_public_key_pins(const char *s, wget_hpkp *hpkp)
 // directive-name            = token
 // directive-value           = token | quoted-string
 
-const char *wget_http_parse_strict_transport_security(const char *s, time_t *maxage, char *include_subdomains)
+const char *wget_http_parse_strict_transport_security(const char *s, int64_t *maxage, bool *include_subdomains)
 {
 	wget_http_header_param param;
 
@@ -658,7 +659,7 @@ const char *wget_http_parse_strict_transport_security(const char *s, time_t *max
 
 		if (param.value) {
 			if (!wget_strcasecmp_ascii(param.name, "max-age")) {
-				*maxage = (time_t)atoll(param.value);
+				*maxage = (int64_t) atoll(param.value);
 			}
 		} else {
 			if (!wget_strcasecmp_ascii(param.name, "includeSubDomains")) {
@@ -693,6 +694,8 @@ const char *wget_http_parse_content_encoding(const char *s, char *content_encodi
 		*content_encoding = wget_content_encoding_brotli;
 	else if (!wget_strcasecmp_ascii(s, "zstd"))
 		*content_encoding = wget_content_encoding_zstd;
+	else if (!wget_strcasecmp_ascii(s, "lzip"))
+		*content_encoding = wget_content_encoding_lzip;
 	else
 		*content_encoding = wget_content_encoding_identity;
 
@@ -701,16 +704,20 @@ const char *wget_http_parse_content_encoding(const char *s, char *content_encodi
 	return s;
 }
 
-const char *wget_http_parse_connection(const char *s, char *keep_alive)
+const char *wget_http_parse_connection(const char *s, bool *keep_alive)
 {
-	while (c_isblank(*s)) s++;
+	const char *e;
 
-	if (!wget_strcasecmp_ascii(s, "keep-alive"))
-		*keep_alive = 1;
-	else
-		*keep_alive = 0;
+	*keep_alive = false;
 
-	while (wget_http_istoken(*s)) s++;
+	for (e = s; *e; s = e + 1) {
+		if ((e = strchrnul(s, ',')) != s) {
+			while (c_isblank(*s)) s++;
+
+			if (!wget_strncasecmp_ascii(s, "keep-alive", 10))
+				*keep_alive = true;
+		}
+	}
 
 	return s;
 }
@@ -819,7 +826,7 @@ month        = "Jan" | "Feb" | "Mar" | "Apr"
 				 | "Sep" | "Oct" | "Nov" | "Dec"
 */
 
-time_t wget_http_parse_full_date(const char *s)
+int64_t wget_http_parse_full_date(const char *s)
 {
 	// we simply can't use strptime() since it requires us to setlocale()
 	// which is not thread-safe !!!
@@ -854,9 +861,7 @@ time_t wget_http_parse_full_date(const char *s)
 	}
 
 	if (*mname) {
-		unsigned it;
-
-		for (it = 0; it < countof(mnames); it++) {
+		for (unsigned it = 0; it < countof(mnames); it++) {
 			if (!wget_strcasecmp_ascii(mname, mnames[it])) {
 				mon = it + 1;
 				break;
@@ -880,16 +885,16 @@ time_t wget_http_parse_full_date(const char *s)
 		return 0; // return as session cookie
 	}
 
-	// calculate time_t from GMT/UTC time values
+	// calculate time_t (represented as int64_t) from GMT/UTC time values
 
 	days = 365 * (year - 1970) + leap_days(1970, year);
 	days += sum_of_days[mon - 1] + (mon > 2 && leap_year);
 	days += day - 1;
 
-	return (((time_t)days * 24 + hour) * 60 + min) * 60 + sec;
+	return (((int64_t)days * 24 + hour) * 60 + min) * 60 + sec;
 }
 
-char *wget_http_print_date(time_t t, char *buf, size_t bufsize)
+char *wget_http_print_date(int64_t t, char *buf, size_t bufsize)
 {
 	static const char *dnames[7] = {
 		"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
@@ -898,11 +903,22 @@ char *wget_http_print_date(time_t t, char *buf, size_t bufsize)
 		"Jan", "Feb", "Mar","Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
 	struct tm tm;
+	time_t tt;
 
 	if (!bufsize)
 		return buf;
 
-	if (gmtime_r(&t, &tm)) {
+#if __LP64__ == 1
+	tt = (time_t) t; // 64bit time_t
+#else
+	// 32bit time_t
+	if (t > 2147483647)
+		tt = 2147483647;
+	else
+		tt = (time_t) t;
+#endif
+
+	if (gmtime_r(&tt, &tm)) {
 		wget_snprintf(buf, bufsize, "%s, %02d %s %d %02d:%02d:%02d GMT",
 			dnames[tm.tm_wday],tm.tm_mday,mnames[tm.tm_mon],tm.tm_year+1900,
 			tm.tm_hour, tm.tm_min, tm.tm_sec);
@@ -988,14 +1004,14 @@ static long long adjust_time(long long t, int n)
 
 // return current GMT/UTC
 
-static long long get_current_time(void)
+static int64_t get_current_time(void)
 {
-	time_t t = time(NULL);
+	int64_t t = time(NULL);
 	struct tm tm;
 
 	gmtime_r(&t, &tm);
 
-	return (((((long long)(tm.tm_year + 1900)*100 + tm.tm_mon + 1)*100 + tm.tm_mday)*100 + tm.tm_hour)*100 + tm.tm_min)*100 + tm.tm_sec;
+	return (((((int64_t)(tm.tm_year + 1900)*100 + tm.tm_mon + 1)*100 + tm.tm_mday)*100 + tm.tm_hour)*100 + tm.tm_min)*100 + tm.tm_sec;
 }
 */
 

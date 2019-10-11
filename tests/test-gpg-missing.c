@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -34,5 +34,5 @@ int main(void)
 	}
 #endif
 
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2016-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2016-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -28,6 +28,7 @@
 #include <config.h>
 
 #include <stdlib.h> // exit()
+#include <string.h>
 #include "libtest.h"
 
 int main(void)
@@ -305,5 +306,5 @@ int main(void)
 	wget_free((void *)urls[6].headers[4]);
 	wget_free((void *)urls[9].headers[3]);
 
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

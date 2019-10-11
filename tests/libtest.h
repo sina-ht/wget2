@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2013-2014 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2013-2014 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -35,18 +35,6 @@
 
 #include <wget.h>
 
-// gnulib convenience header for libintl.h, turn of annoying warnings
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wundef"
-#include <gettext.h>
-#pragma GCC diagnostic pop
-
-#ifdef ENABLE_NLS
-#	define _(STRING) gettext(STRING)
-#else
-#	define _(STRING) STRING
-#endif
-
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -55,11 +43,12 @@ extern "C" {
 
 // defines for wget_test_start_http_server()
 #define WGET_TEST_RESPONSE_URLS 1002
-#define WGET_TEST_HTTPS_ONLY 1003
-#define WGET_TEST_HTTP_ONLY 1004
-#define WGET_TEST_HTTPS_REJECT_CONNECTIONS 1005
-#define WGET_TEST_H2_ONLY 1006
-#define WGET_TEST_SKIP_H2 1007
+#define WGET_TEST_HTTP_ONLY 1003
+#define WGET_TEST_HTTPS_ONLY 1004
+#define WGET_TEST_HTTP_REJECT_CONNECTIONS 1005
+#define WGET_TEST_HTTPS_REJECT_CONNECTIONS 1006
+#define WGET_TEST_H2_ONLY 1007
+#define WGET_TEST_SKIP_H2 1008
 #define WGET_TEST_FEATURE_MHD 1101
 #define WGET_TEST_FEATURE_TLS 1102
 #define WGET_TEST_FEATURE_IDN 1103
@@ -77,6 +66,8 @@ extern "C" {
 #define WGET_TEST_REQUEST_URLS 2007
 #define WGET_TEST_EXECUTABLE 2008
 #define WGET_TEST_SERVER_SEND_CONTENT_LENGTH 2009
+#define WGET_TEST_EXPECTED_ERROR_CODE2 2010
+#define WGET_TEST_CLEAN_DIRECTORY 2011
 
 // defines for wget_test_check_file_system()
 #define WGET_TEST_FS_CASEMATTERS 3001 // file system is case-sensitive
@@ -137,7 +128,7 @@ typedef struct {
 		expected_req_headers[10];
 	const char *
 		unexpected_req_headers[10];
-	time_t
+	int64_t
 		modified;
 
 	// auth fields

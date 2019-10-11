@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2018-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -66,7 +66,7 @@ int main(void)
 	wget_test(
 		// WGET_TEST_KEEP_TMPFILES, 1,
 		WGET_TEST_OPTIONS,
-			" --https-enforce=soft --recursive -nH" \
+			"--https-enforce=soft --recursive -nH"
 			" --default-https-port={{sslport}} --default-http-port={{port}}",
 		WGET_TEST_REQUEST_URL, "http://localhost/index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
@@ -77,5 +77,5 @@ int main(void)
 			{	NULL } },
 		0);
 
-	exit(0);
+	exit(EXIT_SUCCESS);
 }

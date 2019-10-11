@@ -1,5 +1,5 @@
 /*
- * Copyright(c) 2018-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2019 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -75,6 +75,10 @@ int main(void)
 			.body = "don't care",
 			.headers = { "Content-Type: image/png" }
 		},
+                {       .name = "/dummy.txt",
+                        .code = "200 Dontcare",
+                        .body = "What ever"
+                }
 	};
 
 	// functions won't come back if an error occurs
@@ -170,5 +174,68 @@ int main(void)
 			{	NULL } },
 		0);
 
-	exit(0);
+	// simple --filter-mime-type tests
+	wget_test(
+		WGET_TEST_OPTIONS, "--filter-mime-type text/html",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body },
+			{	NULL } },
+		0);
+
+	wget_test(
+		WGET_TEST_OPTIONS, "--filter-mime-type \"*,!text/html\"",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{	NULL } },
+		0);
+
+	// As dummy.txt hasn't MIME type is considered to be 'application/octet-stream' (RFC 7231, sec. 3.1.1.5)
+	wget_test(
+		WGET_TEST_OPTIONS, "--filter-mime-type \"*,!text/plain\"",
+		WGET_TEST_REQUEST_URL, "dummy.txt",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[7].name + 1, urls[7].body },
+			{	NULL } },
+		0);
+
+	wget_test(
+		WGET_TEST_OPTIONS, "--filter-mime-type \"text/plain\"",
+		WGET_TEST_REQUEST_URL, "dummy.txt",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{	NULL } },
+		0);
+
+	// tests with -N --no-if-modified-since
+	int n_urls = countof(urls);
+	for (int i = 0; i < n_urls; i++) {
+		urls[i].headers[1] = "Last-Modified: Sat, 09 Oct 2004 08:30:00 GMT";
+	}
+	wget_test(
+		WGET_TEST_OPTIONS, "-r -nH --filter-mime-type \"image/*,!*/jpeg\" -N --no-if-modified-since",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[6].name + 1, urls[6].body, 1097310600 },
+			{	NULL } },
+		0);
+
+	wget_test(
+		WGET_TEST_OPTIONS, "-r -nH --filter-mime-type \"image/*,!*/jpeg\" -N --no-if-modified-since",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXISTING_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body, 1097310900 },
+			{	NULL } },
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body, 1097310900 },
+			{ urls[6].name + 1, urls[6].body, 1097310600 },
+			{	NULL } },
+		0);
+
+	exit(EXIT_SUCCESS);
 }

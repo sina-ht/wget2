@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -41,17 +41,17 @@
 #define EXCLUDED_DIRECTORY_PREFIX '-'
 
 //types for --https-enforce
-enum {
-	WGET_HTTPS_ENFORCE_NONE,
-	WGET_HTTPS_ENFORCE_SOFT,
-	WGET_HTTPS_ENFORCE_HARD
-};
+typedef enum {
+	HTTPS_ENFORCE_NONE,
+	HTTPS_ENFORCE_SOFT,
+	HTTPS_ENFORCE_HARD
+} https_enforce_mode;
 
-enum {
-	WGET_GPG_VERIFY_DISABLED,
-	WGET_GPG_VERIFY_SIG_FAIL,
+typedef enum {
+	GPG_VERIFY_DISABLED,
+	GPG_VERIFY_SIG_FAIL,
 	WGET_GPG_VERIFY_SIG_NO_FAIL
-};
+} gpg_verify_mode;
 
 typedef struct {
 	const char
@@ -129,7 +129,7 @@ struct config {
 		*default_challenges,
 		*headers,
 		*mime_types,
-		*http_retry_on_status,
+		*http_retry_on_error,
 		*save_content_on;
 	wget_content_encoding
 		compression_methods[wget_content_encoding_max + 1];	// the last one for counting
@@ -164,9 +164,6 @@ struct config {
 		quota,
 		limit_rate, // bytes
 		start_pos; // bytes
-	bool
-		no_compression,
-		auth_no_challenge;
 	int
 		http2_request_window,
 		backups,
@@ -181,18 +178,23 @@ struct config {
 		dns_timeout, // ms
 		read_timeout, // ms
 		max_redirect,
-		max_threads,
-		ocsp_date,
-		ocsp_nonce;
+		max_threads;
 	uint16_t
 		default_http_port,
 		default_https_port;
 	wget_report_speed
 		report_speed;
+	https_enforce_mode
+		https_enforce;
+	gpg_verify_mode
+		verify_sig;
 	char
-		tls_resume,            // if TLS session resumption is enabled or not
-		tls_false_start,
+		cert_type,             // SSL_X509_FMT_PEM or SSL_X509_FMT_DER (=ASN1)
+		private_key_type,      // SSL_X509_FMT_PEM or SSL_X509_FMT_DER (=ASN1)
 		progress,
+		regex_type;
+	bool
+		tls_resume,            // if TLS session resumption is enabled or not
 		content_on_error,
 		fsync_policy,
 		netrc,
@@ -242,15 +244,10 @@ struct config {
 		cookies,
 		spider,
 		dns_caching,
-		tcp_fastopen,
 		check_certificate,
 		check_hostname,
-		cert_type,             // SSL_X509_FMT_PEM or SSL_X509_FMT_DER (=ASN1)
-		private_key_type,      // SSL_X509_FMT_PEM or SSL_X509_FMT_DER (=ASN1)
 		span_hosts,
-		recursive,
 		verbose,
-		print_version,
 		quiet,
 		debug,
 		metalink,
@@ -261,33 +258,37 @@ struct config {
 		force_progress,
 		local_db,
 		dont_write, // fuzzers and unit/fuzz tests set this to 1, so they won't write any files
-		regex_type,
 		filter_urls,
 		askpass,
 		verify_save_failed,
-		verify_sig,
-		https_enforce,
 		retry_connrefused,
 		unlink,
-		background;
-
+		background,
+		if_modified_since,
+		auth_no_challenge,
+		no_compression,
+		ocsp_date,
+		ocsp_nonce,
+		recursive,
+		tls_false_start,
+		tcp_fastopen;
 };
 
 extern struct config
 	config;
 
-typedef enum exit_status_t {
-	WG_EXIT_STATUS_NO_ERROR       = EXIT_SUCCESS,
-	WG_EXIT_STATUS_GENERIC        = 1,
-	WG_EXIT_STATUS_PARSE_INIT     = 2,
-	WG_EXIT_STATUS_IO             = 3,
-	WG_EXIT_STATUS_NETWORK        = 4,
-	WG_EXIT_STATUS_TLS            = 5,
-	WG_EXIT_STATUS_AUTH           = 6,
-	WG_EXIT_STATUS_PROTOCOL       = 7,
-	WG_EXIT_STATUS_REMOTE         = 8,
-	WG_EXIT_STATUS_GPG_ERROR      = 9
-} exit_status_t;
+typedef enum {
+	EXIT_STATUS_NO_ERROR       = EXIT_SUCCESS,
+	EXIT_STATUS_GENERIC        = 1,
+	EXIT_STATUS_PARSE_INIT     = 2,
+	EXIT_STATUS_IO             = 3,
+	EXIT_STATUS_NETWORK        = 4,
+	EXIT_STATUS_TLS            = 5,
+	EXIT_STATUS_AUTH           = 6,
+	EXIT_STATUS_PROTOCOL       = 7,
+	EXIT_STATUS_REMOTE         = 8,
+	EXIT_STATUS_GPG_ERROR      = 9
+} exit_status_e;
 
 // Needed for fuzzers that are compiled by C++
 #ifdef __cplusplus
@@ -297,8 +298,8 @@ extern "C" {
 int init(int argc, const char **argv) WGET_GCC_NONNULL_ALL;
 int selftest_options(void);
 void deinit(void);
-void set_exit_status(exit_status_t status);
-exit_status_t get_exit_status(void);
+void set_exit_status(exit_status_e status);
+exit_status_e get_exit_status(void);
 
 #ifdef __cplusplus
 }

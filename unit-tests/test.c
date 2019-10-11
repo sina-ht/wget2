@@ -1,6 +1,6 @@
 /*
- * Copyright(c) 2012 Tim Ruehsen
- * Copyright(c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2012 Tim Ruehsen
+ * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -227,26 +227,6 @@ static void test_buffer(void)
 	_test_buffer(&buf, "Test 2");
 	wget_buffer_deinit(&buf);
 
-	// testing buffer on heap, using initial stack memory
-	// without resizing
-
-	bufp = wget_buffer_init(NULL, sbuf, sizeof(sbuf));
-	wget_buffer_deinit(bufp);
-
-	bufp = wget_buffer_init(NULL, sbuf, sizeof(sbuf));
-	wget_buffer_free(&bufp);
-
-	// testing buffer on heap, using initial stack memory
-	// with resizing
-
-	bufp = wget_buffer_init(NULL, sbuf, sizeof(sbuf));
-	_test_buffer(bufp, "Test 3");
-	wget_buffer_deinit(bufp);
-
-	bufp = wget_buffer_init(NULL, sbuf, sizeof(sbuf));
-	_test_buffer(bufp, "Test 4");
-	wget_buffer_free(&bufp);
-
 	// testing buffer on stack, forcing internal allocation
 
 	wget_buffer_init(&buf, sbuf, 0);
@@ -308,12 +288,12 @@ static void test_buffer(void)
 	wget_buffer_deinit(&buf);
 
 	// force reallocation
-	assert(wget_buffer_init(&buf, sbuf, sizeof(sbuf)) == &buf);
+	assert(wget_buffer_init(&buf, sbuf, sizeof(sbuf)) == WGET_E_SUCCESS);
 	wget_buffer_memset(&buf, 0, 4096);
 	wget_buffer_free_data(&buf);
 	assert(wget_buffer_ensure_capacity(&buf, 256) == WGET_E_SUCCESS);
 	wget_buffer_memset(&buf, 0, 4096);
-	assert((bufp = wget_buffer_init(NULL, NULL, 0)) != NULL);
+	assert((bufp = wget_buffer_alloc(0)) != NULL);
 	wget_buffer_bufcpy(&buf, bufp);
 	wget_buffer_strcpy(bufp, "moin");
 	wget_buffer_bufcpy(&buf, bufp);
@@ -945,26 +925,28 @@ static void test_iri_relative_to_absolute(void)
 	};
 	unsigned it;
 	char uri_buf_static[32]; // use a size that forces allocation in some cases
-	wget_buffer *uri_buf = wget_buffer_init(NULL, uri_buf_static, sizeof(uri_buf_static));
+	wget_buffer uri_buf;
 	wget_iri *base;
+
+	wget_buffer_init(&uri_buf, uri_buf_static, sizeof(uri_buf_static));
 
 	for (it = 0; it < countof(test_data); it++) {
 		const struct iri_test_data *t = &test_data[it];
 
 		base = wget_iri_parse(t->base, "utf-8");
-		wget_iri_relative_to_abs(base, t->relative, -1, uri_buf);
+		wget_iri_relative_to_abs(base, t->relative, -1, &uri_buf);
 
-		if (!strcmp(uri_buf->data, t->result))
+		if (!strcmp(uri_buf.data, t->result))
 			ok++;
 		else {
 			failed++;
-			info_printf("Failed [%u]: %s+%s -> %s (expected %s)\n", it, t->base, t->relative, uri_buf->data, t->result);
+			info_printf("Failed [%u]: %s+%s -> %s (expected %s)\n", it, t->base, t->relative, uri_buf.data, t->result);
 		}
 
 		wget_iri_free(&base);
 	}
 
-	wget_buffer_free(&uri_buf);
+	wget_buffer_deinit(&uri_buf);
 }
 
 static void test_iri_compare(void)
@@ -1325,8 +1307,8 @@ static void test_hsts(void)
 		{ "www.example.com", 8080, 0 }, // wrong port
 	};
 	wget_hsts_db *hsts_db = wget_hsts_db_init(NULL, NULL);
-	time_t maxage;
-	char include_subdomains;
+	int64_t maxage;
+	bool include_subdomains;
 	int n;
 
 	// fill HSTS database with values
@@ -1400,7 +1382,7 @@ static void test_hpkp(void)
 		{ "www.example3.com", 443, "max-age=14400" }, // this removes the previous entry, due to no PINs
 	};
 	struct hpkp_db_params {
-		time_t
+		int64_t
 			maxage;
 		bool
 			include_subdomains;
@@ -1765,9 +1747,41 @@ static void test_hashing(void)
 				failed++;
 				info_printf("Failed [%u]: wget_hash_fast(%s,%d) -> %s (expected %s)\n", it, t->text, t->algo, digest_hex, t->result);
 			}
-		} else {
+
+			// now let's test init/hash/deinit
+			wget_hash_hd *handle;
+
+			if ((rc = wget_hash_init(&handle, t->algo)) != 0) {
+				failed++;
+				info_printf("Failed [%u]: wget_hash_init(%d) -> %d (expected 0)\n", it, t->algo, rc);
+				continue;
+			}
+			if ((rc = wget_hash(handle, t->text, strlen(t->text))) != 0) {
+				failed++;
+				info_printf("Failed [%u]: wget_hash(%s) -> %d (expected 0)\n", it, t->text, rc);
+				continue;
+			}
+			if ((rc = wget_hash_deinit(&handle, digest)) != 0) {
+				failed++;
+				info_printf("Failed [%u]: wget_hash_deinit() -> %d (expected 0)\n", it, rc);
+				continue;
+			}
+
+			wget_memtohex(digest, len, digest_hex, len * 2 + 1);
+
+			if (!strcmp(digest_hex, t->result))
+				ok++;
+			else {
+				failed++;
+				info_printf("Failed [%u]: wget_hash_init/hash/deinit(%s,%d) -> %s (expected %s)\n", it, t->text, t->algo, digest_hex, t->result);
+			}
+
+		} else if (rc != WGET_E_UNSUPPORTED) {
 			failed++;
 			info_printf("Failed [%u]: wget_hash_fast(%s,%d) failed with %d\n", it, t->text, t->algo, rc);
+		} else {
+			// Skipping if not supported in libwget. Depends on the configurged crypto backend.
+			info_printf("Skip hashing [%u]\n", it);
 		}
 	}
 }
