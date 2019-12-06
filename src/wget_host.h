@@ -60,12 +60,12 @@ typedef struct {
 void host_init(void);
 void host_exit(void);
 
-HOST *host_add(wget_iri *iri) WGET_GCC_NONNULL((1));
-HOST *host_get(wget_iri *iri) WGET_GCC_NONNULL((1));
+HOST *host_add(const wget_iri *iri) WGET_GCC_NONNULL((1));
+HOST *host_get(const wget_iri *iri) WGET_GCC_NONNULL((1));
 
 JOB *host_get_job(HOST *host, long long *pause);
 void host_add_job(HOST *host, const JOB *job) WGET_GCC_NONNULL((1,2));
-void host_add_robotstxt_job(HOST *host, wget_iri *iri, bool http_fallback) WGET_GCC_NONNULL((1,2));
+void host_add_robotstxt_job(HOST *host, const wget_iri *iri, const char *encoding, bool http_fallback) WGET_GCC_NONNULL((1,2));
 void host_release_jobs(HOST *host);
 void host_remove_job(HOST *host, JOB *job) WGET_GCC_NONNULL((1,2));
 void host_queue_free(HOST *host) WGET_GCC_NONNULL((1));

@@ -2,20 +2,20 @@
  * Copyright (c) 2013-2014 Tim Ruehsen
  * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
- * This file is part of libwget.
+ * This file is part of Wget
  *
- * Libwget is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
+ * Wget is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * Libwget is distributed in the hope that it will be useful,
+ * Wget is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
+ * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public License
- * along with libwget.  If not, see <https://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU General Public License
+ * along with Wget  If not, see <https://www.gnu.org/licenses/>.
  *
  *
  * Test suite function library
@@ -154,12 +154,6 @@ static enum PASS {
 	H2_PASS,
 	END_PASS
 } proto_pass;
-
-static char *_scan_directory(const char* data)
-{
-	return strchr(data, '/');
-}
-
 
 static const char *_parse_hostname(const char* data)
 {
@@ -350,7 +344,7 @@ static int _answer_to_connection(
 	void **con_cls WGET_GCC_UNUSED)
 {
 #if MHD_VERSION >= 0x00096302 && GNUTLS_VERSION_NUMBER >= 0x030603
-	if (post_handshake_auth != NULL) {
+	if (post_handshake_auth) {
 		gnutls_session_t tls_sess;
 		const union MHD_ConnectionInfo *conn_info = MHD_get_connection_info (connection, MHD_CONNECTION_INFO_GNUTLS_SESSION);
 
@@ -409,71 +403,66 @@ static int _answer_to_connection(
 		wget_xfree(from_bytes_string);
 	}
 
-	// append query string into URL
-	wget_buffer *url_full = wget_buffer_alloc(1024);
-	wget_buffer_strcpy(url_full, url);
-	if (query.params->data)
-		wget_buffer_strcat(url_full, query.params->data);
+	// append 'index.html' to directory and append query string
+	const char *url_full, *p;
+	if ((p = strrchr(url, '/')) && p[1] == 0) {
+		url_full = wget_aprintf("%sindex.html%s", url, query.params->data ? query.params->data : "");
+	} else {
+		url_full = wget_aprintf("%s%s", url, query.params->data ? query.params->data : "");
+	}
 	wget_buffer_free(&query.params);
 
-	// default page to index.html
-	if (!strcmp(url_full->data, "/"))
-		wget_buffer_strcat(url_full, "index.html");
+	// iterate over test urls array
+	bool found = false, chunked = false;
+	char *url_iri = NULL;
 
-	// it1 = iteration for urls data
-	unsigned int found = 0, chunked = 0;
-	for (unsigned it1 = 0; it1 < nurls && !found; it1++) {
-		if (urls[it1].http_only && https)
+	for (wget_test_url_t *request_url = urls; request_url < urls + nurls; request_url++) {
+		if (request_url->http_only && https)
 			continue;
-		if (urls[it1].https_only && !https)
+		if (request_url->https_only && !https)
 			continue;
-
-		// create default page for directory without index page
-		const char *dir = _scan_directory(url_full->data + 1);
-		if (dir && !strcmp(dir, "/"))
-			wget_buffer_strcat(url_full, "index.html");
-
-		// create default page for hostname without index page
-		const char *host = _parse_hostname(url_full->data);
-		if (host && !strcmp(host, "/"))
-			wget_buffer_strcat(url_full, "index.html");
 
 		// convert remote url into escaped char for iri encoding
-		wget_buffer *url_iri = wget_buffer_alloc(1024);
-		wget_buffer_strcpy(url_iri, urls[it1].name);
-		MHD_http_unescape(url_iri->data);
+		wget_xfree(url_iri);
+		url_iri = wget_strdup(request_url->name);
+		MHD_http_unescape(url_iri);
 
-		if (!strcmp(_parse_hostname(url_full->data), _parse_hostname(url_iri->data))) {
+		if (!strcmp(_parse_hostname(url_full), _parse_hostname(url_iri))) {
 			size_t body_length =
-				urls[it1].body_len ? urls[it1].body_len
-				: (urls[it1].body ? strlen(urls[it1].body) : 0);
+				request_url->body_len ? request_url->body_len
+				: (request_url->body ? strlen(request_url->body) : 0);
 
 			// check request headers
-			int bad_request = 0;
+			bool bad_request = false;
 
-			for (unsigned it2 = 0; urls[it1].expected_req_headers[it2]; it2++) {
-				const char *header = urls[it1].expected_req_headers[it2];
-				if (header) {
-					const char *header_value = strchr(header, ':');
-					const char *header_key = wget_strmemdup(header, header_value - header);
-					const char *got_val = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, header_key);
-					// 400 Bad Request
-					if (!got_val || strcmp(got_val, header_value + 2)) {
-						bad_request = 1;
-						wget_xfree(header_key);
-						break;
-					}
-					wget_xfree(header_key);
+			if (request_url->expected_method && strcmp(method, request_url->expected_method)) {
+				wget_debug_printf("%s: Expected request method '%s', but got '%s'\n",
+					__func__, request_url->expected_method, method);
+				bad_request = true;
+			}
+
+			for (const char **header = request_url->expected_req_headers; *header; header++) {
+				const char *header_value = strchr(*header, ':');
+				const char *header_key = wget_strmemdup(*header, header_value - *header);
+				const char *got_val = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, header_key);
+				wget_xfree(header_key);
+
+				// 400 Bad Request
+				if (!got_val || strcmp(got_val, header_value + 2)) {
+					wget_debug_printf("%s: Missing expected header '%s'\n", __func__, *header);
+					bad_request = true;
+					break;
 				}
 			}
 
 			// check unexpected headers
-			for (unsigned it2 = 0; urls[it1].unexpected_req_headers[it2] && !bad_request; it2++) {
-				const char *header_key = urls[it1].unexpected_req_headers[it2];
-				const char *got_val = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, header_key);
+			for (const char **header_key = request_url->unexpected_req_headers; *header_key; header_key++) {
+				const char *got_val = MHD_lookup_connection_value(connection, MHD_HEADER_KIND, *header_key);
+
 				// 400 Bad Request
 				if (got_val) {
-					bad_request = 1;
+					wget_debug_printf("%s: Got unexpected header '%s'\n", __func__, *header_key);
+					bad_request = true;
 					break;
 				}
 			}
@@ -482,90 +471,79 @@ static int _answer_to_connection(
 			if (bad_request) {
 				response = MHD_create_response_from_buffer(0, (void *) "", MHD_RESPMEM_PERSISTENT);
 				ret = MHD_queue_response(connection, MHD_HTTP_BAD_REQUEST, response);
-				wget_buffer_free(&url_iri);
-				found = 1;
+				found = true;
 				break;
 			}
 
 			// chunked encoding
-			if (!wget_strcmp(urls[it1].name + 3, "bad.txt")) {
+			if (!wget_strcmp(request_url->name + 3, "bad.txt")) {
 				response = MHD_create_response_from_buffer(body_length,
-					(void *) urls[it1].body, MHD_RESPMEM_MUST_COPY);
+					(void *) request_url->body, MHD_RESPMEM_MUST_COPY);
 				ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
 				MHD_add_response_header(response, "Transfer-Encoding", "chunked");
 				MHD_add_response_header(response, "Connection", "close");
-				wget_buffer_free(&url_iri);
-				found = 1;
+				found = true;
 				break;
 			}
-			for (int it2 = 0; urls[it1].headers[it2]; it2++) {
-				const char *header = urls[it1].headers[it2];
-				if (header) {
-					const char *header_value = strchr(header, ':');
-					const char *header_key = wget_strmemdup(header, header_value - header);
-					if (!strcmp(header_key, "Transfer-Encoding") && !strcmp(header_value + 2, "chunked"))
-						chunked = 1;
-					wget_xfree(header_key);
-				}
+			for (const char **header = request_url->headers; *header; header++) {
+				const char *header_value = strchr(*header, ':');
+				const char *header_key = wget_strmemdup(*header, header_value - *header);
+				if (!strcmp(header_key, "Transfer-Encoding") && !strcmp(header_value + 2, "chunked"))
+					chunked = true;
+				wget_xfree(header_key);
 			}
-			if (chunked == 1) {
+			if (chunked) {
 				struct ResponseContentCallbackParam *callback_param = wget_malloc(sizeof(struct ResponseContentCallbackParam));
 
-				callback_param->response_data = urls[it1].body;
+				callback_param->response_data = request_url->body;
 				callback_param->response_size = body_length;
 
 				response = MHD_create_response_from_callback(MHD_SIZE_UNKNOWN,
 					1024, &_callback, callback_param, &_free_callback_param);
 				ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
-				wget_buffer_free(&url_iri);
-				found = 1;
+				found = true;
 				break;
 			}
 
 			// redirection
-			if (atoi(urls[it1].code)/100 == 3) {
+			if (atoi(request_url->code)/100 == 3) {
 				response = MHD_create_response_from_buffer(0, (void *) "", MHD_RESPMEM_PERSISTENT);
-				// it2 = iteration for headers
-				for (unsigned it2 = 0; urls[it1].headers[it2]; it2++) {
-					const char *header = urls[it1].headers[it2];
-					if (header) {
-						const char *header_value = strchr(header, ':');
-						const char *header_key = wget_strmemdup(header, header_value - header);
-						MHD_add_response_header(response, header_key, header_value + 2);
-						wget_xfree(header_key);
-					}
+
+				// add available headers
+				for (const char **header = request_url->headers; *header; header++) {
+					const char *header_value = strchr(*header, ':');
+					const char *header_key = wget_strmemdup(*header, header_value - *header);
+					MHD_add_response_header(response, header_key, header_value + 2);
+					wget_xfree(header_key);
 				}
-				ret = MHD_queue_response(connection, MHD_HTTP_FOUND, response);
-				wget_buffer_free(&url_iri);
-				found = 1;
+				ret = MHD_queue_response(connection, atoi(request_url->code), response);
+				found = true;
 				break;
 			}
 
 			// 404 with non-empty "body"
-			if (atoi(urls[it1].code) != 200) {
+			if (atoi(request_url->code) != 200) {
 				response = MHD_create_response_from_buffer(body_length,
-					(void *) urls[it1].body, MHD_RESPMEM_MUST_COPY);
-				ret = MHD_queue_response(connection, MHD_HTTP_NOT_FOUND, response);
-				wget_buffer_free(&url_iri);
-				found = 1;
+					(void *) request_url->body, MHD_RESPMEM_MUST_COPY);
+				ret = MHD_queue_response(connection, atoi(request_url->code), response);
+				found = true;
 				break;
 			}
 
 			// basic authentication
-			if (!wget_strcmp(urls[it1].auth_method, "Basic")) {
+			if (!wget_strcmp(request_url->auth_method, "Basic")) {
 				char *pass = NULL;
 				char *user = MHD_basic_auth_get_username_password(connection, &pass);
 				if ((user == NULL && pass == NULL) ||
-					wget_strcmp(user, urls[it1].auth_username) ||
-					wget_strcmp(pass, urls[it1].auth_password))
+					wget_strcmp(user, request_url->auth_username) ||
+					wget_strcmp(pass, request_url->auth_password))
 				{
 					response = MHD_create_response_from_buffer(strlen ("DENIED"),
 						(void *) "DENIED", MHD_RESPMEM_PERSISTENT);
 					ret = MHD_queue_basic_auth_fail_response(connection, "basic@example.com", response);
 					MHD_free(user);
 					MHD_free(pass);
-					wget_buffer_free(&url_iri);
-					found = 1;
+					found = true;
 					break;
 				}
 				MHD_free(user);
@@ -573,19 +551,18 @@ static int _answer_to_connection(
 			}
 
 			// digest authentication
-			if (!wget_strcmp(urls[it1].auth_method, "Digest")) {
+			if (!wget_strcmp(request_url->auth_method, "Digest")) {
 				const char *realm = "digest@example.com";
 				char *user = MHD_digest_auth_get_username(connection);
-				if (wget_strcmp(user, urls[it1].auth_username)) {
+				if (wget_strcmp(user, request_url->auth_username)) {
 					response = MHD_create_response_from_buffer(strlen ("DENIED"),
 						(void *) "DENIED", MHD_RESPMEM_PERSISTENT);
 					ret = MHD_queue_auth_fail_response(connection, realm, TEST_OPAQUE_STR, response, MHD_NO);
 					MHD_free(user);
-					wget_buffer_free(&url_iri);
-					found = 1;
+					found = true;
 					break;
 				}
-				ret = MHD_digest_auth_check(connection, realm, user, urls[it1].auth_password, 300);
+				ret = MHD_digest_auth_check(connection, realm, user, request_url->auth_password, 300);
 				MHD_free(user);
 				if ((ret == MHD_INVALID_NONCE) || (ret == MHD_NO)) {
 					response = MHD_create_response_from_buffer(strlen ("DENIED"),
@@ -594,16 +571,15 @@ static int _answer_to_connection(
 					if (response) {
 						ret = MHD_queue_auth_fail_response(connection, realm, TEST_OPAQUE_STR, response,
 							(ret == MHD_INVALID_NONCE) ? MHD_YES : MHD_NO);
-						found = 1;
+						found = true;
 					} else
 						ret = MHD_NO;
 
-					wget_buffer_free(&url_iri);
 					break;
 				}
 			}
 
-			if (modified && urls[it1].modified <= modified) {
+			if (modified && request_url->modified <= modified) {
 				response = MHD_create_response_from_buffer(0, (void *) "", MHD_RESPMEM_PERSISTENT);
 				ret = MHD_queue_response(connection, MHD_HTTP_NOT_MODIFIED, response);
 			}
@@ -617,7 +593,7 @@ static int _answer_to_connection(
 					ret = MHD_queue_response(connection, MHD_HTTP_RANGE_NOT_SATISFIABLE, response);
 				} else {
 					response = MHD_create_response_from_buffer(body_len,
-						(void *) (urls[it1].body + from_bytes), MHD_RESPMEM_MUST_COPY);
+						(void *) (request_url->body + from_bytes), MHD_RESPMEM_MUST_COPY);
 					MHD_add_response_header(response, MHD_HTTP_HEADER_ACCEPT_RANGES, "bytes");
 					wget_snprintf(content_range, sizeof(content_range), "%zd-%zd/%zu", from_bytes, to_bytes, body_len);
 					MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_RANGE, content_range);
@@ -626,28 +602,27 @@ static int _answer_to_connection(
 					ret = MHD_queue_response(connection, MHD_HTTP_PARTIAL_CONTENT, response);
 				}
 			} else {
-				response = MHD_create_response_from_buffer(body_length, (void *) urls[it1].body, MHD_RESPMEM_MUST_COPY);
+				response = MHD_create_response_from_buffer(body_length, (void *) request_url->body, MHD_RESPMEM_MUST_COPY);
 				ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
 			}
 
+	// switch off Content-Length sanity checks
+#if MHD_VERSION >= 0x00096800
+			MHD_set_response_options(response,
+				MHD_RF_INSANITY_HEADER_CONTENT_LENGTH,
+				MHD_RO_END);
+#endif
+
 			// add available headers
-			if (*urls[it1].headers) {
-				// it2 = iteration for headers
-				for (unsigned int it2 = 0; urls[it1].headers[it2] != NULL; it2++) {
-					const char *header = urls[it1].headers[it2];
-					if (header) {
-						const char *header_value = strchr(header, ':');
-						const char *header_key = wget_strmemdup(header, header_value - header);
-						MHD_add_response_header(response, header_key, header_value + 2);
-						wget_xfree(header_key);
-					}
-				}
+			for (const char **header = request_url->headers; *header; header++) {
+				const char *header_value = strchr(*header, ':');
+				const char *header_key = wget_strmemdup(*header, header_value - *header);
+				MHD_add_response_header(response, header_key, header_value + 2);
+				wget_xfree(header_key);
 			}
 
-			found = 1;
+			found = true;
 		}
-
-		wget_buffer_free(&url_iri);
 	}
 
 	// 404 with empty "body"
@@ -656,7 +631,8 @@ static int _answer_to_connection(
 		ret = MHD_queue_response(connection, MHD_HTTP_NOT_FOUND, response);
 	}
 
-	wget_buffer_free(&url_full);
+	wget_xfree(url_iri);
+	wget_xfree(url_full);
 	wget_buffer_free(&header_range);
 	char server_version[50];
 	wget_snprintf(server_version, sizeof(server_version), "Libmicrohttpd/%08x", (unsigned int) MHD_VERSION);
@@ -709,8 +685,11 @@ static int _http_server_start(int SERVER_MODE)
 			port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
 			MHD_OPTION_DIGEST_AUTH_RANDOM, sizeof(rnd), rnd,
 			MHD_OPTION_NONCE_NC_SIZE, 300,
-#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+#if MHD_VERSION >= 0x00095400
 			MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+#if MHD_VERSION >= 0x00096800
+			MHD_OPTION_SERVER_INSANITY, 1,
 #endif
 			MHD_OPTION_END);
 
@@ -738,8 +717,11 @@ static int _http_server_start(int SERVER_MODE)
 					port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
 					MHD_OPTION_HTTPS_MEM_KEY, key_pem,
 					MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
-#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+#if MHD_VERSION >= 0x00095400
 					MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+#if MHD_VERSION >= 0x00096800
+			MHD_OPTION_SERVER_INSANITY, 1,
 #endif
 				MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
 				MHD_OPTION_END);
@@ -759,8 +741,11 @@ static int _http_server_start(int SERVER_MODE)
 					port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
 					MHD_OPTION_HTTPS_MEM_KEY, key_pem,
 					MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
-#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+#if MHD_VERSION >= 0x00095400
 					MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+#if MHD_VERSION >= 0x00096800
+			MHD_OPTION_SERVER_INSANITY, 1,
 #endif
 					//Enough to send 1MB files through
 					MHD_OPTION_CONNECTION_MEMORY_LIMIT, 1*1024*1024,
@@ -783,8 +768,11 @@ static int _http_server_start(int SERVER_MODE)
 				,
 				port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
 				MHD_OPTION_HTTPS_CERT_CALLBACK, &_ocsp_cert_callback,
-#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+#if MHD_VERSION >= 0x00095400
 				MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+#if MHD_VERSION >= 0x00096800
+			MHD_OPTION_SERVER_INSANITY, 1,
 #endif
 				MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
 				MHD_OPTION_END);
@@ -830,8 +818,11 @@ static int _http_server_start(int SERVER_MODE)
 			port_num, NULL, NULL, &_ocsp_ahc, NULL,
 			MHD_OPTION_DIGEST_AUTH_RANDOM, sizeof(rnd), rnd,
 			MHD_OPTION_NONCE_NC_SIZE, 300,
-#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+#if MHD_VERSION >= 0x00095400
 			MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+#if MHD_VERSION >= 0x00096800
+			MHD_OPTION_SERVER_INSANITY, 1,
 #endif
 			MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
 			MHD_OPTION_END);
@@ -879,8 +870,11 @@ static int _http_server_start(int SERVER_MODE)
 			,
 			port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
 			MHD_OPTION_HTTPS_CERT_CALLBACK2, _ocsp_stap_cert_callback,
-#ifdef MHD_OPTION_STRICT_FOR_CLIENT
+#if MHD_VERSION >= 0x00095400
 				MHD_OPTION_STRICT_FOR_CLIENT, 1,
+#endif
+#if MHD_VERSION >= 0x00096800
+			MHD_OPTION_SERVER_INSANITY, 1,
 #endif
 			MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
 			MHD_OPTION_END);
@@ -1159,6 +1153,29 @@ void wget_test_start_server(int first_key, ...)
 		WGET_INFO_FUNC, _write_msg,
 		0);
 
+	wget_debug_printf("MHD compiled with 0x%08x, linked with %s\n", (unsigned) MHD_VERSION, MHD_get_version());
+#if MHD_VERSION >= 0x00095400
+	wget_debug_printf("MHD_OPTION_STRICT_FOR_CLIENT: yes\n");
+#else
+	wget_debug_printf("MHD_OPTION_STRICT_FOR_CLIENT: no\n");
+#endif
+#if MHD_VERSION >= 0x00096800
+	wget_debug_printf("MHD_OPTION_SERVER_INSANITY: yes\n");
+#else
+	wget_debug_printf("MHD_OPTION_SERVER_INSANITY: no\n");
+#endif
+#ifdef HAVE_MICROHTTPD_HTTP2_H
+	wget_debug_printf("HAVE_MICROHTTPD_HTTP2_H: yes\n");
+#else
+	wget_debug_printf("HAVE_MICROHTTPD_HTTP2_H: no\n");
+#endif
+#ifdef HAVE_GNUTLS_OCSP_H
+	wget_debug_printf("HAVE_GNUTLS_OCSP_H: yes\n");
+#else
+	wget_debug_printf("HAVE_GNUTLS_OCSP_H: no\n");
+#endif
+	wget_debug_printf("\n");
+
 	va_start(args, first_key);
 	for (key = first_key; key; key = va_arg(args, int)) {
 		switch (key) {
@@ -1381,6 +1398,12 @@ static void _scan_for_unexpected(const char *dirname, const wget_test_file_t *ex
 		wget_error_printf_exit("Failed to diropen %s\n", dirname);
 }
 
+static const char *global_executable;
+void wget_test_set_executable(const char *program)
+{
+	global_executable = program;
+}
+
 void wget_test(int first_key, ...)
 {
 #if !defined WITH_LIBNGHTTP2 || !defined HAVE_MICROHTTPD_HTTP2_H
@@ -1425,7 +1448,7 @@ void wget_test(int first_key, ...)
 #ifdef HAVE_GNUTLS_OCSP_H
 			*ocsp_resp_file = NULL,
 #endif
-			*executable;
+			*executable = global_executable;
 		const wget_test_file_t
 			*expected_files = NULL,
 			*existing_files = NULL;
@@ -1446,17 +1469,19 @@ void wget_test(int first_key, ...)
 		bool
 			options_alloc = 0;
 
+		if (!executable) {
 #ifdef _WIN32
-		if (proto_pass == H2_PASS)
-			executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
-		else
-			executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
+			if (proto_pass == H2_PASS)
+				executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
+			else
+				executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
 #else
-		if (proto_pass == H2_PASS)
-			executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
-		else
-			executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
+			if (proto_pass == H2_PASS)
+				executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
+			else
+				executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
 #endif
+		}
 
 		keep_tmpfiles = 0;
 		clean_directory = 1;
@@ -1677,18 +1702,13 @@ void wget_test(int first_key, ...)
 					wget_error_printf_exit("Missing expected file '%s/%s' [%s]\n", tmpdir, fname, options);
 
 				if (expected_files[it].content) {
-					char *content = wget_malloc(st.st_size ? st.st_size : 1);
+					size_t nbytes;
+					char *content = wget_read_file(fname, &nbytes);
 
-					if ((fd = open(fname, O_RDONLY | O_BINARY)) != -1) {
-						ssize_t nbytes = read(fd, content, st.st_size);
-						close(fd);
-
-						if (nbytes != st.st_size)
-							wget_error_printf_exit("Failed to read %lld bytes from file '%s/%s', just got %zd [%s]\n",
-								(long long)st.st_size, tmpdir, fname, nbytes, options);
-
+					if (content) {
 						const char *expected_content = _insert_ports(expected_files[it].content);
 						bool expected_content_alloc = 0;
+
 						if (!expected_content)
 							expected_content = expected_files[it].content;
 						else
@@ -1696,10 +1716,10 @@ void wget_test(int first_key, ...)
 
 						size_t content_length = expected_files[it].content_length ? expected_files[it].content_length : strlen(expected_content);
 
-						if (content_length != (size_t) nbytes || memcmp(expected_content, content, nbytes) != 0) {
+						if (content_length != nbytes || memcmp(expected_content, content, nbytes) != 0) {
 							wget_error_printf("Unexpected content in %s [%s]\n", fname, options);
 							wget_error_printf("  Expected %zu bytes:\n%s\n", content_length, expected_content);
-							wget_error_printf("  Got %zu bytes:\n%s\n", content_length, content);
+							wget_error_printf("  Got %zu bytes:\n%s\n", nbytes, content);
 							exit(EXIT_FAILURE);
 						}
 

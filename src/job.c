@@ -49,7 +49,6 @@ void job_free(JOB *job)
 	wget_vector_free(&job->parts);
 	wget_list_free(&job->remaining_sig_ext);
 	xfree(job->sig_req);
-	xfree(job->local_filename);
 	xfree(job->sig_filename);
 }
 
@@ -277,7 +276,7 @@ int job_validate_file(JOB *job)
 	return 0;
 }
 
-JOB *job_init(JOB *job, wget_iri *iri, bool http_fallback)
+JOB *job_init(JOB *job, blacklist_entry *blacklistp, bool http_fallback)
 {
 	static unsigned long long jobid;
 
@@ -286,7 +285,8 @@ JOB *job_init(JOB *job, wget_iri *iri, bool http_fallback)
 	else
 		memset(job, 0, sizeof(JOB));
 
-	job->iri = iri;
+	job->blacklist_entry = blacklistp;
+	job->iri = blacklistp->iri; // convenience assignment
 	job->http_fallback = http_fallback;
 	job->id = ++jobid;
 

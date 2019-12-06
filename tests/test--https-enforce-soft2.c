@@ -1,25 +1,26 @@
 /*
  * Copyright (c) 2018-2019 Free Software Foundation, Inc.
  *
- * This file is part of libwget.
+ * This file is part of Wget
  *
- * Libwget is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
+ * Wget is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * Libwget is distributed in the hope that it will be useful,
+ * Wget is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
+ * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public License
- * along with libwget.  If not, see <https://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU General Public License
+ * along with Wget  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
 
 #include <stdlib.h> // exit()
+#include <microhttpd.h>
 #include "libtest.h"
 
 int main(void)
@@ -59,6 +60,14 @@ int main(void)
 		WGET_TEST_FEATURE_MHD,
 		WGET_TEST_FEATURE_TLS,
 		0);
+
+#if MHD_VERSION >= 0x00096701 && MHD_VERSION <= 0x00096702
+	// the logging is enabled after wget_test_start_server()
+	wget_error_printf("SKIP due to MHD 0x%08x issue\n", (unsigned) MHD_VERSION);
+	exit(WGET_TEST_EXIT_SKIP);
+#else
+	wget_error_printf("Built with MHD 0x%08x\n", (unsigned) MHD_VERSION);
+#endif
 
 	// wget2 downloads recursively from HTTPS though we give an http:// URL.
 	wget_test(

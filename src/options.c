@@ -49,6 +49,7 @@
 #include <sys/stat.h>
 #include <spawn.h>
 #include "getpass.h"
+#include "xgethostname.h"
 
 #include <wget.h>
 
@@ -1218,6 +1219,7 @@ struct config config = {
 	.report_speed = WGET_REPORT_SPEED_BYTES,
 	.default_http_port = 80,
 	.default_https_port = 443,
+	.hyperlink = false,
 	.if_modified_since = 1
 };
 
@@ -1288,6 +1290,16 @@ static const struct optionw options[] = {
 		SECTION_DOWNLOAD,
 		{ "Bind to sockets to local address.\n",
 		  "(default: automatic)\n"
+		}
+	},
+	{ "body-data", &config.body_data, parse_string, 1, 0,
+		SECTION_DOWNLOAD,
+		{ "Data to be sent in a request.\n"
+		}
+	},
+	{ "body-file", &config.body_file, parse_string, 1, 0,
+		SECTION_DOWNLOAD,
+		{ "File with data to be sent in a request.\n"
 		}
 	},
 	{ "ca-certificate", &config.ca_cert, parse_string, 1, 0,
@@ -1373,6 +1385,12 @@ static const struct optionw options[] = {
 	{ "continue", &config.continue_download, parse_bool, -1, 'c',
 		SECTION_DOWNLOAD,
 		{ "Continue download for given files. (default: off)\n"
+		}
+	},
+	{ "convert-file-only", &config.convert_file_only, parse_bool, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "Convert only filename part of embedded URLs.\n",
+		  "(default: off)\n",
 		}
 	},
 	{ "convert-links", &config.convert_links, parse_bool, -1, 'k',
@@ -1701,6 +1719,11 @@ static const struct optionw options[] = {
 		  "variables. Use comma to separate proxies.\n"
 		}
 	},
+	{ "hyperlink", &config.hyperlink, parse_bool, -1, 0,
+		SECTION_STARTUP,
+		{ "Enable terminal hyperlink support\n"
+		}
+	},
 	{ "if-modified-since", &config.if_modified_since, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "Do not send If-Modified-Since header in -N mode.\n"
@@ -1711,6 +1734,12 @@ static const struct optionw options[] = {
 	{ "ignore-case", &config.ignore_case, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "Ignore case when matching files. (default: off)\n"
+		}
+	},
+	{ "ignore-length", &config.ignore_length, parse_bool, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "Ignore content-length header field\n",
+			"(default: off)\n",
 		}
 	},
 	{ "ignore-tags", &config.ignore_tags, parse_taglist, 1, 0,
@@ -1814,6 +1843,11 @@ static const struct optionw options[] = {
 		SECTION_HTTP,
 		{ "Follow a metalink file instead of storing it\n",
 		  "(default: on)\n"
+		}
+	},
+	{ "method", &config.method, parse_string, 1, 0,
+		SECTION_HTTP,
+		{ "HTTP method to use for request.\n"
 		}
 	},
 	{ "mirror", &config.mirror, parse_mirror, -1, 'm',
@@ -3299,6 +3333,10 @@ int init(int argc, const char **argv)
 	if (config.max_threads < 1 || (config.max_threads > 1 && config.chunk_size))
 		config.max_threads = 1;
 
+	if (config.hyperlink) {
+		config.hostname = xgethostname();
+	}
+
 	// truncate output document
 	if (config.output_document && strcmp(config.output_document, "-") && !config.dont_write) {
 		int fd = open(config.output_document, O_WRONLY | O_TRUNC | O_BINARY);
@@ -3659,6 +3697,8 @@ void deinit(void)
 	xfree(config.accept_regex);
 	xfree(config.base_url);
 	xfree(config.bind_address);
+	xfree(config.body_data);
+	xfree(config.body_file);
 	xfree(config.ca_cert);
 	xfree(config.ca_directory);
 	xfree(config.cert_file);
@@ -3682,6 +3722,8 @@ void deinit(void)
 	xfree(config.local_encoding);
 	xfree(config.logfile);
 	xfree(config.logfile_append);
+	xfree(config.method);
+	xfree(config.hostname);
 	xfree(config.netrc_file);
 	xfree(config.ocsp_file);
 	xfree(config.ocsp_server);

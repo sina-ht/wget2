@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -17,50 +17,45 @@
  * along with Wget  If not, see <https://www.gnu.org/licenses/>.
  *
  *
- * Tests the --cut-get-vars setting.
+ * Testing --ignore-length
+ *
+ *
  */
 
 #include <config.h>
 
 #include <stdlib.h> // exit()
-#include <string.h> // strlen()
 #include "libtest.h"
 
 int main(void)
 {
 	wget_test_url_t urls[]={
-		{	.name = "/page1.html",
+		{	.name = "/index.html",
 			.code = "200 Dontcare",
-			.body = "<html>hello1<head></head>"\
-					"<a href=\"/page2.html?cut=1\">test1</a>"\
-					"<a href=\"/page2.html?cut=2\">test1</a>"\
-					"<body></body></html>",
+			.body =
+				"<html><head><title>Main Page</title><body><p>A link to a" \
+				" <A href=\"http://localhost:{{port}}/secondpage.html\">second page</a>." \
+				" <a href=\"/subdir1/subpage1.html?query&param#frag\">page in subdir1</a>." \
+				" <a href=\"./subdir1/subpage2.html\">page in subdir1</a>." \
+				"</p></body></html>",
 			.headers = {
 				"Content-Type: text/html",
+				"Content-Length: 140",
 			}
 		},
-		{	.name = "/page2.html",
+		{	.name = "/secondpage.html",
 			.code = "200 Dontcare",
-			.body = "<html>hello2</html>",
+			.body =
+				"<html><head><title>Main Page</title><base href=\"/subdir2/\"></head><body><p>A link to a" \
+				" <A href=\"../secondpage.html\">second page</a>." \
+				" <a href=\"subpage1.html?query&param#frag\">page in subdir2</a>." \
+				" <a href=\"./subpage2.html\">page in subdir2</a>." \
+				"</p></body></html>",
 			.headers = {
 				"Content-Type: text/html",
+				"Content-Length: 300",
 			}
 		},
-		{	.name = "/page2.html?cut=1",
-			.code = "200 Dontcare",
-			.body = "<html>hello2 cut</html>",
-			.headers = {
-				"Content-Type: text/html",
-			}
-		},
-		{	.name = "/page2.html?cut=2",
-			.code = "200 Dontcare",
-			.body = "<html>hello2 cut</html>",
-			.headers = {
-				"Content-Type: text/html",
-			}
-		}
-
 	};
 
 	// functions won't come back if an error occurs
@@ -69,26 +64,15 @@ int main(void)
 		WGET_TEST_FEATURE_MHD,
 		0);
 
-	// test--cut-url-get-vars
+	// with --ignore-length no warning should pop up in log and return should be 0
+	// without --ignore-length return 10
 	wget_test(
-		WGET_TEST_OPTIONS, "-nH -r --cut-url-get-vars",
-		WGET_TEST_REQUEST_URL, "page1.html",
+		WGET_TEST_OPTIONS, "--ignore-length",
+		WGET_TEST_REQUEST_URLS, "index.html", "secondpage.html", NULL,
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{ urls[0].name + 1, urls[0].body },
 			{ urls[1].name + 1, urls[1].body },
-			{	NULL } },
-		0);
-
-	// test--cut-file-get-vars
-	wget_test(
-		WGET_TEST_OPTIONS, "-nH -r --cut-file-get-vars --no-directories",
-		WGET_TEST_REQUEST_URL, "page1.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ "page2.html", urls[2].body },
-			{ "page2.html.1", urls[3].body },
 			{	NULL } },
 		0);
 

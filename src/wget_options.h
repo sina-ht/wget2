@@ -68,6 +68,8 @@ struct config {
 	const char
 		*post_file,
 		*post_data,
+		*body_file,
+		*body_data,
 		*http_username,
 		*http_password,
 		*http_proxy_username,
@@ -113,7 +115,9 @@ struct config {
 		*ocsp_file,
 		*netrc_file,
 		*use_askpass_bin,
-		*dns_cache_preload;
+		*hostname,
+		*dns_cache_preload,
+		*method;
 	wget_vector
 		*compression,
 		*domains,
@@ -204,8 +208,10 @@ struct config {
 		ocsp,
 		mirror,
 		backup_converted,
+		convert_file_only,
 		convert_links,
 		ignore_case,
+		ignore_length,
 		hsts,                  // if HSTS (HTTP Strict Transport Security) is enabled or not
 		hsts_preload,          // if loading of a HSTS Preload file is enabled of not
 		hpkp,                  // HTTP Public Key Pinning (HPKP)
@@ -250,6 +256,7 @@ struct config {
 		verbose,
 		quiet,
 		debug,
+		hyperlink,
 		metalink,
 		cut_url_get_vars,
 		cut_file_get_vars,

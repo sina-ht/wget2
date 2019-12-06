@@ -31,6 +31,7 @@
 #include <sys/types.h> // for off_t
 
 #include <wget.h>
+#include "wget_blacklist.h"
 #include "wget_host.h"
 
 // file part to download
@@ -51,7 +52,7 @@ typedef struct {
 typedef struct DOWNLOADER DOWNLOADER;
 
 struct JOB {
-	wget_iri
+	const wget_iri
 		*iri,
 		*original_url,
 		*referer;
@@ -74,8 +75,8 @@ struct JOB {
 
 	HOST
 		*host;
-	const char
-		*local_filename;
+	const blacklist_entry
+		*blacklist_entry;
 	char
 		*sig_filename, // Signature information. Meaning depends on sig_req.
 		*sig_req; // The base URI for the file that we need to verify.
@@ -105,7 +106,8 @@ struct JOB {
 		requested_by_user : 1, // download even if disallowed by robots.txt
 		ignore_patterns : 1, // Ignore accept/reject patterns
 		http_fallback : 1, // When true, we try again on error, using HTTP (instead of HTTPS)
-		recursive_send_head : 1; // Indicate whether the HEAD request is sent by the recursive mode
+		recursive_send_head : 1, // Indicate whether the HEAD request is sent by the recursive mode
+		redirect_get : 1; // Indicate whether to use GET method for redirection request
 };
 
 struct DOWNLOADER {
@@ -127,7 +129,7 @@ struct DOWNLOADER {
 		final_error : 1;
 };
 
-JOB *job_init(JOB *job, wget_iri *iri, bool http_fallback) WGET_GCC_NONNULL((2));
+JOB *job_init(JOB *job, blacklist_entry *blacklistp, bool http_fallback) WGET_GCC_NONNULL((2));
 int job_validate_file(JOB *job) WGET_GCC_NONNULL((1));
 void job_create_parts(JOB *job) WGET_GCC_NONNULL((1));
 void job_free(JOB *job) WGET_GCC_NONNULL((1));

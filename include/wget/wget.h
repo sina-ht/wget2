@@ -228,26 +228,27 @@ WGET_BEGIN_DECLS
 #define WGET_NET_FAMILY_PREFERRED 1017
 #define WGET_TCP_FASTFORWARD  1018
 
-#define WGET_HTTP_URL                 2000
-#define WGET_HTTP_URL_ENCODING        2001
-#define WGET_HTTP_URI                 2002
-#define WGET_HTTP_COOKIE_STORE        2003
-#define WGET_HTTP_HEADER_ADD          2004
-//#define WGET_HTTP_HEADER_DEL        2005
-//#define WGET_HTTP_HEADER_SET        2006
-//#define WGET_HTTP_BIND_ADDRESS      2007
-#define WGET_HTTP_CONNECTION_PTR      2008
-#define WGET_HTTP_RESPONSE_KEEPHEADER 2009
-#define WGET_HTTP_MAX_REDIRECTIONS    2010
-#define WGET_HTTP_BODY_SAVEAS_STREAM  2011
-#define WGET_HTTP_BODY_SAVEAS_FILE    2012
-#define WGET_HTTP_BODY_SAVEAS_FD      2013
-#define WGET_HTTP_BODY_SAVEAS_FUNC    2014
-#define WGET_HTTP_HEADER_FUNC         2015
-#define WGET_HTTP_SCHEME              2016
-#define WGET_HTTP_BODY                2017
-#define WGET_HTTP_BODY_SAVEAS         2018
-#define WGET_HTTP_USER_DATA           2019
+#define WGET_HTTP_URL                   2000
+#define WGET_HTTP_URL_ENCODING          2001
+#define WGET_HTTP_URI                   2002
+#define WGET_HTTP_COOKIE_STORE          2003
+#define WGET_HTTP_HEADER_ADD            2004
+//#define WGET_HTTP_HEADER_DEL          2005
+//#define WGET_HTTP_HEADER_SET          2006
+//#define WGET_HTTP_BIND_ADDRESS        2007
+#define WGET_HTTP_CONNECTION_PTR        2008
+#define WGET_HTTP_RESPONSE_KEEPHEADER   2009
+#define WGET_HTTP_MAX_REDIRECTIONS      2010
+#define WGET_HTTP_BODY_SAVEAS_STREAM    2011
+#define WGET_HTTP_BODY_SAVEAS_FILE      2012
+#define WGET_HTTP_BODY_SAVEAS_FD        2013
+#define WGET_HTTP_BODY_SAVEAS_FUNC      2014
+#define WGET_HTTP_HEADER_FUNC           2015
+#define WGET_HTTP_SCHEME                2016
+#define WGET_HTTP_BODY                  2017
+#define WGET_HTTP_BODY_SAVEAS           2018
+#define WGET_HTTP_USER_DATA             2019
+#define WGET_HTTP_RESPONSE_IGNORELENGTH 2020
 
 // definition of error conditions
 typedef enum {
@@ -260,13 +261,10 @@ typedef enum {
 	WGET_E_HANDSHAKE = -6, /* general TLS handshake failure */
 	WGET_E_CERTIFICATE = -7, /* general TLS certificate failure */
 	WGET_E_TLS_DISABLED = -8, /* TLS was not enabled at compile time */
-	WGET_E_GPG_DISABLED = -9, /* GPGME was not enabled at compile time */
-	WGET_E_GPG_VER_FAIL = -10, /* 1 or more non-valid signatures */
-	WGET_E_GPG_VER_ERR = -11, /* Verification failed, GPGME error */
-	WGET_E_XML_PARSE_ERR = -12, /* XML parsing failed */
-	WGET_E_OPEN = -13, /* Failed to open file */
-	WGET_E_IO = -14, /* General I/O error (read/write/stat/...) */
-	WGET_E_UNSUPPORTED = -15, /* Unsupported function */
+	WGET_E_XML_PARSE_ERR = -9, /* XML parsing failed */
+	WGET_E_OPEN = -10, /* Failed to open file */
+	WGET_E_IO = -11, /* General I/O error (read/write/stat/...) */
+	WGET_E_UNSUPPORTED = -12, /* Unsupported function */
 } wget_error;
 
 WGETAPI const char *
@@ -1081,7 +1079,7 @@ void wget_stringmap_set_resize_factor(wget_stringmap *h, float factor)
  * When iterating over a stringmap, the order of returned key/value pairs is not defined.
  */
 static inline
-void * NULLABLE wget_stringmap_iterator_next(wget_stringmap_iterator *h, char **value)
+void * NULLABLE wget_stringmap_iterator_next(wget_stringmap_iterator *h, void **value)
 {
 	return wget_hashmap_iterator_next(h, (void **) value);
 }
@@ -1303,13 +1301,13 @@ WGETAPI char *
 WGETAPI wget_iri *
 	wget_iri_parse(const char *uri, const char *encoding);
 WGETAPI wget_iri * NULLABLE
-	wget_iri_parse_base(wget_iri *base, const char *url, const char *encoding);
+	wget_iri_parse_base(const wget_iri *base, const char *url, const char *encoding);
 WGETAPI wget_iri * NULLABLE
 	wget_iri_clone(const wget_iri *iri);
 WGETAPI const char * NULLABLE
-	wget_iri_get_connection_part(wget_iri *iri);
+	wget_iri_get_connection_part(const wget_iri *iri, wget_buffer *buf);
 WGETAPI const char *
-	wget_iri_relative_to_abs(wget_iri *base, const char *val, size_t len, wget_buffer *buf);
+	wget_iri_relative_to_abs(const wget_iri *base, const char *val, size_t len, wget_buffer *buf);
 WGETAPI const char *
 	wget_iri_escape(const char *src, wget_buffer *buf);
 WGETAPI const char *
@@ -2107,6 +2105,8 @@ typedef struct {
 	bool
 		response_keepheader : 1; //!< the application wants the response header data
 	bool
+		response_ignorelength : 1; //!< ignore the Content-Length in the response header
+	bool
 		debug_skip_body : 1; //!< if set, do not print the request body (e.g. because it's binary)
 	long long
 		request_start; //!< When this request was sent out
@@ -2175,6 +2175,7 @@ struct wget_http_response_st {
 		keep_alive;
 	bool
 		content_length_valid : 1,
+		length_inconsistent : 1, //!< set when length of data received is not same as Content-Length
 		hsts : 1, //!< if hsts_maxage and hsts_include_subdomains are valid
 		csp : 1;
 };
@@ -2412,7 +2413,7 @@ WGETAPI void WGET_GCC_PRINTF_FORMAT(4,5) WGET_GCC_NONNULL_ALL
  */
 
 typedef struct {
-	wget_iri
+	const wget_iri
 		*iri;        //!< parsed URL of the mirror
 	int
 		priority;    //!< priority of the mirror
@@ -2498,7 +2499,7 @@ WGETAPI void
 WGETAPI void
 	wget_bar_printf(wget_bar *bar, int slot, const char *fmt, ...) WGET_GCC_PRINTF_FORMAT(3,4) WGET_GCC_NONNULL_ALL;
 WGETAPI void
-	wget_bar_slot_begin(wget_bar *bar, int slot, const char *filename, int new_file, ssize_t filesize) WGET_GCC_NONNULL_ALL;
+	wget_bar_slot_begin(wget_bar *bar, int slot, const char *filename, int new_file, ssize_t filesize) WGET_GCC_NONNULL((1));
 WGETAPI void
 	wget_bar_slot_downloaded(wget_bar *bar, int slot, size_t nbytes);
 WGETAPI void

@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2019 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -18,10 +17,7 @@
  * along with Wget  If not, see <https://www.gnu.org/licenses/>.
  *
  *
- * Testing Wget
- *
- * Changelog
- * 15.07.2013  Tim Ruehsen  created
+ * Testing --convert-file-only
  *
  */
 
@@ -38,6 +34,11 @@ int main(void)
 			.body =
 				"<html><head><title>Main Page</title></head><body><p>A link to a" \
 				" <a href=\"//localhost:{{port}}/subpage.php\">second page</a>." \
+				" <a href=\"//localhost:{{port}}/thirdpage\">third page</a>." \
+				" <a href=\"http://localhost:{{port}}/page4\">page4</a>." \
+				" <a href=\"/page5\">page5</a>." \
+				" <a href=\"page6\">page6</a>." \
+				" <a href=\"/subdir/page7\">page7</a>." \
 				"</p></body></html>",
 			.headers = {
 				"Content-Type: text/html",
@@ -50,11 +51,31 @@ int main(void)
 				"Content-Type: text/html",
 			}
 		},
+		{	.name = "/page5",
+			.code = "200 Dontcare",
+			.body = "<html><head><title>Page 5</title></head><body>Some Text</body></html>",
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+		{	.name = "/subdir/page7",
+			.code = "200 Dontcare",
+			.body = "<html><head><title>Page 7</title></head><body>Some Text</body></html>",
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+
 	};
 
 	const char *mainpagemangled =
 		"<html><head><title>Main Page</title></head><body><p>A link to a" \
-		" <a href=\"subpage.php.html\">second page</a>." \
+		" <a href=\"//localhost:{{port}}/subpage.php.html\">second page</a>." \
+		" <a href=\"//localhost:{{port}}/thirdpage\">third page</a>." \
+		" <a href=\"http://localhost:{{port}}/page4\">page4</a>." \
+		" <a href=\"/page5.html\">page5</a>." \
+		" <a href=\"page6\">page6</a>." \
+		" <a href=\"/subdir/page7.html\">page7</a>." \
 		"</p></body></html>";
 
 	// functions won't come back if an error occurs
@@ -63,30 +84,20 @@ int main(void)
 		WGET_TEST_FEATURE_MHD,
 		0);
 
-	// test-E-k
+	// href should get updated for subpage
+	// href should not get updated for thirdpage
 	wget_test(
-		WGET_TEST_OPTIONS, "-r -nd -E -k",
+		// WGET_TEST_KEEP_TMPFILES, 1,
+		WGET_TEST_OPTIONS, "-r -nH -E --convert-file-only",
 		WGET_TEST_REQUEST_URL, "index.php",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_ERROR_CODE, 8,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{ "index.php.html", mainpagemangled },
 			{ "subpage.php.html", urls[1].body },
+			{ "page5.html", urls[2].body },
+			{ "subdir/page7.html", urls[3].body },
 			{	NULL } },
 		0);
-
-/*
-	// test-E-k-K
-	wget_test(
-		WGET_TEST_OPTIONS, "-r -nd -E -k -K",
-		WGET_TEST_REQUEST_URL, "index.php",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ "index.php.html", mainpagemangled },
-			{ "index.php.orig", urls[0].body },
-			{ "subpage.php.html", urls[1].body },
-			{	NULL } },
-		0);
-*/
 
 	exit(EXIT_SUCCESS);
 }

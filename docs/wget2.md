@@ -115,6 +115,10 @@ Go to background immediately after startup. If no output file is specified via t
   Execute command as if it were a part of `.wgetrc`.  A command thus invoked will be executed after the commands in `.wgetrc`, thus
   taking precedence over them.  If you need to specify more than one wgetrc command, use multiple instances of `-e`.
 
+### `--hyperlink`
+
+  Hyperlink names of downloaded files so that they can opened from the terminal by clicking on them.  Only a few terminal emulators
+  currently support hyperlinks.  Enable this option if you know your terminal supports hyperlinks.
 
 ## <a name="Logging and Input File Options"/>Logging and Input File Options
 
@@ -1142,7 +1146,7 @@ Go to background immediately after startup. If no output file is specified via t
   The PSL allows to prevent setting of "super-cookies" that lead to cookie privacy leakage.
   More details can be found on https://publicsuffix.org/.
 
-### `--ignore-length` [Not implemented yet]
+### `--ignore-length`
 
   Unfortunately, some HTTP servers (CGI programs, to be more precise) send out bogus "Content-Length" headers,
   which makes Wget2 go wild, as it thinks not all the document was retrieved.  You can spot this syndrome if Wget
@@ -1257,13 +1261,13 @@ Go to background immediately after startup. If no output file is specified via t
   `--save-cookies` will not save them (and neither will browsers) and the cookies.txt file will be empty.  In that
   case use --keep-session-cookies along with --save-cookies to force saving of session cookies.
 
-### `--method=HTTP-Method` [Not implemented yet]
+### `--method=HTTP-Method`
 
   For the purpose of RESTful scripting, Wget2 allows sending of other HTTP Methods without the need to explicitly
   set them using --header=Header-Line.  Wget2 will use whatever string is passed to it after --method as the HTTP
   Method to the server.
 
-### `--body-data=Data-String`, `--body-file=Data-File` [Not implemented yet]
+### `--body-data=Data-String`, `--body-file=Data-File`
 
   Must be set when additional data needs to be sent to the server along with the Method specified using `--method`.
   `--body-data` sends string as data, whereas --body-file sends the contents of file.  Other than that, they work in
@@ -1660,7 +1664,7 @@ Go to background immediately after startup. If no output file is specified via t
   Note that only at the end of the download can Wget2 know which links have been downloaded.  Because of that, the
   work done by `-k` will be performed at the end of all the downloads.
 
-### `--convert-file-only` [Not implemented yet]
+### `--convert-file-only`
 
   This option converts only the filename part of the URLs, leaving the rest of the URLs untouched. This filename
   part is sometimes referred to as the "basename", although we avoid that term here in order not to cause
@@ -1740,10 +1744,10 @@ Go to background immediately after startup. If no output file is specified via t
 
   Enable the Robots Exclusion Standard (default: on).
 
-  For each visited domain, download `/robots.txt` first and follow it's rules.
+  For each visited domain, follow rules specified in `/robots.txt`.
   You should respect the domain owner's rules and turn this off only for very good reasons.
 
-  When enabled, the `robots.txt` file is also scanned for sitemaps. These are lists of pages / files
+  Whether enabled or disabled, the `robots.txt` file is downloaded and scanned for sitemaps. These are lists of pages / files
   available for download that not necessarily are available via recursive scanning.
 
 ## <a name="Recursive Accept/Reject Options"/>Recursive Accept/Reject Options

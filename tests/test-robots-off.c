@@ -1,20 +1,20 @@
 /*
  * Copyright (c) 2015-2019 Free Software Foundation, Inc.
  *
- * This file is part of Wget
+ * This file is part of libwget.
  *
- * Wget is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
+ * Libwget is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
- * Wget is distributed in the hope that it will be useful,
+ * Libwget is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with Wget  If not, see <https://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with libwget.  If not, see <https://www.gnu.org/licenses/>.
  *
  *
  * Testing basic robots.txt functionality
@@ -83,16 +83,6 @@ int main(void)
 			.code = "200 Dontcare",
 			.body = "sub2_2"
 		},
-		{	.name = "/robots_open.txt",
-			.code = "200 Dontcare",
-			.body =
-				"User-agent: *\n"\
-				"Allow: /\n"\
-			,
-			.headers = {
-				"Content-Type: text/plain",
-			}
-		},
 	};
 
 	// functions won't come back if an error occurs
@@ -101,46 +91,9 @@ int main(void)
 		WGET_TEST_FEATURE_MHD,
 		0);
 
-	// Check if robots is actually honoured when it already exists on the
-	// file system
+	// with robots=off must download robots.txt and /subdir2/ should not be forbidden
 	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH",
-		WGET_TEST_REQUEST_URL, "index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXISTING_FILES, &(wget_test_file_t []) {
-			{ "robots.txt", urls[7].body },
-			{	NULL } },
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
-			{ urls[3].name + 1, urls[3].body },
-			{ urls[4].name + 1, urls[4].body },
-			{	NULL } },
-		0);
-
-
-	// Check if robots is actually honoured when it already exists on the
-	// file system
-	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH -c",
-		WGET_TEST_REQUEST_URL, "index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXISTING_FILES, &(wget_test_file_t []) {
-			{ "robots.txt", urls[0].body },
-			{	NULL } },
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
-			{ urls[3].name + 1, urls[3].body },
-			{ urls[4].name + 1, urls[4].body },
-			{	NULL } },
-		0);
-
-	// robots.txt forbids /subdir2/ for '*'
-	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH",
+		WGET_TEST_OPTIONS, "-r -nH --robots=off",
 		WGET_TEST_REQUEST_URL, "index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
@@ -149,20 +102,7 @@ int main(void)
 			{ urls[2].name + 1, urls[2].body },
 			{ urls[3].name + 1, urls[3].body },
 			{ urls[4].name + 1, urls[4].body },
-			{	NULL } },
-		0);
-
-	// robots.txt forbids /subdir2/ for '*', but we download user-requested page
-	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH",
-		WGET_TEST_REQUEST_URLS, "index.html", "subdir2/subpage2.html", NULL,
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
-			{ urls[3].name + 1, urls[3].body },
-			{ urls[4].name + 1, urls[4].body },
+			{ urls[5].name + 1, urls[5].body },
 			{ urls[6].name + 1, urls[6].body },
 			{	NULL } },
 		0);

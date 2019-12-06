@@ -1,5 +1,21 @@
-#                                               -*- Autoconf -*-
+dnl Template file for GNU Autoconf
+dnl Copyright (C) 2015-2019 Free Software Foundation, Inc.
+
+dnl This program is free software; you can redistribute it and/or modify
+dnl it under the terms of the GNU General Public License as published by
+dnl the Free Software Foundation; either version 3 of the License, or
+dnl (at your option) any later version.
+
+dnl This program is distributed in the hope that it will be useful,
+dnl but WITHOUT ANY WARRANTY; without even the implied warranty of
+dnl MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+dnl GNU General Public License for more details.
+
+dnl You should have received a copy of the GNU General Public License
+dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 # Process this file with autoconf to produce a configure script.
+
 CFLAGS=$CFLAGS
 LDFLAGS=$LDFLAGS
 
@@ -458,9 +474,7 @@ AS_IF([test "x$with_ssl" == "xgnutls"], [
     AC_CHECK_HEADERS([gnutls/ocsp.h])
     AC_CHECK_FUNCS(gnutls_srp_server_get_username gnutls_transport_get_int)
   ])
-])
-
-AS_IF([test "x$with_ssl" == "xopenssl"], [
+], [test "x$with_ssl" == "xopenssl"], [
   PKG_CHECK_MODULES([OPENSSL], [openssl], [
     with_openssl=yes
     LIBS="$OPENSSL_LIBS $LIBS"
@@ -483,9 +497,7 @@ AS_IF([test "x$with_ssl" == "xopenssl"], [
       [with_libcrypto=no; AC_MSG_WARN(*** LIBCRYPTO was not found. Fallback to libwolfcrypt for hashing and checksumming.)
     ])
   ])
-])
-
-AS_IF([test "x$with_ssl" = "xwolfssl"], [
+], [test "x$with_ssl" = "xwolfssl"], [
   PKG_CHECK_MODULES([WOLFSSL], [wolfssl], [
     with_wolfssl=yes
     LIBS="$WOLFSSL_LIBS $LIBS"
@@ -501,6 +513,8 @@ AS_IF([test "x$with_ssl" = "xwolfssl"], [
     with_libwolfcrypt=yes
     AC_DEFINE([WITH_LIBWOLFCRYPT], [1], [Use wolfcrypt])
   ])
+], [test "x$with_ssl" != "xnone"], [
+  AC_MSG_ERROR([*** Unsupported value for --with-ssl. Use 'gnutls' (default), 'openssl', 'wolfssl' or 'none'])
 ])
 
 AM_CONDITIONAL([WITH_GNUTLS], [test "x$with_gnutls" = xyes])
@@ -510,7 +524,9 @@ AM_CONDITIONAL([WITH_WOLFSSL], [test "x$with_wolfssl" = xyes])
 AM_CONDITIONAL([WITH_TLS], [test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes || test "x$with_openssl" = xyes])
 AS_IF([test "x$with_gnutls" = xyes || test "x$with_wolfssl" = xyes || test "x$with_openssl" = xyes], [
   AC_DEFINE([WITH_TLS], [1], [Built with TLS support])
-], [AC_DEFINE([WITH_TLS], [0], [No TLS support])])
+], [
+  AC_DEFINE([WITH_TLS], [0], [No TLS support])
+])
 
 AS_IF([(test "x$with_gnutls" != xyes || test "x$with_gnutls_hash" != xyes) && test "x$with_libwolfcrypt" != xyes && test "x$with_libcrypto" != xyes], [
   PKG_CHECK_MODULES([NETTLE], nettle, [
@@ -590,17 +606,25 @@ AM_CONDITIONAL([WITH_BZIP2], [test "x$with_bzip2" = xyes])
 
 AC_ARG_WITH(gpgme, AS_HELP_STRING([--without-gpgme], [support signature verification with gpgme]), with_gpgme=$withval, with_gpgme=yes)
 AS_IF([test "x$with_gpgme" != xno], [
-  m4_ifdef([AM_PATH_GPGME],[
-	AM_PATH_GPGME([], [
-	  with_gpgme=yes
-	  LIBS="$GPGME_LIBS $LIBS"
-	  CFLAGS="$GPGME_CFLAGS $CFLAGS"
-	  AC_DEFINE([WITH_GPGME], [1], [Use gpgme])
-	  ],[
-		 with_gpgme=no; AC_MSG_WARN(*** GPGME not found.)
-	  ])
-	],
-	[with_gpgme=no; AC_MSG_WARN(*** GPGME not found. Signature verification is not possible)])
+  PKG_CHECK_MODULES([GPGME], gpgme, [
+    with_gpgme=yes
+    LIBS="$GPGME_LIBS $LIBS"
+    CFLAGS="$GPGME_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_GPGME], [1], [Use gpgme])
+  ], [
+    m4_ifdef([AM_PATH_GPGME],[
+      AM_PATH_GPGME([], [
+        with_gpgme=yes
+        LIBS="$GPGME_LIBS $LIBS"
+        CFLAGS="$GPGME_CFLAGS $CFLAGS"
+        AC_DEFINE([WITH_GPGME], [1], [Use gpgme])
+      ],[
+        with_gpgme=no; AC_MSG_WARN(*** GPGME not found.)
+      ])
+    ], [
+      with_gpgme=no; AC_MSG_WARN(*** GPGME not found. Signature verification is not possible)
+    ])
+  ])
 ])
 AM_CONDITIONAL([WITH_GPGME], [test "x$with_gpgme" = xyes])
 
@@ -672,9 +696,12 @@ AS_IF([test "x$with_lzip" != xno], [
     CFLAGS="$LZIP_CFLAGS $CFLAGS"
     AC_DEFINE([WITH_LZIP], [1], [Use liblz (lzip)])
   ], [
+    old_LIBS="$LIBS"
+    LIBS=
     AC_SEARCH_LIBS(LZ_decompress_open, lz,
-      [with_lzip=yes; AC_DEFINE([WITH_LZIP], [1], [Use liblz (lzip)])],
+      [with_lzip=yes; LZIP_LIBS="$LIBS"; AC_DEFINE([WITH_LZIP], [1], [Use liblz (lzip)])],
       [with_lzip=no;  AC_MSG_WARN(*** liblz was not found. You will not be able to use lzip decompression)])
+    LIBS="$old_LIBS $LZIP_LIBS"
   ])
 ])
 AM_CONDITIONAL([WITH_LZIP], [test "x$with_lzip" = xyes])
