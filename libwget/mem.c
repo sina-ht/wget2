@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -106,14 +106,15 @@ char *wget_strmemdup(const void *m, size_t n)
  * \param[in] ssize Size of the output buffer
  * \param[in] m Memory to read from
  * \param[in] n Length of memory
+ * \return Number of bytes copied, not counting the trailing 0 byte
  *
  * Convert the given memory region \p m with length \p n into a C string at \p s.
  * A max. of \p ssize - 1  is copied into \p s.
  */
-void wget_strmemcpy(char *s, size_t ssize, const void *m, size_t n)
+size_t wget_strmemcpy(char *s, size_t ssize, const void *m, size_t n)
 {
 	if (!s || !ssize)
-		return;
+		return 0;
 
 	if (likely(n > 0)) {
 		if (n >= ssize)
@@ -125,6 +126,33 @@ void wget_strmemcpy(char *s, size_t ssize, const void *m, size_t n)
 			n = 0;
 	}
 	s[n] = 0;
+
+	return n;
+}
+
+/**
+ * \param[out] s Buffer to hold the C string output
+ * \param[in] ssize Size of the output buffer
+ * \param[in] m Memory to read from
+ * \param[in] n Length of memory
+ * \return Pointer to destination (either \p s or a freshly allocated buffer)
+ *
+ * Convert the given memory region \p m with length \p n into a C string at \p s or at freshly allocated memory,
+ * if the space in \p s was not sufficient.
+ *
+ * If \p s was too small to hold \p n + 1 bytes, the result must be free'd after use, e.g.
+ *   if (res != s) wget_free(res);
+ */
+void *wget_strmemcpy_a(char *s, size_t ssize, const void *m, size_t n)
+{
+	if (n >= ssize) {
+		if (!(s = wget_malloc(n + 1)))
+			return NULL;
+	}
+
+	memmove(s, m, n);
+	s[n] = 0;
+	return s;
 }
 
 /**@}*/

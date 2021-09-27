@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -43,14 +43,14 @@
  */
 
 /* \cond _hide_internal_symbols */
-#define FLAG_ZERO_PADDED   1
-#define FLAG_LEFT_ADJUST   2
-#define FLAG_ALTERNATE     4
-#define FLAG_SIGNED        8
-#define FLAG_DECIMAL      16
-#define FLAG_OCTAL        32
-#define FLAG_HEXLO        64
-#define FLAG_HEXUP       128
+#define FLAG_ZERO_PADDED   1U
+#define FLAG_LEFT_ADJUST   2U
+#define FLAG_ALTERNATE     4U
+#define FLAG_SIGNED        8U
+#define FLAG_DECIMAL      16U
+#define FLAG_OCTAL        32U
+#define FLAG_HEXLO        64U
+#define FLAG_HEXUP       128U
 /* \endcond */
 
 static void copy_string(wget_buffer *buf, unsigned int flags, int field_width, int precision, const char *arg)
@@ -113,7 +113,7 @@ static void convert_dec_fast(wget_buffer *buf, int arg)
 
 static void convert_dec(wget_buffer *buf, unsigned int flags, int field_width, int precision, long long arg)
 {
-	unsigned long long argu = arg;
+	unsigned long long argu = (unsigned long long) arg;
 	char str[32], minus = 0; // long enough to hold decimal long long
 	char *dst = str + sizeof(str) - 1;
 	unsigned char c;
@@ -476,13 +476,13 @@ size_t wget_buffer_vprintf_append(wget_buffer *buf, const char *fmt, va_list arg
 		if (*p == 'd' || *p == 'i') {
 			convert_dec(buf, flags | FLAG_SIGNED | FLAG_DECIMAL, field_width, precision, arg);
 		} else if (*p == 'u') {
-			convert_dec(buf, flags | FLAG_DECIMAL, field_width, precision, argu);
+			convert_dec(buf, flags | FLAG_DECIMAL, field_width, precision, (long long) argu);
 		} else if (*p == 'x') {
-			convert_dec(buf, flags | FLAG_HEXLO, field_width, precision, argu);
+			convert_dec(buf, flags | FLAG_HEXLO, field_width, precision, (long long) argu);
 		} else if (*p == 'X') {
-			convert_dec(buf, flags | FLAG_HEXUP, field_width, precision, argu);
+			convert_dec(buf, flags | FLAG_HEXUP, field_width, precision, (long long) argu);
 		} else if (*p == 'o') {
-			convert_dec(buf, flags | FLAG_OCTAL, field_width, precision, argu);
+			convert_dec(buf, flags | FLAG_OCTAL, field_width, precision, (long long) argu);
 		} else {
 			/*
 			 * This is an unknown conversion specifier,

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -53,6 +53,12 @@ typedef enum {
 	WGET_GPG_VERIFY_SIG_NO_FAIL
 } gpg_verify_mode;
 
+typedef enum {
+	DOWNLOAD_ATTR_NO,
+	DOWNLOAD_ATTR_STRIPPATH,
+	DOWNLOAD_ATTR_USEPATH,
+} download_attr_mode;
+
 typedef struct {
 	const char
 		*filename;
@@ -78,6 +84,7 @@ struct config {
 		*local_encoding,  // encoding of the environment and file system
 		*remote_encoding, // encoding of remote files (if not specified in Content-Type HTTP header or in document itself)
 		*bind_address,
+		*bind_interface,
 		*input_file,
 		*base_url,
 		*default_page,
@@ -133,7 +140,7 @@ struct config {
 		*default_challenges,
 		*headers,
 		*mime_types,
-		*http_retry_on_error,
+		*retry_on_http_error,
 		*save_content_on;
 	wget_content_encoding
 		compression_methods[wget_content_encoding_max + 1];	// the last one for counting
@@ -196,7 +203,8 @@ struct config {
 		cert_type,             // SSL_X509_FMT_PEM or SSL_X509_FMT_DER (=ASN1)
 		private_key_type,      // SSL_X509_FMT_PEM or SSL_X509_FMT_DER (=ASN1)
 		progress,
-		regex_type;
+		regex_type,
+		download_attr;
 	bool
 		tls_resume,            // if TLS session resumption is enabled or not
 		content_on_error,

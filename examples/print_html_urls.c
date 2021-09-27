@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -92,7 +92,10 @@ static void html_parse_localfile(const char *fname)
 			wget_html_parsed_url *html_url = wget_vector_get(res->uris, it);
 			wget_string *url = &html_url->url;
 
-			printf("  %s.%s '%.*s'\n", html_url->tag, html_url->attr, (int) url->len, url->p);
+			printf("  %s.%s '%.*s'", html_url->tag, html_url->attr, (int) url->len, url->p);
+			if (html_url->download.p)
+				printf(" (save as '%.*s')", (int) html_url->download.len, html_url->download.p);
+			printf("\n");
 		}
 
 		wget_xfree(data_allocated);

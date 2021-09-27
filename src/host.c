@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -161,6 +161,14 @@ static int _search_queue_for_free_job(struct _find_free_job_context *ctx, JOB *j
 			}
 		}
 	} else if (!job->inuse) {
+		// job may be paused due to a failure (retry later)
+		long long pause = job->retry_ts - ctx->now;
+		if (pause > 0) {
+			if (!ctx->pause || ctx->pause < pause)
+				ctx->pause = pause;
+			return 0;
+		}
+
 		job->inuse = job->done = 1;
 		job->used_by = wget_thread_self();
 		job->part = NULL;

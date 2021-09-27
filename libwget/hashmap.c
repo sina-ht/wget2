@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -138,7 +138,7 @@ found:
 		_iter->pos++;
 	}
 
-	if (!_iter->entry) {
+	if (!_iter->entry && h) {
 		for (; _iter->pos < h->max; _iter->pos++) {
 			if (h->entry[_iter->pos]) {
 				_iter->entry = h->entry[_iter->pos];

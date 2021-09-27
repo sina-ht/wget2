@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -42,6 +42,8 @@ typedef struct {
 		additional_tags;
 	wget_vector *
 		ignore_tags;
+	wget_string
+		download;
 	int
 		uri_index;
 	size_t
@@ -100,6 +102,8 @@ static void css_parse_uri(void *context, const char *url WGET_GCC_UNUSED, size_t
 	wget_strscpy(parsed_url->tag, ctx->css_dir, sizeof(parsed_url->tag));
 	parsed_url->url.p = (const char *) (ctx->html + ctx->css_start_offset + pos);
 	parsed_url->url.len = len;
+	parsed_url->download.p = NULL;
+	parsed_url->download.len = 0;
 
 	if (!res->uris)
 		res->uris = wget_vector_create(32, NULL);
@@ -119,8 +123,16 @@ static void html_get_url(void *context, int flags, const char *tag, const char *
 	// Also ,we are interested in ROBOTS e.g.
 	//   <META name="ROBOTS" content="NOINDEX, NOFOLLOW">
 	if ((flags & XML_FLG_BEGIN)) {
-		if ((*tag|0x20) == 'm' && !wget_strcasecmp_ascii(tag, "meta"))
+		if ((*tag|0x20) == 'a' && (tag[1] == 0 || !wget_strcasecmp_ascii(tag, "area"))) {
+			// The download attribute is only valid for 'a' and 'area' tags.
+			// S 4.6.5 in https://html.spec.whatwg.org/multipage/links.html#downloading-resources
+			ctx->uri_index = -1;
+			ctx->download.p = NULL;
+			ctx->download.len = 0;
+		}
+		else if ((*tag|0x20) == 'm' && !wget_strcasecmp_ascii(tag, "meta")) {
 			ctx->found_robots = ctx->found_content_type = 0;
+		}
 		else if ((*tag|0x20) == 'l' && !wget_strcasecmp_ascii(tag, "link")) {
 			ctx->link_inline = 0;
 			ctx->uri_index = -1;
@@ -139,13 +151,15 @@ static void html_get_url(void *context, int flags, const char *tag, const char *
 					return;
 				}
 			} else if (ctx->found_robots && !wget_strcasecmp_ascii(attr, "content")) {
-				char *p;
-				char valbuf[len + 1], *value = valbuf;
+				char valbuf[256], *valp;
+				const char *value;
 
-				memcpy(value, val, len);
-				value[len] = 0;
+				if (!(value = valp = wget_strmemcpy_a(valbuf, sizeof(valbuf), val, len)))
+					return;
 
 				while (*value) {
+					const char *p;
+
 					while (c_isspace(*value)) value++;
 					if (*value == ',') { value++; continue; }
 					for (p = value; *p && !c_isspace(*p) && *p != ','; p++);
@@ -159,16 +173,25 @@ static void html_get_url(void *context, int flags, const char *tag, const char *
 
 					value = *p  ? p + 1 : p;
 				}
+
+				if (valp != valbuf)
+					xfree(valp);
+
 				return;
 			}
 
 			if (ctx->found_content_type && !res->encoding) {
 				if (!wget_strcasecmp_ascii(attr, "content")) {
-					char valbuf[len + 1], *value = valbuf;
+					char valbuf[256];
+					const char *value;
 
-					memcpy(value, val, len);
-					value[len] = 0;
+					if (!(value = wget_strmemcpy_a(valbuf, sizeof(valbuf), val, len)))
+						return;
+
 					wget_http_parse_content_type(value, NULL, &res->encoding);
+
+					if (value != valbuf)
+						xfree(value);
 				}
 			}
 			else if (!ctx->found_content_type && !res->encoding) {
@@ -199,19 +222,62 @@ static void html_get_url(void *context, int flags, const char *tag, const char *
 
 		if ((*tag|0x20) == 'l' && !wget_strcasecmp_ascii(tag, "link")) {
 			if (!wget_strcasecmp_ascii(attr, "rel")) {
-				if (!wget_strncasecmp_ascii(val, "shortcut icon", len)
-					|| !wget_strncasecmp_ascii(val, "stylesheet", len)
-					|| !wget_strncasecmp_ascii(val, "preload", len))
-					ctx->link_inline = 1;
-				else
-					ctx->link_inline = 0;
+				ctx->link_inline = 0;
+
+				// "rel" contains a space separated list of items.
+				//   see https://html.spec.whatwg.org/multipage/semantics.html#attr-link-rel
+				//   see https://html.spec.whatwg.org/multipage/links.html#linkTypes
+				while (len) {
+					const char *p;
+
+					for (p = val;len && !c_isspace(*val); val++, len--); // find end of item
+					if (p == val) { val++; len--; continue; } // found a delimiter
+
+					// Check for items that may be important to display the page.
+					if (!wget_strncasecmp_ascii(p, "icon", val - p)
+						|| !wget_strncasecmp_ascii(p, "manifest", val - p)
+						|| !wget_strncasecmp_ascii(p, "modulepreload", val - p)
+						|| !wget_strncasecmp_ascii(p, "stylesheet", val - p)
+						|| !wget_strncasecmp_ascii(p, "prefetch", val - p)
+						|| !wget_strncasecmp_ascii(p, "preload", val - p))
+					{
+						ctx->link_inline = 1;
+						break;
+					}
+				}
 
 				if (ctx->uri_index >= 0) {
 					// href= came before rel=
 					wget_html_parsed_url *url = wget_vector_get(res->uris, ctx->uri_index);
 					url->link_inline = ctx->link_inline;
 				}
+				return;
 			}
+		}
+
+		if ((*tag|0x20) == 'a' && (tag[1] == 0 || !wget_strcasecmp_ascii(tag, "area"))
+			&& !wget_strcasecmp_ascii(attr, "download"))
+		{
+			if (!val)
+				return;
+
+			for (;len && c_isspace(*val); val++, len--); // skip leading spaces
+			for (;len && c_isspace(val[len - 1]); len--);  // skip trailing spaces
+			if (!len)
+				return;
+
+			// remember for later
+			ctx->download.p = val;
+			ctx->download.len = len;
+
+			if (ctx->uri_index >= 0) {
+				// href= came before download=
+				wget_html_parsed_url *url = wget_vector_get(res->uris, ctx->uri_index);
+				url->download.p = val;
+				url->download.len = len;
+			}
+
+			return;
 		}
 
 		// shortcut to avoid unneeded calls to bsearch()
@@ -246,12 +312,20 @@ static void html_get_url(void *context, int flags, const char *tag, const char *
 
 			if (!wget_strcasecmp_ascii(attr, "srcset")) {
 				// value is a list of URLs, see https://html.spec.whatwg.org/multipage/embedded-content.html#attr-img-srcset
+				// See also https://html.spec.whatwg.org/multipage/images.html#srcset-attribute
 				while (len) {
 					const char *p;
 
 					for (;len && c_isspace(*val); val++, len--); // skip leading spaces
 					for (p = val;len && !c_isspace(*val) && *val != ','; val++, len--); // find end of URL
 					if (p != val) {
+						// The 'data:' URL contains a single comma: https://datatracker.ietf.org/doc/html/rfc2397
+						if (len && *val == ',' && !wget_strncasecmp_ascii(p, "data:", 5)) {
+							// advance to the end of the 'data:' URL
+							for (val++, len--;len && !c_isspace(*val) && *val != ','; val++, len--);
+						}
+						url.download.p = NULL;
+						url.download.len = 0;
 						url.link_inline = ctx->link_inline;
 						wget_strscpy(url.attr, attr, sizeof(url.attr));
 						wget_strscpy(url.tag, tag, sizeof(url.tag));
@@ -265,6 +339,8 @@ static void html_get_url(void *context, int flags, const char *tag, const char *
 
 			} else {
 				// value is a single URL
+				url.download.p = ctx->download.p;
+				url.download.len = ctx->download.len;
 				url.link_inline = ctx->link_inline;
 				wget_strscpy(url.attr, attr, sizeof(url.attr));
 				wget_strscpy(url.tag, tag, sizeof(url.tag));

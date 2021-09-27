@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -105,7 +105,7 @@ size_t wget_base64_decode(char *dst, const char *src, size_t n)
 	int extra;
 
 	// trim '=' at the end
-	while (n > 0 && !isbase64(usrc[n - 1]))
+	while (n > 0 && !isbase64(src[n - 1]))
 		n--;
 
 	extra = n & 3;

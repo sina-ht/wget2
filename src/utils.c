@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -38,13 +38,7 @@ void mkdir_path(const char *_fname, bool is_file)
 	char *p2, *fname;
 	char buf[1024];
 
-	size_t len = strlen(_fname);
-
-	if (len < sizeof(buf)) {
-		memcpy(buf, _fname, len + 1);
-		fname = buf;
-	} else
-		fname = wget_strdup(_fname);
+	fname = wget_strmemcpy_a(buf, sizeof(buf), _fname, strlen(_fname));
 
 	for (p1 = fname + 1; *p1 && (p2 = strchr(p1, '/')); p1 = p2 + 1) {
 		int rc;

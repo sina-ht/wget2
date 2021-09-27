@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Free Software Foundation, Inc.
+ * Copyright (c) 2019-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -36,7 +36,7 @@
 
 int main(void)
 {
-#if !(MHD_VERSION >= 0x00096302 && GNUTLS_VERSION_NUMBER >= 0x030603)
+#if !(MHD_VERSION >= 0x00096302 && defined GNUTLS_VERSION_NUMBER && GNUTLS_VERSION_NUMBER >= 0x030603)
 	exit(WGET_TEST_EXIT_SKIP);
 #else
 	wget_test_url_t urls[]={

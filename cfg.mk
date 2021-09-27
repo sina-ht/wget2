@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2019 Free Software Foundation, Inc.
+# Copyright (C) 2015-2021 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,7 +14,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Explicit syntax-check exceptions.
-VC_LIST_ALWAYS_EXCLUDE_REGEX = ^data/.*|tests/(files|gpg|certs)/.*|.*\.png|^fuzz/.*\.(in|repro)/.*$$
+VC_LIST_ALWAYS_EXCLUDE_REGEX = ^data/.*|tests/(files|gpg|certs)/.*|.*\.png|^fuzz/.*\.(in|repro)/.*|^contrib/libtool.patch$$
 
 # Syntax Check Rules that we want to skip
 #  * sc_immutable_NEWS: I can't make this test ever pass. If someone fixes it,
@@ -52,7 +52,7 @@ exclude_file_name_regexp--sc_copyright_check = .*gnulib/.*\.c$$
 # The assignment_template is copies as-is into an email. Don't add any headers
 # there. The m4/* files are copied from autoconf-archive and don't follow the
 # same copyright convention
-exclude_file_name_regexp--update-copyright = ^(contrib/assignment_template\.txt|m4/(ax_ac_append_to_file|ax_ac_print_to_file|ax_add_am_macro_static|ax_am_macros_static|ax_check_gnu_make|ax_code_coverage|ax_file_escapes).m4)$$
+exclude_file_name_regexp--update-copyright = ^(contrib/assignment_template\.txt|m4/(ax_ac_append_to_file|ax_ac_print_to_file|ax_add_am_macro_static|ax_am_macros_static|ax_check_gnu_make|ax_code_coverage|ax_file_escapes).m4|contrib/make-coverage-badge)$$
 
 update-version-year:
 	$(AM_V_at)$(SED) -i "s/(C) 2015-.... Free Software Foundation/(C) 2015-`date +%Y` Free Software Foundation/g" src/options.c

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2014 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -57,19 +57,27 @@
 #ifndef MHD_USE_TLS
 #  define MHD_USE_TLS MHD_USE_SSL
 #endif
+#if MHD_VERSION <= 0x00097000
+#undef MHD_NO
+#undef MHD_YES
+enum MHD_Result {
+	MHD_NO = 0,
+	MHD_YES = 1
+};
+#endif
 
 #include <sys/types.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <netdb.h>
 
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_IN_TESTSUITE
+#ifdef WITH_GNUTLS_OCSP
 #  include <gnutls/ocsp.h>
 #  include <gnutls/x509.h>
 #  include <gnutls/abstract.h>
 #endif
 
-#ifdef WITH_GNUTLS
 #  include <gnutls/gnutls.h>
 #  define file_load_err(fname, msg) wget_error_printf_exit("Couldn't load '%s' : %s\n", fname, msg)
 #endif
@@ -109,7 +117,7 @@ static struct MHD_Daemon
 	*ocspdaemon,
 	*h2daemon;
 
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 static gnutls_pcert_st *pcrt;
 static gnutls_privkey_t *privkey;
 
@@ -121,10 +129,8 @@ static struct ocsp_resp_t {
 } *ocsp_resp;
 #endif
 
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 #if MHD_VERSION >= 0x00096502 && GNUTLS_VERSION_NUMBER >= 0x030603
-static gnutls_pcert_st *pcrt_stap;
-static gnutls_privkey_t *privkey_stap;
 static gnutls_ocsp_data_st *ocsp_stap_resp;
 #endif
 #endif
@@ -159,9 +165,10 @@ static const char *_parse_hostname(const char* data)
 {
 	if (data) {
 		if (!wget_strncasecmp_ascii(data, "http://", 7)) {
-			return strchr(data += 7, '/');
-		} else if (!wget_strncasecmp_ascii(data, "https://", 8)) {
-			return strchr(data += 8, '/');
+			return strchr(data + 7, '/');
+		}
+		if (!wget_strncasecmp_ascii(data, "https://", 8)) {
+			return strchr(data + 8, '/');
 		}
 	}
 
@@ -174,7 +181,7 @@ static void _replace_space_with_plus(wget_buffer *buf, const char *data)
 		wget_buffer_memcat(buf, *data == ' ' ? "+" : data, 1);
 }
 
-static int _print_query_string(
+static enum MHD_Result _print_query_string(
 	void *cls,
 	enum MHD_ValueKind kind WGET_GCC_UNUSED,
 	const char *key,
@@ -203,7 +210,7 @@ static int _print_query_string(
 	return MHD_YES;
 }
 
-static int _print_header_range(
+static enum MHD_Result _print_header_range(
 	void *cls,
 	enum MHD_ValueKind kind WGET_GCC_UNUSED,
 	const char *key,
@@ -225,6 +232,8 @@ struct ResponseContentCallbackParam
 {
 	const char *response_data;
 	size_t response_size;
+	interrupt_response_mode_t interrupt_response_mode;
+	size_t interrupt_response_after_nbytes;
 };
 
 static ssize_t _callback (void *cls, uint64_t pos, char *buf, size_t buf_size)
@@ -234,7 +243,7 @@ static ssize_t _callback (void *cls, uint64_t pos, char *buf, size_t buf_size)
 		(struct ResponseContentCallbackParam *)cls;
 
 	if (pos >= param->response_size)
-		return MHD_CONTENT_READER_END_OF_STREAM;
+		return (ssize_t) MHD_CONTENT_READER_END_OF_STREAM;
 
 	// divide data into two chunks
 	buf_size = (param->response_size / 2) + 1;
@@ -248,13 +257,42 @@ static ssize_t _callback (void *cls, uint64_t pos, char *buf, size_t buf_size)
 	return size_to_copy;
 }
 
+static ssize_t _callback_interruptable (void *cls, uint64_t pos, char *buf, size_t buf_size)
+{
+	size_t size_to_copy;
+	struct ResponseContentCallbackParam *const param =
+		(struct ResponseContentCallbackParam *)cls;
+
+	if (pos >= param->response_size)
+		return (ssize_t) MHD_CONTENT_READER_END_OF_STREAM;
+
+	if (buf_size <= (param->response_size - pos)) {
+		size_to_copy = buf_size;
+	} else {
+		size_to_copy = param->response_size - pos;
+	}
+
+	if (param->interrupt_response_mode != INTERRUPT_RESPONSE_DISABLED) {
+		if (pos >= param->interrupt_response_after_nbytes) {
+			return (ssize_t) MHD_CONTENT_READER_END_WITH_ERROR;
+		}
+
+		if (size_to_copy > (param->interrupt_response_after_nbytes - pos)) {
+			size_to_copy = param->interrupt_response_after_nbytes - pos;
+		}
+	}
+
+	memcpy (buf, param->response_data + pos, size_to_copy);
+	return size_to_copy;
+}
+
 static void _free_callback_param(void *cls)
 {
 	wget_free(cls);
 }
 
-#ifdef HAVE_GNUTLS_OCSP_H
-static int _ocsp_ahc(
+#ifdef WITH_GNUTLS_OCSP
+static enum MHD_Result _ocsp_ahc(
 	void *cls WGET_GCC_UNUSED,
 	struct MHD_Connection *connection,
 	const char *url WGET_GCC_UNUSED,
@@ -310,20 +348,21 @@ static int _ocsp_cert_callback(
 }
 
 #if MHD_VERSION >= 0x00096502 && GNUTLS_VERSION_NUMBER >= 0x030603
-static gnutls_certificate_retrieve_function3 _ocsp_stap_cert_callback;
 static int _ocsp_stap_cert_callback(
 	gnutls_session_t session WGET_GCC_UNUSED,
 	const struct gnutls_cert_retr_st *info WGET_GCC_UNUSED,
-	gnutls_pcert_st **pcert,
+	gnutls_pcert_st **certs,
 	unsigned int *pcert_length,
 	gnutls_ocsp_data_st **ocsp,
 	unsigned int *ocsp_length,
 	gnutls_privkey_t *pkey,
 	unsigned int *flags WGET_GCC_UNUSED)
 {
-	*pcert = pcrt_stap;
-	*pkey = *privkey_stap;
-	*pcert_length = 1;
+	*certs = pcrt;
+	*(certs+1) = pcrt+1;
+	*pcert_length = 2;
+
+	*pkey = *privkey;
 
 	*ocsp = ocsp_stap_resp;
 	*ocsp_length = 1;
@@ -333,7 +372,7 @@ static int _ocsp_stap_cert_callback(
 #endif
 #endif
 
-static int _answer_to_connection(
+static enum MHD_Result _answer_to_connection(
 	void *cls WGET_GCC_UNUSED,
 	struct MHD_Connection *connection,
 	const char *url,
@@ -367,7 +406,6 @@ static int _answer_to_connection(
 	int64_t modified;
 	const char *modified_val, *to_bytes_string = "";
 	ssize_t from_bytes, to_bytes;
-	size_t body_len;
 	char content_len[100], content_range[100];
 
 	// whether or not this connection is HTTPS
@@ -376,7 +414,7 @@ static int _answer_to_connection(
 	// get query string
 	query.params = wget_buffer_alloc(1024);
 	query.it = 0;
-	MHD_get_connection_values(connection, MHD_GET_ARGUMENT_KIND, &_print_query_string, &query);
+	MHD_get_connection_values(connection, MHD_GET_ARGUMENT_KIND, (MHD_KeyValueIterator)_print_query_string, &query);
 
 	// get if-modified-since header
 	modified_val = MHD_lookup_connection_value(connection, MHD_HEADER_KIND,
@@ -388,9 +426,9 @@ static int _answer_to_connection(
 	// get header range
 	wget_buffer *header_range = wget_buffer_alloc(1024);
 	if (!strcmp(method, "GET"))
-		MHD_get_connection_values(connection, MHD_HEADER_KIND, &_print_header_range, header_range);
+		MHD_get_connection_values(connection, MHD_HEADER_KIND, (MHD_KeyValueIterator)_print_header_range, header_range);
 
-	from_bytes = to_bytes = body_len = 0;
+	from_bytes = to_bytes = 0;
 	if (*header_range->data) {
 		const char *from_bytes_string;
 		const char *range_string = strchr(header_range->data, '=');
@@ -499,7 +537,7 @@ static int _answer_to_connection(
 				callback_param->response_size = body_length;
 
 				response = MHD_create_response_from_callback(MHD_SIZE_UNKNOWN,
-					1024, &_callback, callback_param, &_free_callback_param);
+					1024, _callback, callback_param, _free_callback_param);
 				ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
 				found = true;
 				break;
@@ -586,14 +624,26 @@ static int _answer_to_connection(
 			else if (*header_range->data) {
 				if (!strcmp(to_bytes_string, "-"))
 					to_bytes = body_length - 1;
-				body_len = to_bytes - from_bytes + 1;
+
+				size_t body_len = to_bytes - from_bytes + 1;
 
 				if (from_bytes > to_bytes || from_bytes >= (int) body_length) {
 					response = MHD_create_response_from_buffer(0, (void *) "", MHD_RESPMEM_PERSISTENT);
 					ret = MHD_queue_response(connection, MHD_HTTP_RANGE_NOT_SATISFIABLE, response);
 				} else {
-					response = MHD_create_response_from_buffer(body_len,
-						(void *) (request_url->body + from_bytes), MHD_RESPMEM_MUST_COPY);
+					if (request_url->interrupt_response_mode != INTERRUPT_RESPONSE_DISABLED) {
+						struct ResponseContentCallbackParam *callback_param = wget_malloc(sizeof(struct ResponseContentCallbackParam));
+						callback_param->response_data = (void *) (request_url->body + from_bytes);
+						callback_param->response_size = body_len;
+						callback_param->interrupt_response_mode = request_url->interrupt_response_mode;
+						callback_param->interrupt_response_after_nbytes = request_url->interrupt_response_after_nbytes;
+
+						response = MHD_create_response_from_callback(body_len,
+								1024, _callback_interruptable, callback_param, _free_callback_param);
+					} else {
+						response = MHD_create_response_from_buffer(body_len,
+							(void *) (request_url->body + from_bytes), MHD_RESPMEM_MUST_COPY);
+					}
 					MHD_add_response_header(response, MHD_HTTP_HEADER_ACCEPT_RANGES, "bytes");
 					wget_snprintf(content_range, sizeof(content_range), "%zd-%zd/%zu", from_bytes, to_bytes, body_len);
 					MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_RANGE, content_range);
@@ -602,7 +652,19 @@ static int _answer_to_connection(
 					ret = MHD_queue_response(connection, MHD_HTTP_PARTIAL_CONTENT, response);
 				}
 			} else {
-				response = MHD_create_response_from_buffer(body_length, (void *) request_url->body, MHD_RESPMEM_MUST_COPY);
+				if (request_url->interrupt_response_mode != INTERRUPT_RESPONSE_DISABLED) {
+					struct ResponseContentCallbackParam *callback_param = wget_malloc(sizeof(struct ResponseContentCallbackParam));
+					callback_param->response_data = request_url->body;
+					callback_param->response_size = body_length;
+					callback_param->interrupt_response_mode = request_url->interrupt_response_mode;
+					callback_param->interrupt_response_after_nbytes = request_url->interrupt_response_after_nbytes;
+
+					response = MHD_create_response_from_callback(body_length,
+							1024, _callback_interruptable, callback_param, _free_callback_param);
+				} else {
+					response = MHD_create_response_from_buffer(body_length, (void *) request_url->body, MHD_RESPMEM_MUST_COPY);
+				}
+
 				ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
 			}
 
@@ -651,7 +713,7 @@ static void _http_server_stop(void)
 	wget_xfree(key_pem);
 	wget_xfree(cert_pem);
 
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 	gnutls_global_deinit();
 
 	if(ocsp_resp)
@@ -661,7 +723,7 @@ static void _http_server_stop(void)
 #endif
 }
 
-static int _check_to_accept(
+static enum MHD_Result _check_to_accept(
 	void *cls,
 	WGET_GCC_UNUSED const struct sockaddr *addr,
 	WGET_GCC_UNUSED socklen_t addrlen)
@@ -682,7 +744,8 @@ static int _http_server_start(int SERVER_MODE)
 		static char rnd[8] = "realrnd"; // fixed 'random' value
 
 		httpdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY,
-			port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
+			port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
+			(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
 			MHD_OPTION_DIGEST_AUTH_RANDOM, sizeof(rnd), rnd,
 			MHD_OPTION_NONCE_NC_SIZE, 300,
 #if MHD_VERSION >= 0x00095400
@@ -714,7 +777,8 @@ static int _http_server_start(int SERVER_MODE)
 						| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
 #endif
 					,
-					port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
+					port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
+					(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
 					MHD_OPTION_HTTPS_MEM_KEY, key_pem,
 					MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
 #if MHD_VERSION >= 0x00095400
@@ -738,7 +802,8 @@ static int _http_server_start(int SERVER_MODE)
 						| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
 #endif
 					,
-					port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
+					port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
+					(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
 					MHD_OPTION_HTTPS_MEM_KEY, key_pem,
 					MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
 #if MHD_VERSION >= 0x00095400
@@ -759,15 +824,16 @@ static int _http_server_start(int SERVER_MODE)
 				}
 			}
 		}
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 		else {
 			httpsdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS
 #if MHD_VERSION >= 0x00096302
 					| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
 #endif
 				,
-				port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
-				MHD_OPTION_HTTPS_CERT_CALLBACK, &_ocsp_cert_callback,
+				port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
+				(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
+				MHD_OPTION_HTTPS_CERT_CALLBACK, _ocsp_cert_callback,
 #if MHD_VERSION >= 0x00095400
 				MHD_OPTION_STRICT_FOR_CLIENT, 1,
 #endif
@@ -811,11 +877,11 @@ static int _http_server_start(int SERVER_MODE)
 		}
 #endif
 	} else if (SERVER_MODE == OCSP_MODE) {
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 		static char rnd[8] = "realrnd"; // fixed 'random' value
 
 		ocspdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY,
-			port_num, NULL, NULL, &_ocsp_ahc, NULL,
+			port_num, NULL, NULL, (MHD_AccessHandlerCallback)_ocsp_ahc, NULL,
 			MHD_OPTION_DIGEST_AUTH_RANDOM, sizeof(rnd), rnd,
 			MHD_OPTION_NONCE_NC_SIZE, 300,
 #if MHD_VERSION >= 0x00095400
@@ -833,30 +899,41 @@ static int _http_server_start(int SERVER_MODE)
 		if (!ocspdaemon)
 			return 1;
 	}
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 #if MHD_VERSION >= 0x00096502 && GNUTLS_VERSION_NUMBER >= 0x030603
 	else if (SERVER_MODE == OCSP_STAP_MODE) {
 		int rc;
 
 		gnutls_datum_t data;
 
-		pcrt_stap = wget_malloc(sizeof(gnutls_pcert_st));
-		ocsp_stap_resp = wget_malloc(sizeof(gnutls_ocsp_data_st));
-		privkey_stap = wget_malloc(sizeof(gnutls_privkey_t));
+		/* Load private key */
+		privkey = wget_malloc(sizeof(gnutls_privkey_t));
 
-		gnutls_privkey_init(privkey_stap);
+		gnutls_privkey_init(privkey);
 
 		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-server-key.pem", &data)) < 0)
 			file_load_err(SRCDIR "/certs/ocsp/x509-server-key.pem", gnutls_strerror(rc));
 
-		gnutls_privkey_import_x509_raw(*privkey_stap, &data, GNUTLS_X509_FMT_PEM, NULL, 0);
+		gnutls_privkey_import_x509_raw(*privkey, &data, GNUTLS_X509_FMT_PEM, NULL, 0);
 		gnutls_free(data.data);
+
+		/* Load certificate chain */
+		pcrt = wget_malloc(sizeof(gnutls_pcert_st) * 2);
 
 		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-server-cert.pem", &data)) < 0)
 			file_load_err(SRCDIR "/certs/ocsp/x509-server-cert.pem", gnutls_strerror(rc));
 
-		gnutls_pcert_import_x509_raw(pcrt_stap, &data, GNUTLS_X509_FMT_PEM, 0);
+		gnutls_pcert_import_x509_raw(pcrt, &data, GNUTLS_X509_FMT_PEM, 0);
 		gnutls_free(data.data);
+
+		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-interm-cert.pem", &data)) < 0)
+			file_load_err(SRCDIR "/certs/ocsp/x509-interm-cert.pem", gnutls_strerror(rc));
+
+		gnutls_pcert_import_x509_raw(pcrt+1, &data, GNUTLS_X509_FMT_PEM, 0);
+		gnutls_free(data.data);
+
+		/* Load stapled OCSP response */
+		ocsp_stap_resp = wget_malloc(sizeof(gnutls_ocsp_data_st));
 
 		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/ocsp_stapled_resp.der", &data)) < 0)
 			file_load_err(SRCDIR "/certs/ocsp/ocsp_stapled_resp.der", gnutls_strerror(rc));
@@ -865,10 +942,12 @@ static int _http_server_start(int SERVER_MODE)
 		ocsp_stap_resp->response.size = data.size;
 		ocsp_stap_resp->exptime = 0;
 
+		/* Start HTTPS daemon with stapled OCSP responses */
 		httpsdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS
 				| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
 			,
-			port_num, _check_to_accept, (void *) (ptrdiff_t) SERVER_MODE, &_answer_to_connection, NULL,
+			port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
+			(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
 			MHD_OPTION_HTTPS_CERT_CALLBACK2, _ocsp_stap_cert_callback,
 #if MHD_VERSION >= 0x00095400
 				MHD_OPTION_STRICT_FOR_CLIENT, 1,
@@ -892,7 +971,7 @@ static int _http_server_start(int SERVER_MODE)
 			dinfo = MHD_get_daemon_info(httpdaemon, MHD_DAEMON_INFO_BIND_PORT);
 		else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 			dinfo = MHD_get_daemon_info(httpsdaemon, MHD_DAEMON_INFO_BIND_PORT);
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 		else if (SERVER_MODE == OCSP_MODE)
 			dinfo = MHD_get_daemon_info(ocspdaemon, MHD_DAEMON_INFO_BIND_PORT);
 #endif
@@ -909,7 +988,7 @@ static int _http_server_start(int SERVER_MODE)
 			http_server_port = port_num;
 		else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 			https_server_port = port_num;
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 		else if (SERVER_MODE == OCSP_MODE)
 			ocsp_server_port = port_num;
 #endif
@@ -929,7 +1008,7 @@ static int _http_server_start(int SERVER_MODE)
 			dinfo = MHD_get_daemon_info(httpdaemon, MHD_DAEMON_INFO_LISTEN_FD);
 		else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 			dinfo = MHD_get_daemon_info(httpsdaemon, MHD_DAEMON_INFO_LISTEN_FD);
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 		else if (SERVER_MODE == OCSP_MODE)
 			dinfo = MHD_get_daemon_info(ocspdaemon, MHD_DAEMON_INFO_LISTEN_FD);
 #endif
@@ -960,7 +1039,7 @@ static int _http_server_start(int SERVER_MODE)
 					http_server_port = port_num;
 				else if (SERVER_MODE == HTTPS_MODE || SERVER_MODE == OCSP_STAP_MODE)
 					https_server_port = port_num;
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 				else if (SERVER_MODE == OCSP_MODE)
 					ocsp_server_port = port_num;
 #endif
@@ -1137,9 +1216,9 @@ void wget_test_start_server(int first_key, ...)
 	va_list args;
 	bool start_http = 1;
 #ifdef WITH_TLS
-	bool ocsp_stap = 0;
 	bool start_https = 1;
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
+	bool ocsp_stap = 0;
 	bool start_ocsp = 0;
 #endif
 #ifdef HAVE_MICROHTTPD_HTTP2_H
@@ -1241,7 +1320,7 @@ void wget_test_start_server(int first_key, ...)
 #endif
 			break;
 		case WGET_TEST_FEATURE_OCSP:
-#if !defined HAVE_GNUTLS_OCSP_H
+#if !defined WITH_GNUTLS_OCSP
 			wget_error_printf("Test requires GnuTLS with OCSP support. Skipping\n");
 			exit(WGET_TEST_EXIT_SKIP);
 #else
@@ -1249,20 +1328,30 @@ void wget_test_start_server(int first_key, ...)
 #ifdef HAVE_MICROHTTPD_HTTP2_H
 			start_h2 = 0;
 #endif
+#ifdef WITH_TLS
+#ifdef WITH_GNUTLS_OCSP
 			start_ocsp = 1;
 #endif
+#endif
 			break;
+#endif
 		case WGET_TEST_FEATURE_OCSP_STAPLING:
-#if !defined HAVE_GNUTLS_OCSP_H || MHD_VERSION < 0x00096502 || GNUTLS_VERSION_NUMBER < 0x030603
+#if !defined WITH_GNUTLS_OCSP || MHD_VERSION < 0x00096502 || GNUTLS_VERSION_NUMBER < 0x030603
 			wget_error_printf("MHD or GnuTLS version insufficient. Skipping\n");
 			exit(WGET_TEST_EXIT_SKIP);
 #else
 			start_http = 0;
+#ifdef WITH_TLS
 			start_https = 0;
+#endif
 #ifdef HAVE_MICROHTTPD_HTTP2_H
 			start_h2 = 0;
 #endif
+#ifdef WITH_TLS
+#ifdef WITH_GNUTLS_OCSP
 			ocsp_stap = 1;
+#endif
+#endif
 			break;
 #endif
 		case WGET_TEST_SKIP_H2:
@@ -1296,7 +1385,7 @@ void wget_test_start_server(int first_key, ...)
 	}
 
 #ifdef WITH_TLS
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 	// start OCSP responder
 	if (start_ocsp) {
 		if ((rc = _http_server_start(OCSP_MODE)) != 0)
@@ -1445,7 +1534,7 @@ void wget_test(int first_key, ...)
 		const char
 			*request_url,
 			*options = "",
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 			*ocsp_resp_file = NULL,
 #endif
 			*executable = global_executable;
@@ -1472,14 +1561,14 @@ void wget_test(int first_key, ...)
 		if (!executable) {
 #ifdef _WIN32
 			if (proto_pass == H2_PASS)
-				executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
+				executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 3 --tries=1 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
 			else
-				executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
+				executable = BUILDDIR "\\..\\src\\wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 3 --tries=1";
 #else
 			if (proto_pass == H2_PASS)
-				executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
+				executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 3  --tries=1 --https-enforce=hard --ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp";
 			else
-				executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 10";
+				executable = BUILDDIR "/../src/wget2_noinstall" EXEEXT " -d --no-config --no-local-db --max-threads=1 --prefer-family=ipv4 --no-proxy --timeout 3 --tries=1";
 #endif
 		}
 
@@ -1544,7 +1633,7 @@ void wget_test(int first_key, ...)
 				}
 				break;
 			case WGET_TEST_OCSP_RESP_FILE:
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 				ocsp_resp_file = va_arg(args, const char *);
 #endif
 				break;
@@ -1560,7 +1649,7 @@ void wget_test(int first_key, ...)
 			_empty_directory(cmd->data);
 		}
 
-#ifdef HAVE_GNUTLS_OCSP_H
+#ifdef WITH_GNUTLS_OCSP
 		if (ocspdaemon) {
 			if (ocsp_resp_file) {
 				ocsp_resp->data = wget_read_file(ocsp_resp_file, &(ocsp_resp->size));
@@ -1654,8 +1743,7 @@ void wget_test(int first_key, ...)
 
 		wget_buffer_strcat(cmd, " 2>&1");
 
-		wget_info_printf("cmd=%s\n", cmd->data);
-		wget_error_printf("\n  Testing '%s'\n", cmd->data);
+		wget_error_printf("\n##### Testing '%s'\n", cmd->data);
 
 		// catch stdout and write to stderr so all output is in sync
 		FILE *pp;
@@ -1731,7 +1819,7 @@ void wget_test(int first_key, ...)
 				}
 
 				if (expected_files[it].timestamp && st.st_mtime != expected_files[it].timestamp)
-					wget_error_printf_exit("Unexpected timestamp '%s/%s' [%s]\n", tmpdir, fname, options);
+					wget_error_printf_exit("Unexpected timestamp '%s/%s' (%ld) [%s]\n", tmpdir, fname, st.st_mtime, options);
 			}
 		}
 

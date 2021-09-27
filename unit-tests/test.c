@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -83,26 +83,28 @@ static void test_mem(void)
 
 	CHECK(!wget_strmemdup(NULL, 0));
 	CHECK(p = wget_strmemdup("xxx", 1));
-	CHECK(!strcmp(p, "x")); xfree(p);
+	CHECK(!memcmp(p, "x", 1)); xfree(p);
 	CHECK(p = wget_strmemdup("xxx", 0));
 	xfree(p);
 
-	wget_strmemcpy(NULL, 0, NULL, 0);
-	wget_strmemcpy(NULL, 5, NULL, 3);
+	CHECK(wget_strmemcpy(NULL, 0, NULL, 0) == 0);
+	CHECK(wget_strmemcpy(NULL, 5, NULL, 3) == 0);
 
 	char buf[32] = "x";
-	wget_strmemcpy(buf, 0, "xxx", 0);
+	CHECK(wget_strmemcpy(buf, 0, "xxx", 0) == 0);
 	CHECK(!strcmp(buf, "x"));
-	wget_strmemcpy(buf, 0, "xxx", 1);
+	CHECK(wget_strmemcpy(buf, 0, "xxx", 1) == 0);
 	CHECK(!strcmp(buf, "x"));
-	wget_strmemcpy(buf, sizeof(buf), "xxx", 0);
+	CHECK(wget_strmemcpy(buf, sizeof(buf), "xxx", 0) == 0);
 	CHECK(!strcmp(buf, ""));
-	wget_strmemcpy(buf, 1, "xxx", 3);
+	CHECK(wget_strmemcpy(buf, 1, "xxx", 3) == 0);
 	CHECK(!strcmp(buf, ""));
-	wget_strmemcpy(buf, 2, "xxx", 3);
+	CHECK(wget_strmemcpy(buf, 2, "xxx", 3) == 1);
 	CHECK(!strcmp(buf, "x"));
-	wget_strmemcpy(buf, 2, NULL, 3);
+	CHECK(wget_strmemcpy(buf, 2, NULL, 3) == 0);
 	CHECK(!strcmp(buf, ""));
+	CHECK(wget_strmemcpy(buf, sizeof(buf), "xxx", 3) == 3);
+	CHECK(!strcmp(buf, "xxx"));
 
 #if __GNUC__ >= 7
 #pragma GCC diagnostic pop
@@ -312,6 +314,8 @@ static void test_buffer_printf(void)
 	static const char *left_adjust[] = { "", "-" };
 	static const long long number[] = { 0, 1LL, -1LL, 10LL, -10LL, 18446744073709551615ULL };
 	static const char *modifier[] = { "", "h", "hh", "l", "ll", "z" }; // %L... won't work on OpenBSD5.0
+	enum argtype { type_int, type_long, type_long_long, type_size_t };
+	static const enum argtype modifier_type[] = { type_int, type_int, type_int, type_long, type_long_long, type_size_t };
 	static const char *conversion[] = { "d", "i", "u", "o", "x", "X" };
 	char fmt[32], result[64], string[32];
 	size_t z, a, it, n, c, m;
@@ -462,8 +466,26 @@ integer_tests:
 							#pragma GCC diagnostic push
 							#pragma GCC diagnostic ignored "-Wformat-nonliteral"
 #endif
-							snprintf(result, sizeof(result), fmt, number[n]);
-							wget_buffer_printf(&buf, fmt, number[n]);
+							switch (modifier_type[m]) {
+							case type_int:
+								snprintf(result, sizeof(result), fmt, (int)number[n]);
+								wget_buffer_printf(&buf, fmt, (int)number[n]);
+								break;
+							case type_long:
+								snprintf(result, sizeof(result), fmt, (long)number[n]);
+								wget_buffer_printf(&buf, fmt, (long)number[n]);
+								break;
+							case type_long_long:
+								snprintf(result, sizeof(result), fmt, (long long)number[n]);
+								wget_buffer_printf(&buf, fmt, (long long)number[n]);
+								break;
+							case type_size_t:
+								snprintf(result, sizeof(result), fmt, (size_t)number[n]);
+								wget_buffer_printf(&buf, fmt, (size_t)number[n]);
+								break;
+							default:
+								abort();
+							}
 #if defined __clang__ || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 							#pragma GCC diagnostic pop
 #endif
@@ -934,7 +956,7 @@ static void test_iri_relative_to_absolute(void)
 		const struct iri_test_data *t = &test_data[it];
 
 		base = wget_iri_parse(t->base, "utf-8");
-		wget_iri_relative_to_abs(base, t->relative, -1, &uri_buf);
+		wget_iri_relative_to_abs(base, t->relative, (size_t) -1, &uri_buf);
 
 		if (!strcmp(uri_buf.data, t->result))
 			ok++;
@@ -2398,6 +2420,24 @@ static void test_set_proxy(void)
 	}
 }
 
+// Add some corner cases here.
+static void test_parse_header_line(void)
+{
+	const char *filename;
+
+	// from https://github.com/rockdaboot/wget2/issues/235
+	wget_http_parse_content_disposition("attachment; filename=\"with space\"", &filename);
+
+	if (strcmp(filename, "with space") == 0) {
+		ok++;
+	} else {
+		failed++;
+		info_printf("HTTP keep-alive Connection header could not be set.\n");
+	}
+
+	xfree(filename);
+}
+
 static void test_parse_response_header(void)
 {
 	char *response_text = wget_strdup(
@@ -2535,6 +2575,7 @@ int main(int argc, const char **argv)
 	test_robots();
 	test_set_proxy();
 	test_parse_response_header();
+	test_parse_header_line();
 
 	selftest_options() ? failed++ : ok++;
 

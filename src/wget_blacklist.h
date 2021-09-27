@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -33,7 +33,7 @@
 typedef struct {
 	const wget_iri
 		*iri;
-	const char *
+	char *
 		local_filename;
 } blacklist_entry;
 

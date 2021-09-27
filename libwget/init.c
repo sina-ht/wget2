@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -162,6 +162,9 @@ void wget_global_init(int first_key, ...)
 			break;
 		case WGET_NET_FAMILY_PREFERRED:
 			wget_tcp_set_preferred_family(NULL, va_arg(args, int));
+			break;
+		case WGET_BIND_INTERFACE:
+			wget_tcp_set_bind_interface(NULL, va_arg(args, const char *));
 			break;
 		default:
 			wget_thread_mutex_unlock(_mutex);

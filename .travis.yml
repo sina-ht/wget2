@@ -1,5 +1,5 @@
 sudo: required
-dist: trusty
+dist: bionic
 
 language: c
 
@@ -30,12 +30,11 @@ addons:
             - libtool
             - gettext
             - flex
-            - liblzma5
             - liblzma-dev
-            - libidn2-0
             - libidn2-0-dev
-            - libunistring0
             - libunistring-dev
+            - gnutls-dev
+            - libgcrypt-dev
             - libc6
             - valgrind
             - lcov

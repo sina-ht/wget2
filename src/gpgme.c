@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -282,7 +282,7 @@ int wget_verify_job(JOB *job, wget_http_response *resp, wget_gpg_info_t *info)
 		return WGET_E_INVALID;
 	}
 
-	size_t num_bytes = -1;
+	size_t num_bytes = (size_t) -1;
 	char *file_contents = NULL;
 	debug_printf("Verifying %s against sig %s\n", corrected_base_file, job->sig_filename);
 

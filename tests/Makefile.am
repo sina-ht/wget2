@@ -2,10 +2,10 @@ DEFS = @DEFS@ \
  -DSRCDIR=\"$(abs_srcdir)\" -DBUILDDIR=\"$(abs_builddir)\" -DEXEEXT=\"$(EXEEXT)\"
 
 MYLIBS = \
- $(LIBOBJS) $(GETADDRINFO_LIB) $(HOSTENT_LIB) $(INET_NTOP_LIB) $(INET_PTON_LIB) \
- $(LIBSOCKET) $(LIB_CLOCK_GETTIME) $(LIB_CRYPTO) $(LIB_GETLOGIN) $(LIB_NANOSLEEP) $(LIB_POLL) \
- $(LIB_POSIX_SPAWN) $(LIB_PTHREAD_SIGMASK) $(LIB_SELECT) $(LTLIBICONV) $(LTLIBINTL) \
- $(LTLIBMULTITHREAD) $(LTLIBTHREAD) $(SERVENT_LIB) @INTL_MACOSX_LIBS@ \
+ $(LIBOBJS) $(GETADDRINFO_LIB) $(GETHOSTNAME_LIB) $(HOSTENT_LIB) $(INET_NTOP_LIB) $(INET_PTON_LIB) \
+ $(LIBMULTITHREAD) $(LIBSOCKET) $(LIBTHREAD) $(LIB_CLOCK_GETTIME) $(LIB_CRYPTO) $(LIB_GETLOGIN) \
+ $(LIB_HARD_LOCALE) $(LIB_MBRTOWC) $(LIB_NANOSLEEP) $(LIB_POLL) $(LIB_POSIX_SPAWN) $(LIB_PTHREAD_SIGMASK) \
+ $(LIB_SELECT) $(LIB_SETLOCALE) $(LIB_SETLOCALE_NULL) $(LTLIBICONV) $(LTLIBINTL) $(SERVENT_LIB) @INTL_MACOSX_LIBS@ \
  $(LIBS) $(CODE_COVERAGE_LIBS)
 
 AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(TEST_CFLAGS) $(CODE_COVERAGE_CFLAGS) -DMALLOC_RETURNS_NONNULL
@@ -23,15 +23,16 @@ WGET_TESTS = test-wget-1$(EXEEXT) test-c-r$(EXEEXT) test-restrict-ascii$(EXEEXT)
  test-auth-basic$(EXEEXT) test-parse-rss$(EXEEXT) test--page-requisites$(EXEEXT) test-p-nc$(EXEEXT)\
  test--accept$(EXEEXT) test-k$(EXEEXT) test--follow-tags$(EXEEXT) test-directory-clash$(EXEEXT) test-redirection$(EXEEXT)\
  test-base$(EXEEXT) test-metalink$(EXEEXT) test-robots$(EXEEXT) test-robots-off$(EXEEXT) test-parse-css$(EXEEXT) test-bad-chunk$(EXEEXT)\
- test-iri-subdir$(EXEEXT) test-chunked$(EXEEXT) test-cut-dirs$(EXEEXT) test-parse-html-css$(EXEEXT)\
+ test-iri-subdir$(EXEEXT) test-chunked$(EXEEXT) test-cut-dirs$(EXEEXT) test-cut-get-vars$(EXEEXT) test-parse-html-css$(EXEEXT)\
  test-auth-digest$(EXEEXT) test-stats-dns$(EXEEXT) test-stats-tls$(EXEEXT) test-stats-site$(EXEEXT) test-stats-ocsp$(EXEEXT)\
  test-plugin-interception$(EXEEXT) test-plugin-nonexistance$(EXEEXT) test-plugin-failure$(EXEEXT) test--filter-mime-type$(EXEEXT)\
  test--https-enforce-hard1$(EXEEXT) test--https-enforce-hard2$(EXEEXT) test--https-enforce-hard3$(EXEEXT)\
  test--https-enforce-soft1$(EXEEXT) test--https-enforce-soft2$(EXEEXT) test--https-enforce-soft3$(EXEEXT)\
  test-gzip$(EXEEXT) test-compression$(EXEEXT) test-include-and-exclude-directories$(EXEEXT) test--save-content-on$(EXEEXT)\
- test-limit-rate$(EXEEXT) test-post-handshake-auth$(EXEEXT) test-unlink$(EXEEXT)\
+ test-limit-rate$(EXEEXT) test-interrupt-response$(EXEEXT) test-post-handshake-auth$(EXEEXT) test-unlink$(EXEEXT)\
  test-ocsp-server$(EXEEXT) test-ocsp-stap$(EXEEXT) test-limit-rate-http2$(EXEEXT) test-timestamping$(EXEEXT)\
- test-cookies$(EXEEXT) test-E-k$(EXEEXT) test-ignore-length$(EXEEXT) test-convert-file-only$(EXEEXT)
+ test-cookies$(EXEEXT) test-E-k$(EXEEXT) test-ignore-length$(EXEEXT) test-convert-file-only$(EXEEXT)\
+ test-download-attr$(EXEEXT)
 #test--post-file$(EXEEXT) test-cookies-http_state$(EXEEXT)
 
 if WITH_GPGME

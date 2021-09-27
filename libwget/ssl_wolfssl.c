@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Free Software Foundation, Inc.
+ * Copyright (c) 2019-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -768,8 +768,8 @@ static void ShowX509(WOLFSSL_X509 *x509, const char *hdr)
 		debug_printf("%s\n", serialMsg);
 	}
 
-	XFREE(subject, 0, DYNAMIC_TYPE_OPENSSL);
-	XFREE(issuer, 0, DYNAMIC_TYPE_OPENSSL);
+	XFREE(subject, 0, DYNAMIC_TYPE_OPENSSL)
+	XFREE(issuer, 0, DYNAMIC_TYPE_OPENSSL)
 
 	{
 		WOLFSSL_BIO* bio;
@@ -862,21 +862,25 @@ int wget_ssl_open(wget_tcp *tcp)
 
 	// RFC 6066 SNI Server Name Indication
 	if (hostname)
-		wolfSSL_UseSNI(session, WOLFSSL_SNI_HOST_NAME, hostname, strlen(hostname));
+		wolfSSL_UseSNI(session, WOLFSSL_SNI_HOST_NAME, hostname, (unsigned short) strlen(hostname));
 
 //	if (tcp->tls_false_start)
 //		info_printf(_("WolfSSL doesn't support TLS False Start\n"));
 
 	if (config.alpn) {
 		size_t len = strlen(config.alpn);
-		char alpn[len + 1];
+		char alpnbuf[256], *alpn;
 
 		// wolfSSL_UseALPN() destroys the ALPN string (bad design pattern !)
-		memcpy(alpn, config.alpn, len + 1);
-		if (wolfSSL_UseALPN(session, alpn, len, WOLFSSL_ALPN_CONTINUE_ON_MISMATCH) == WOLFSSL_SUCCESS) {
+		alpn = wget_strmemcpy_a(alpnbuf, sizeof(alpnbuf), config.alpn, strlen(config.alpn));
+
+		if (wolfSSL_UseALPN(session, alpn, (int) len, WOLFSSL_ALPN_CONTINUE_ON_MISMATCH) == WOLFSSL_SUCCESS) {
 			debug_printf("ALPN offering %s\n", config.alpn);
 		} else
 			debug_printf("WolfSSL: Failed to set ALPN: %s\n", config.alpn);
+
+		if (alpn != alpnbuf)
+			xfree(alpn);
 	}
 
 	struct session_context *ctx = wget_calloc(1, sizeof(struct session_context));
@@ -943,12 +947,11 @@ int wget_ssl_open(wget_tcp *tcp)
 		int resumed = wolfSSL_session_reused(session);
 
 		WOLFSSL_X509_CHAIN *chain = (WOLFSSL_X509_CHAIN *) wolfSSL_get_peer_cert_chain(session);
-		stats.cert_chain_size = wolfSSL_get_chain_count(chain);
-//		debug_printf("Cert chain size %d\n", stats.cert_chain_size);
 		ShowX509Chain(chain, wolfSSL_get_chain_count(chain), "Certificate chain");
 
 		if (tls_stats_callback) {
 			stats.resumed = resumed;
+			stats.cert_chain_size = wolfSSL_get_chain_count(chain);
 
 			const char *tlsver = wolfSSL_get_version(session);
 			if (!strcmp(tlsver, "TLSv1.2"))
@@ -957,11 +960,6 @@ int wget_ssl_open(wget_tcp *tcp)
 				stats.version = 5;
 			else
 				stats.version = 1; // SSLv3
-			// stats.version = gnutls_protocol_get_version(session);
-
-			WOLFSSL_X509_CHAIN *chain = (WOLFSSL_X509_CHAIN *) wolfSSL_get_peer_cert_chain(session);
-			stats.cert_chain_size = wolfSSL_get_chain_count(chain);
-			// gnutls_certificate_get_peers(session, (unsigned int *)&(stats.cert_chain_size));
 		}
 
 		debug_printf("Handshake completed%s\n", resumed ? " (resumed session)" : "");
@@ -993,8 +991,8 @@ int wget_ssl_open(wget_tcp *tcp)
 		rc = wolfSSL_get_error(session, rc);
 		error_printf(_("failed to connect TLS (%d): %s\n"), rc, wolfSSL_ERR_reason_error_string(rc));
 
-		rc = wolfSSL_get_verify_result(session);
-		if (rc >= 13 && rc <= 29)
+		long res = wolfSSL_get_verify_result(session);
+		if (res >= 13 && res <= 29)
 			return WGET_E_CERTIFICATE;
 		else
 			return WGET_E_CONNECT;
@@ -1073,7 +1071,7 @@ ssize_t wget_ssl_read_timeout(void *session, char *buf, size_t count, int timeou
 	int sockfd = wolfSSL_get_fd(session);
 	int rc;
 
-	while ((rc = wolfSSL_read(session, buf, count)) < 0) {
+	while ((rc = wolfSSL_read(session, buf, (int) count)) < 0) {
 		rc =  wolfSSL_get_error(session, rc);
 		debug_printf("wolfSSL_read: (%d) (errno=%d) %s\n", rc, errno, wolfSSL_ERR_reason_error_string(rc));
 		if (rc == SSL_ERROR_WANT_READ) {
@@ -1146,7 +1144,7 @@ ssize_t wget_ssl_write_timeout(void *session, const char *buf, size_t count, int
 	int sockfd = wolfSSL_get_fd(session);
 	int rc;
 
-	while ((rc = wolfSSL_write(session, buf, count)) < 0) {
+	while ((rc = wolfSSL_write(session, buf, (int) count)) < 0) {
 		rc =  wolfSSL_get_error(session, rc);
 		debug_printf("wolfSSL_write: (%d) (errno=%d) %s\n", rc, errno, wolfSSL_ERR_reason_error_string(rc));
 		if (rc == SSL_ERROR_WANT_WRITE) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -31,15 +31,16 @@ int main(void)
 	wget_test_url_t urls[]={
 		{	.name = "/page1.html",
 			.code = "200 Dontcare",
-			.body =	"<html>\n"\
-						"<head>\n"\
-						"  <style> #test1{background:url(/page2.html) no-repeat center} </style>\n"\
-						"  <style> #test2{background:url(\"/page3.html\") no-repeat center} </style>\n"\
-						"</head>\n"\
-						"<body>\n"\
-						"  <div style=\"background:url(/page4.html) no-repeat center; \"></div>\n"\
-						"</body>\n"\
-						"</html>\n",
+			.body =
+				"<html>\n"\
+				"<head>\n"\
+				"  <style> #test1{background:url(/page2.html) no-repeat center} </style>\n"\
+				"  <style> #test2{background:url(\"/page3.html\") no-repeat center} </style>\n"\
+				"</head>\n"\
+				"<body>\n"\
+				"  <div style=\"background:url(/page4.html) no-repeat center; \"></div>\n"\
+				"</body>\n"\
+				"</html>\n",
 			.headers = {
 				"Content-Type: text/html",
 			}

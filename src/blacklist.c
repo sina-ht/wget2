@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -54,7 +54,7 @@ static wget_thread_mutex
 // -P / --directory-prefix=prefix
 
 WGET_GCC_NONNULL_ALL
-static const char * get_local_filename_real(const wget_iri *iri)
+static char * get_local_filename_real(const wget_iri *iri)
 {
 	wget_buffer buf;
 	char *fname;
@@ -125,9 +125,9 @@ static const char * get_local_filename_real(const wget_iri *iri)
 			fname = wget_iri_get_query_as_filename(iri, &buf, config.local_encoding);
 	} else {
 		if (config.cut_file_get_vars)
-			fname = wget_iri_get_path(iri, &buf, config.local_encoding);
+			fname = wget_iri_get_basename(iri, &buf, config.local_encoding, 0); // without query part
 		else
-			fname = wget_iri_get_filename(iri, &buf, config.local_encoding);
+			fname = wget_iri_get_basename(iri, &buf, config.local_encoding, WGET_IRI_WITH_QUERY);
 	}
 
 	// do the filename escaping here
@@ -150,7 +150,7 @@ static const char * get_local_filename_real(const wget_iri *iri)
 }
 
 WGET_GCC_NONNULL_ALL
-static const char * get_local_filename(const wget_iri *iri)
+static char * get_local_filename(const wget_iri *iri)
 {
 	if (config.delete_after)
 		return NULL;

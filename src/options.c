@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -112,7 +112,7 @@ typedef const struct optionw *option_t; // forward declaration
 
 struct optionw {
 	const char
-		*long_name;
+		long_name[22];
 	void
 		*var;
 	int
@@ -130,7 +130,7 @@ struct optionw {
 static const char version_text[] =
 "\n"
 "Copyright (C) 2012-2015 Tim Ruehsen\n"
-"Copyright (C) 2015-2019 Free Software Foundation, Inc.\n"
+"Copyright (C) 2015-2021 Free Software Foundation, Inc.\n"
 "\n"
 "License GPLv3+: GNU GPL version 3 or later\n"
 "<http://www.gnu.org/licenses/gpl.html>.\n"
@@ -148,6 +148,12 @@ static int print_version(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const cha
 #if defined WITH_GNUTLS
 	" +https"
 	" +ssl/gnutls"
+#elif defined WITH_OPENSSL
+	" +https"
+	" +ssl/openssl"
+#elif defined WITH_WOLFSSL
+	" +https"
+	" +ssl/wolfssl"
 #else
 	" -https"
 	" -ssl"
@@ -1127,6 +1133,36 @@ static int parse_compression(option_t opt, const char *val, const char invert)
 	return -1;
 }
 
+static int parse_download_attr(option_t opt, const char *val, const char invert)
+{
+	(void) opt;
+
+	if (!val && invert) {   // --no-download-attr
+		config.download_attr = DOWNLOAD_ATTR_NO;
+		return 0;
+	}
+
+	if (!val) {    // --download_attr
+		config.download_attr = DOWNLOAD_ATTR_STRIPPATH;
+		return 0;
+	}
+
+	if (invert) {
+		error_printf(_("Disallowed Value for --no-download-attr: %s\n"), val);
+		return -1;
+	}
+
+	if (!strcasecmp(val, "strippath")) {
+		config.download_attr = DOWNLOAD_ATTR_STRIPPATH;
+	} else if (!strcasecmp(val, "usepath")) {
+		config.download_attr = DOWNLOAD_ATTR_USEPATH;
+	} else {
+		error_printf(_("Invalid value for --download-attr: %s\n"), val);
+		return -1;
+	}
+
+	return 0;
+}
 
 static int list_plugins(WGET_GCC_UNUSED option_t opt,
 	WGET_GCC_UNUSED const char *val, WGET_GCC_UNUSED const char invert)
@@ -1292,6 +1328,12 @@ static const struct optionw options[] = {
 		  "(default: automatic)\n"
 		}
 	},
+	{ "bind-interface", &config.bind_interface, parse_string, 1, 0,
+		SECTION_DOWNLOAD,
+		{ "Bind sockets to the input Network Interface.\n",
+		  "(default: automatic)\n"
+		}
+	},
 	{ "body-data", &config.body_data, parse_string, 1, 0,
 		SECTION_DOWNLOAD,
 		{ "Data to be sent in a request.\n"
@@ -1342,8 +1384,8 @@ static const struct optionw options[] = {
 	{ "chunk-size", &config.chunk_size, parse_numbytes, 1, 0,
 		SECTION_DOWNLOAD,
 		{ "Download large files in multithreaded chunks.\n",
-			"(default: 0 (=off)) Example:\n",
-			"wget --chunk-size=1M\n"
+		  "(default: 0 (=off)) Example:\n",
+		  "wget --chunk-size=1M\n"
 		}
 	},
 	{ "clobber", &config.clobber, parse_bool, -1, 0,
@@ -1351,18 +1393,17 @@ static const struct optionw options[] = {
 		{ "Enable file clobbering. (default: on)\n"
 		}
 	},
-	{
-		"compression", &config.compression, parse_compression, -1, 0,
+	{ "compression", &config.compression, parse_compression, -1, 0,
 		SECTION_HTTP,
 		{ "Customize Accept-Encoding with\n",
-		   "identity, gzip, deflate, xz, lzma, br, bzip2, zstd, lzip\n",
-		   "and any combination of it\n",
-		   "no-compression means no Accept-Encoding\n"
+		  "identity, gzip, deflate, xz, lzma, br, bzip2, zstd, lzip\n",
+		  "and any combination of it\n",
+		  "no-compression means no Accept-Encoding\n"
 		}
 	},
 	{ "config", &config.user_config, parse_filename, 1, 0,
 		SECTION_STARTUP,
-		{  "Path to initialization file (default: ~/.config/wget/wget2rc)\n"
+		{ "Path to initialization file (default: ~/.config/wget/wget2rc)\n"
 		}
 	}, // for backward compatibility only
 	{ "connect-timeout", &config.connect_timeout, parse_timeout, 1, 0,
@@ -1487,6 +1528,14 @@ static const struct optionw options[] = {
 	{ "domains", &config.domains, parse_stringlist, 1, 'D',
 		SECTION_DOWNLOAD,
 		{ "Comma-separated list of domains to follow.\n"
+		}
+	},
+	{ "download-attr", &config.download_attr, parse_download_attr, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "Recognize HTML5 download attributes.\n",
+		  "'strippath' strips the path to be more secure.\n"
+		  "'usepath' uses the path as is (this can be extremely dangerous !).\n"
+		  "(default: strippath)\n"
 		}
 	},
 	{ "egd-file", &config.egd_file, parse_filename, 1, 0,
@@ -1739,7 +1788,7 @@ static const struct optionw options[] = {
 	{ "ignore-length", &config.ignore_length, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "Ignore content-length header field\n",
-			"(default: off)\n",
+		  "(default: off)\n",
 		}
 	},
 	{ "ignore-tags", &config.ignore_tags, parse_taglist, 1, 0,
@@ -1784,7 +1833,7 @@ static const struct optionw options[] = {
 	{ "keep-extension", &config.keep_extension, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "If file exists: Use pattern 'basename_N.ext'\n",
-			"instead of 'filename.N'. (default: off)\n"
+		  "instead of 'filename.N'. (default: off)\n"
 		}
 	},
 	{ "keep-session-cookies", &config.keep_session_cookies, parse_bool, -1, 0,
@@ -2088,7 +2137,7 @@ static const struct optionw options[] = {
 		  " (default: off)\n"
 		}
 	},
-	{ "retry-on-http-error", &config.http_retry_on_error, parse_stringlist, 1, 0,
+	{ "retry-on-http-error", &config.retry_on_http_error, parse_stringlist, 1, 0,
 		SECTION_DOWNLOAD,
 		{ "Specify a list of http statuses in which the download will be retried\n"
 		}
@@ -2447,11 +2496,15 @@ static int WGET_GCC_NONNULL((1)) set_long_option(const char *name, const char *v
 {
 	option_t opt;
 	char invert = 0, value_present = 0, case_insensitive = 1;
-	char namebuf[strlen(name) + 1], *p;
+	char namebuf[sizeof(options[0].long_name) + 5], *p;
 	int ret = 0, rc;
 
 	if ((p = strchr(name, '='))) {
 		// option with appended value
+		if (p - name >= (int) sizeof(namebuf)) {
+			error_printf(_("Unknown option '%s'\n"), name);
+			return -1;
+		}
 		memcpy(namebuf, name, p - name);
 		namebuf[p - name] = 0;
 		name = namebuf;
@@ -2552,18 +2605,16 @@ static int WGET_GCC_NONNULL((1)) set_long_option(const char *name, const char *v
 
 static int parse_proxy(option_t opt, const char *val, const char invert)
 {
-	int rc;
-
-	if ((rc = parse_bool(opt, val, invert)) < 0) {
+	if (parse_bool(opt, val, invert) < 0) {
 		if (invert) {
 			// the strdup'ed string will be released on program exit
 			xfree(config.no_proxy);
 			config.no_proxy = val ? wget_strdup(val) : NULL;
 		} else {
 			if((opt = bsearch("http-proxy", options, countof(options), sizeof(options[0]), opt_compare)))
-				parse_string(opt, val, invert);
+				return parse_string(opt, val, invert);
 			if((opt = bsearch("https-proxy", options, countof(options), sizeof(options[0]), opt_compare)))
-				parse_string(opt, val, invert);
+				return parse_string(opt, val, invert);
 		}
 	}
 
@@ -3025,9 +3076,9 @@ static void WGET_GCC_NONNULL_ALL get_config_files(const char *config_home, const
 	// First add the Global Wget2rc file.
 	if ((env = getenv ("SYSTEM_WGET2RC")) && *env) {
 		config.system_config = wget_strdup(env);
-	} else {
-		if (config.system_config && access(config.system_config, R_OK) != 0)
-			config.system_config = NULL;
+	} else if (config.system_config) {
+		if (access(config.system_config, R_OK) != 0)
+			xfree(config.system_config);
 	}
 
 	if ((env = getenv("WGET2RC")) && *env) {
@@ -3227,6 +3278,7 @@ int init(int argc, const char **argv)
 	config.secure_protocol = wget_strdup(config.secure_protocol);
 	config.ca_directory = wget_strdup(config.ca_directory);
 	config.default_page = wget_strdup(config.default_page);
+	config.system_config = wget_strdup(config.system_config);
 
 	log_init();
 
@@ -3492,7 +3544,7 @@ int init(int argc, const char **argv)
 			wget_vector_add(config.sig_ext, wget_strdup("sig"));
 		} else {
 
-			// Dedup ...
+			// Dedupe ...
 			// Duplicate extensions break the chain when "add_url" blocks the requests
 			// so they don't come back as a failure.
 			int start_len = wget_vector_size(config.sig_ext);
@@ -3595,6 +3647,8 @@ int init(int argc, const char **argv)
 	wget_tcp_set_tls_false_start(NULL, config.tls_false_start);
 	if (!config.dont_write) // fuzzing mode, try to avoid real network access
 		wget_tcp_set_bind_address(NULL, config.bind_address);
+	if (config.bind_interface)
+		wget_tcp_set_bind_interface(NULL, config.bind_interface);
 	if (config.inet4_only)
 		wget_tcp_set_family(NULL, WGET_NET_FAMILY_IPV4);
 	else if (config.inet6_only)
@@ -3697,6 +3751,7 @@ void deinit(void)
 	xfree(config.accept_regex);
 	xfree(config.base_url);
 	xfree(config.bind_address);
+	xfree(config.bind_interface);
 	xfree(config.body_data);
 	xfree(config.body_file);
 	xfree(config.ca_cert);
@@ -3791,7 +3846,7 @@ void deinit(void)
 	wget_vector_free(&config.exclude_directories);
 	wget_vector_free(&config.save_content_on);
 	wget_vector_free(&config.mime_types);
-	wget_vector_free(&config.http_retry_on_error);
+	wget_vector_free(&config.retry_on_http_error);
 	wget_vector_free(&config.domains);
 	wget_vector_free(&config.exclude_domains);
 	wget_vector_free(&config.follow_tags);

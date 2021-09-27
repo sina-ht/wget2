@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -43,7 +43,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
-#include <c-ctype.h>
 
 #include <wget.h>
 #include "private.h"
@@ -127,9 +126,6 @@ static void add_file_hash(metalink_context *ctx, const char *value)
 
 static void add_mirror(metalink_context *ctx, const char *value)
 {
-	while (c_isspace(*value))
-		value++;
-
 	wget_iri *iri = wget_iri_parse(value, NULL);
 
 	if (!iri)
@@ -175,18 +171,20 @@ static void add_mirror(metalink_context *ctx, const char *value)
 static void metalink_parse(void *context, int flags, const char *dir, const char *attr, const char *val, size_t len, size_t pos WGET_GCC_UNUSED)
 {
 	metalink_context *ctx = context;
-	char value[len + 1];
+	char valuebuf[1024];
+	const char *value;
 
 	// info_printf("\n%02X %s %s '%s'\n", flags, dir, attr, value);
-	if (!(flags & (XML_FLG_CONTENT | XML_FLG_ATTRIBUTE))) return; // ignore comments
+	if (!(flags & (XML_FLG_CONTENT | XML_FLG_ATTRIBUTE)))
+		return; // ignore comments
 
-	if (wget_strncasecmp_ascii(dir, "/metalink/file", 14)) return;
+	if (wget_strncasecmp_ascii(dir, "/metalink/file", 14))
+		return;
 
 	dir += 14;
 
-	if (val)
-			memcpy(value, val, len);
-	value[len] = 0;
+	if (!(value = wget_strmemcpy_a(valuebuf, sizeof(valuebuf), val ? val : "", len)))
+		return;
 
 	if (!wget_strncasecmp_ascii(dir, "s/file", 6)) {
 		// metalink 3 XML format
@@ -273,6 +271,9 @@ static void metalink_parse(void *context, int flags, const char *dir, const char
 			}
 		}
 	}
+
+	if (value != valuebuf)
+		xfree(value);
 }
 
 wget_metalink *wget_metalink_parse(const char *xml)

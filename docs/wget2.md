@@ -106,7 +106,7 @@
 
   Print a help message describing all of Wget2's command-line options.
 
-### `-b`, `--background` [Not supported on Windows yet]
+### `-b`, `--background`
 
 Go to background immediately after startup. If no output file is specified via the `-o`, output is redirected to `wget-log`.
 
@@ -158,15 +158,15 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `-i`, `--input-file=file`
 
-  Read URLs from a local or external file. If - is specified as file, URLs are read from the standard input. (Use ./- to read
-  from a file literally named -.)
+  Read URLs from a local or external file. If `-` is specified as file, URLs are read from the standard input.
+  Use `./-` to read from a file literally named `-`.
 
   If this function is used, no URLs need be present on the command line.  If there are URLs both on the command line and in an
   input file, those on the command lines will be the first ones to be retrieved. `file` is expected to contain one URL per line,
   except one of the --force- options specifies a different format.
 
-  If you specify --force-html, the document will be regarded as HTML.  In that case you may have problems with relative
-  links, which you can solve either by adding "<base href="url">" to the documents or by specifying --base=url on the command
+  If you specify `--force-html`, the document will be regarded as HTML.  In that case you may have problems with relative
+  links, which you can solve either by adding `<base href="url">` to the documents or by specifying `--base=url` on the command
   line.
 
   If you specify `--force-css`, the document will be regarded as CSS.
@@ -179,7 +179,7 @@ Go to background immediately after startup. If no output file is specified via t
 
   If you specify `--force-metalink`, the document will be regarded as Metalink description.
 
-  If you have problems with relative links, you should use --base=url on the command line.
+  If you have problems with relative links, you should use `--base=url` on the command line.
 
 ### `-F`, `--force-html`
 
@@ -369,6 +369,13 @@ Go to background immediately after startup. If no output file is specified via t
   When making client TCP/IP connections, bind to ADDRESS on the local machine.  ADDRESS may be specified as a hostname or IP
   address.  This option can be useful if your machine is bound to multiple IPs.
 
+### `--bind-interface=INTERFACE`
+
+  When making client TCP/IP connections, bind to INTERFACE on the local machine. INTERFACE may be specified as the name
+  for a Network Interface.  This option can be useful if your machine has multiple Network Interfaces.
+  However, the option works only when wget2 is run with elevated privileges
+  (On GNU/Linux: root / sudo or `sudo setcap cap_net_raw+ep <path to wget|wget2>`).
+
 ### `-t`, `--tries=number`
 
   Set number of tries to number. Specify 0 or inf for infinite retrying.  The default is to retry 20 times, with the exception
@@ -387,9 +394,10 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `-O`, `--output-document=file`
 
-  The documents will not be written to the appropriate files, but all will be concatenated together and written to file.  If -
-  is used as file, documents will be printed to standard output, disabling link conversion.  (Use ./- to print to a file
-  literally named -.)
+  The documents will not be written to the appropriate files, but all will be concatenated together and written to file.  If `-`
+  is used as file, documents will be printed to standard output, disabling link conversion. Use `./-` to print to a file
+  literally named `-`. To not get Wget2 status messages mixed with file content, use `-q` in combination with `-O-` (This is
+  different to how Wget 1.x behaves).
 
   Using -r or -p with -O may not work as you expect: Wget2 won't just download the first file to file and then
   download the rest to their normal names: all downloaded content will be placed in file.
@@ -989,8 +997,8 @@ Go to background immediately after startup. If no output file is specified via t
 ### `-P prefix`, `--directory-prefix=prefix`
 
   Set directory prefix to prefix.  The directory prefix is the directory where all other files and subdirectories
-  will be saved to, i.e. the top of the retrieval tree.  The default is . (the current directory).
-
+  will be saved to, i.e. the top of the retrieval tree.  The default is `.`, the current directory.
+  If the directory `prefix` doesn't exist, it will be created.
 
 ## <a name="HTTP Options"/>HTTP Options
 
@@ -1333,6 +1341,15 @@ Go to background immediately after startup. If no output file is specified via t
   `--header="Accept-Encoding: xxx"`.
 
   Compatibility-Note: `none` type in Wget 1.X has the same meaning as `identity` type in Wget2.
+
+### `--download-attr=[strippath|usepath]`
+
+  The `download` HTML5 attribute may specify (or better: suggest) a file name for the `href` URL in `a` and `area`
+  tags. This option tells Wget2 to make use of this file name when saving. The two possible values are 'strippath'
+  to strip the path from the file name. This is the default.
+
+  The value 'usepath' takes the file name as as including the directory. This is very dangerous and we can't stress
+  enough not to use it on untrusted input or servers ! Only use this if you really trust the input or the server.
 
 ## <a name="HTTPS Options"/>HTTPS (SSL/TLS) Options
 
@@ -2039,7 +2056,7 @@ that in case of a collision, the user's wget2rc _overrides_ the global wget2rc.
 
   Copyright (C) 2012-2015 Tim Rühsen
 
-  Copyright (C) 2015-2019 Free Software Foundation, Inc.
+  Copyright (C) 2015-2021 Free Software Foundation, Inc.
 
   Permission is granted to copy, distribute and/or modify this document under the terms of the GNU Free Documentation
   License, Version 1.3 or any later version published by the Free Software Foundation; with no Invariant Sections, with

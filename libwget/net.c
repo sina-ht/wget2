@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -122,15 +122,6 @@ static struct wget_tcp_st global_tcp = {
 	.first_send = 1,
 #endif
 };
-
-typedef struct
-{
-	const char
-		*hostname,
-		*ip;
-	uint16_t port;
-	long long dns_secs;	// milliseconds
-} _stats_data_t;
 
 /* for Windows compatibility */
 #include "sockets.h"
@@ -418,14 +409,10 @@ void wget_tcp_set_bind_address(wget_tcp *tcp, const char *bind_address)
 	if (!tcp)
 		tcp = &global_tcp;
 
-
 	wget_dns_freeaddrinfo(tcp->dns, &tcp->bind_addrinfo);
 
 	if (bind_address) {
-		char copy[strlen(bind_address) + 1], *s = copy;
-		const char *host;
-
-		memcpy(copy, bind_address, sizeof(copy));
+		const char *host, *s = bind_address;
 
 		if (*s == '[') {
 			/* IPv6 address within brackets */
@@ -446,13 +433,33 @@ void wget_tcp_set_bind_address(wget_tcp *tcp, const char *bind_address)
 		}
 
 		if (*s == ':') {
-			*s++ = 0;
-			if (c_isdigit(*s))
-				tcp->bind_addrinfo = wget_dns_resolve(tcp->dns, host, (uint16_t) atoi(s), tcp->family, tcp->preferred_family);
+			char port[6];
+
+			wget_strscpy(port, s + 1, sizeof(port));
+
+			if (c_isdigit(*port))
+				tcp->bind_addrinfo = wget_dns_resolve(tcp->dns, host, (uint16_t) atoi(port), tcp->family, tcp->preferred_family);
 		} else {
 			tcp->bind_addrinfo = wget_dns_resolve(tcp->dns, host, 0, tcp->family, tcp->preferred_family);
 		}
 	}
+}
+
+/**
+ * \param[in] tcp A TCP connection. Might be NULL.
+ * \param[in] bind_interface A network interface name.
+ *
+ * Set the Network Interface the socket \p tcp will bind to on the local machine
+ * when connecting to a remote host.
+ *
+ * This is mainly relevant to wget_tcp_connect().
+ */
+void wget_tcp_set_bind_interface(wget_tcp *tcp, const char *bind_interface)
+{
+	if (!tcp)
+		tcp = &global_tcp;
+
+	tcp->bind_interface = bind_interface;
 }
 
 /**
@@ -594,7 +601,7 @@ static void _set_async(int fd)
 #endif
 }
 
-static void set_socket_options(int fd)
+static void set_socket_options(const wget_tcp *tcp, int fd)
 {
 	int on = 1;
 
@@ -604,6 +611,17 @@ static void set_socket_options(int fd)
 	on = 1;
 	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void *)&on, sizeof(on)) == -1)
 		error_printf(_("Failed to set socket option NODELAY\n"));
+
+#ifdef SO_BINDTODEVICE
+	if (tcp->bind_interface) {
+		if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, tcp->bind_interface, (socklen_t)strlen(tcp->bind_interface)) == -1)
+			error_printf(_("Failed to set socket option BINDTODEVICE\n"));
+	}
+#else
+	// Let's exit here instead of using a wrong interface (privacy concerns)
+	if (tcp->bind_interface)
+		error_printf_exit(_("Unsupported socket option BINDTODEVICE\n"));
+#endif
 
 #ifdef TCP_FASTOPEN_LINUX_411
 	on = 1;
@@ -644,6 +662,9 @@ int wget_tcp_ready_2_transfer(wget_tcp *tcp, int flags)
  * with wget_tcp_set_bind_address(). Otherwise the socket will bind to any address and port
  * chosen by the operating system.
  *
+ * You can also set which Network Interface on the local machine will the socket be bound to
+ * with wget_tcp_bind_interface().
+ *
  * This function will try to use TCP Fast Open if enabled and available. If TCP Fast Open fails,
  * it will fall back to the normal TCP handshake, without raising an error. You can enable TCP Fast Open
  * with wget_tcp_set_tcp_fastopen().
@@ -679,7 +700,7 @@ int wget_tcp_connect(wget_tcp *tcp, const char *host, uint16_t port)
 		int sockfd;
 		if ((sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) != -1) {
 			_set_async(sockfd);
-			set_socket_options(sockfd);
+			set_socket_options(tcp, sockfd);
 
 			if (tcp->bind_addrinfo) {
 				if (debug) {
@@ -754,7 +775,7 @@ int wget_tcp_connect(wget_tcp *tcp, const char *host, uint16_t port)
 					}
 				}
 
-				if ((rc = getnameinfo(ai->ai_addr, ai->ai_addrlen, adr, sizeof(adr), s_port, sizeof(s_port), NI_NUMERICHOST | NI_NUMERICSERV)) == 0)
+				if (getnameinfo(ai->ai_addr, ai->ai_addrlen, adr, sizeof(adr), s_port, sizeof(s_port), NI_NUMERICHOST | NI_NUMERICSERV) == 0)
 					tcp->ip = wget_strdup(adr);
 				else
 					tcp->ip = NULL;

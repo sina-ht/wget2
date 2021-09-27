@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -496,20 +496,24 @@ const char *wget_http_parse_content_type(const char *s, const char **content_typ
 	return s;
 }
 
-// RFC 2183
+// RFC 6266 - Use of the Content-Disposition Header Field in the Hypertext Transfer Protocol (HTTP)
+// content-disposition = "Content-Disposition" ":" disposition-type *( ";" disposition-parm )
+// disposition-type    = "inline" | "attachment" | disp-ext-type ; case-insensitive
+// disp-ext-type       = token
+// disposition-parm    = filename-parm | disp-ext-parm
+// filename-parm       = "filename" "=" value | "filename*" "=" ext-value
+// disp-ext-parm       = token "=" value | ext-token "=" ext-value
+// ext-token           = <the characters in token, followed by "*">
 //
-// disposition := "Content-Disposition" ":" disposition-type *(";" disposition-parm)
-// disposition-type := "inline" / "attachment" / extension-token   ; values are not case-sensitive
-// disposition-parm := filename-parm / creation-date-parm / modification-date-parm
-//                     / read-date-parm / size-parm / parameter
-// filename-parm := "filename" "=" value
-// creation-date-parm := "creation-date" "=" quoted-date-time
-// modification-date-parm := "modification-date" "=" quoted-date-time
-// read-date-parm := "read-date" "=" quoted-date-time
-// size-parm := "size" "=" 1*DIGIT
-// quoted-date-time := quoted-string
-//                     ; contents MUST be an RFC 822 `date-time'
-//                     ; numeric timezones (+HHMM or -HHMM) MUST be used
+// Defined in [RFC2616]:
+//
+// token         = <token, defined in [RFC2616], Section 2.2>
+// quoted-string = <quoted-string, defined in [RFC2616], Section 2.2>
+// value         = <value, defined in [RFC2616], Section 3.6> ; token | quoted-string
+//
+// Defined in [RFC5987]:
+//
+// ext-value   = <ext-value, defined in [RFC5987], Section 3.2>
 
 const char *wget_http_parse_content_disposition(const char *s, const char **filename)
 {
@@ -1070,12 +1074,9 @@ int wget_http_parse_header_line(wget_http_response *resp, const char *name, size
 	char *value0;
 	int ret = WGET_E_SUCCESS;
 
-	if (valuelen < sizeof(valuebuf)) {
-		wget_strmemcpy(value0 = valuebuf, sizeof(valuebuf), value, valuelen);
-	} else {
-		if (!(value0 = wget_strmemdup(value, valuelen)))
-			return WGET_E_MEMORY;
-	}
+	value0 = wget_strmemcpy_a(valuebuf, sizeof(valuebuf), value, valuelen);
+	if (!value0)
+		return WGET_E_MEMORY;
 
 	switch (*name | 0x20) {
 	case ':':
@@ -1272,7 +1273,7 @@ wget_http_response *wget_http_parse_response_header(char *buf)
 		return NULL;
 	}
 
-	for (char *line = eol + 1; eol && *line && *line != '\r' && *line != '\n'; line = eol + 1) {
+	for (char *line = eol + 1; eol && *line && *line != '\r' && *line != '\n'; line = eol ? eol + 1 : NULL) {
 		eol = strchr(line, '\n');
 		while (eol && c_isblank(eol[1])) { // handle split lines
 			*eol = eol[-1] = ' ';

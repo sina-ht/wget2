@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -153,7 +153,7 @@ static int gzip_decompress(wget_decompressor *dc, const char *src, size_t srclen
 		}
 	} while (status == Z_OK && !strm->avail_out);
 
-	if (status == Z_OK || status == Z_STREAM_END)
+	if (status == Z_OK || status == Z_BUF_ERROR || status == Z_STREAM_END)
 		return 0;
 
 	error_printf(_("Failed to uncompress gzip stream (%d)\n"), status);
@@ -341,7 +341,7 @@ static int zstd_decompress(wget_decompressor *dc, const char *src, size_t srclen
 			return -1;
 		}
 
-		if (dc->sink)
+		if (output.pos && dc->sink)
 			dc->sink(dc->context, (char *)dst, output.pos);
 	}
 

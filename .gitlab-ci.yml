@@ -42,7 +42,7 @@ variables:
   GET_SOURCES_ATTEMPTS: "3"
   GIT_DEPTH: "5"
   CONFIGURE_BASE_FLAGS: --enable-assert --cache-file cache/config.cache
-  CFLAGS_DEFAULT: -O0 -g -ggdb3
+  CFLAGS_DEFAULT: -O1 -g -ggdb3
 
 
 # We organize the CI runners as thus:
@@ -72,8 +72,7 @@ Full+VPATH/Debian:
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
     - contrib/spell-checker
-    - cp -a /usr/local/gnulib .
-    - export CFLAGS=$CFLAGS_DEFAULT
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - sed -i 's/dist-lzip//g' configure.ac
     - ./bootstrap --skip-po && touch .manywarnings
     - mkdir vpath && cd vpath
@@ -83,7 +82,7 @@ Full+VPATH/Debian:
     - mv wget2-*.gz ..
   tags:
     - shared
-    - docker
+    - linux
   except:
     - coverity-scan@gnuwget/wget2
   artifacts:
@@ -102,18 +101,20 @@ Full+VPATH/Debian:
 
 
 # Debian Testing
+# - Testing dash to detects bashims in configure.ac
 Debian/Testing:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_TESTING_BUILD
   script:
     - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po && touch .manywarnings
-    - ./configure $CONFIGURE_BASE_FLAGS
+    - CONFIG_SHELL=/bin/dash dash ./configure $CONFIGURE_BASE_FLAGS -q 2>&1 >/dev/null |
+        grep -v "libhsts was not found" | grep . && exit 1
     - make -j$(nproc)
     - make check -j$(nproc)
   tags:
     - shared
-    - docker
+    - linux
   except:
     - coverity-scan@gnuwget/wget2
   artifacts:
@@ -137,7 +138,7 @@ Debian/Unstable:
     - make check -j$(nproc)
   tags:
     - shared
-    - docker
+    - linux
   except:
     - coverity-scan@gnuwget/wget2
   artifacts:
@@ -160,7 +161,7 @@ Debian/WolfSSL:
     - make check -j$(nproc)
   tags:
     - shared
-    - docker
+    - linux
   except:
     - coverity-scan@gnuwget/wget2
   artifacts:
@@ -183,7 +184,7 @@ Debian/OpenSSL:
     - make check -j$(nproc)
   tags:
     - shared
-    - docker
+    - linux
   except:
     - coverity-scan@gnuwget/wget2
   artifacts:
@@ -202,15 +203,15 @@ Minimal/Debian:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
-    - cp -a /usr/local/gnulib .
-    - export CFLAGS="$CFLAGS_DEFAULT -Werror"
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - sed -i 's/dist-lzip//g' configure.ac
     - ./bootstrap --skip-po && touch .manywarnings
     - ./configure $CONFIGURE_BASE_FLAGS --disable-doc
         --disable-xattr --without-gnutls --without-libpsl --without-libnghttp2 --without-bzip2
         --without-gpgme --without-zlib --without-lzma --without-brotlidec --without-libidn2
         --without-libidn --without-libpcre2 --without-libpcre --without-plugin-support
-    - make -j$(nproc) check
+    - make -j$(nproc) -C lib
+    - make -j$(nproc) check CFLAGS="$CFLAGS_DEFAULT -Werror"
   tags:
     - shared
   except:
@@ -230,19 +231,20 @@ Minimal/Debian:
 #  * check, syntax-check
 Sanitizers/Debian:
   stage: stage1-testing
-  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_UNSTABLE_BUILD
   script:
-    - cp -a /usr/local/gnulib .
-    - export CFLAGS="$CFLAGS_DEFAULT -Werror"
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po && touch .manywarnings
     - export CC="ccache clang"
-    - export UBSAN_OPTIONS=print_stacktrace=1
-    - export ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-3.8/bin/llvm-symbolizer
+    - export UBSAN_OPTIONS=print_stacktrace=1:report_error_type=1
     - export LSAN_OPTIONS=suppressions="$PWD/tests/clang-asan-suppressions"
+    - export ASAN_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer
     - ./configure $CONFIGURE_BASE_FLAGS --enable-fsanitize-asan --enable-fsanitize-ubsan
-    - make -j$(nproc) check
+    - make -j$(nproc) -C lib
+    - make -j$(nproc) check CFLAGS="$CFLAGS_DEFAULT -Werror"
   tags:
     - shared
+    - linux
   except:
     - coverity-scan@gnuwget/wget2
   artifacts:
@@ -258,14 +260,14 @@ Scan-Build/Debian:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_UNSTABLE_BUILD
   script:
-    - cp -a /usr/local/gnulib .
-    - export CFLAGS=$CFLAGS_DEFAULT
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po && touch .manywarnings
     - CC=clang ./configure $CONFIGURE_BASE_FLAGS
     - make -C lib -j$(nproc)
-    - scan-build -v --use-cc=clang -enable-checker valist,security,nullability --status-bugs -o scan-build make -j$(nproc)
+    - scan-build -v --use-cc=clang -enable-checker valist,nullability --status-bugs -o scan-build make -j$(nproc)
   tags:
     - shared
+    - linux
   except:
     - tags
     - coverity-scan@gnuwget/wget2
@@ -279,14 +281,14 @@ Valgrind/Debian:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
-    - cp -a /usr/local/gnulib .
-    - export CFLAGS=$CFLAGS_DEFAULT
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po
     - ./configure $CONFIGURE_BASE_FLAGS --enable-valgrind-tests
     - make -j$(nproc)
     - make check -j$(nproc)
   tags:
     - shared
+    - linux
   except:
     - tags
     - coverity-scan@gnuwget/wget2
@@ -303,14 +305,14 @@ Valgrind/i386:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_STABLEi386_BUILD
   script:
-    - cp -a /usr/local/gnulib .
-    - export CFLAGS=$CFLAGS_DEFAULT
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po
     - ./configure $CONFIGURE_BASE_FLAGS --enable-valgrind-tests --without-gpgme
     - make -j$(nproc)
     - make check -j$(nproc)
   tags:
     - shared
+    - linux
   except:
     - tags
     - coverity-scan@gnuwget/wget2
@@ -327,13 +329,14 @@ Simple/Fedora:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$FEDORA_BUILD
   script:
-    - cp -a /usr/local/gnulib .
-    - export CFLAGS="$CFLAGS_DEFAULT -Werror"
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - ./bootstrap --skip-po && touch .manywarnings
     - ./configure $CONFIGURE_BASE_FLAGS
-    - make -j$(nproc) check
+    - make -j$(nproc) -C lib
+    - make -j$(nproc) check CFLAGS="$CFLAGS_DEFAULT -Werror"
   tags:
     - shared
+    - linux
   except:
     - tags
     - coverity-scan@gnuwget/wget2
@@ -350,13 +353,14 @@ Alpine:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$ALPINE_BUILD
   script:
-    - cp -a /usr/local/gnulib .
     - export CFLAGS="$CFLAGS_DEFAULT"
+    - ln -s /usr/bin/python3 /usr/bin/python
     - ./bootstrap --skip-po
     - ./configure $CONFIGURE_BASE_FLAGS
     - make -j$(nproc) check
   tags:
     - shared
+    - linux
   except:
     - tags
     - coverity-scan@gnuwget/wget2
@@ -388,26 +392,43 @@ pages:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
   script:
-    - cp -a /usr/local/gnulib .
+    - mkdir -p public
     - ./bootstrap --skip-po
-    - export CFLAGS=$CFLAGS_DEFAULT
+    - export CFLAGS="$CFLAGS_DEFAULT"
     - ./configure $CONFIGURE_BASE_FLAGS
     - make -j$(nproc) check-coverage
+
+# Tarball
     - make dist
-    - mkdir -p public
-    # Test suite coverage report
+    - mv wget2-*.gz public/wget2-latest.tar.gz
+
+# Test suite coverage report
+    - coverage=$(grep -m 1 'headerCovTableEntry[a-zA-Z].*[0-9]*' lcov/index.html|sed 's/^.*>\([0-9]\+\.[0-9]\+\).*/\1/');
+    - coverage=$(printf %.2f $coverage)
+    - inum=$(echo $coverage|cut -d'.' -f1)
+    - if [ -z "$inum" ]; then inum="0"; fi
+    - contrib/make-coverage-badge "coverage" "$coverage%"
+    - mv badge.svg public/coverage.svg
     - rm -rf public/coverage
     - mv lcov public/coverage
-    # Online Documentation
+
+# Online Documentation
     - rm -rf public/reference
     - mv docs/html public/reference
-    # Coverage report for all our fuzz corpora
+
+# Coverage report for all our fuzz corpora
     - make -j$(nproc) fuzz-coverage
+    - coverage=$(grep -m 1 'headerCovTableEntry[a-zA-Z].*[0-9]*' lcov/index.html|sed 's/^.*>\([0-9]\+\.[0-9]\+\).*/\1/');
+    - coverage=$(printf %.2f $coverage)
+    - inum=$(echo $coverage|cut -d'.' -f1)
+    - if [ -z "$inum" ]; then inum="0"; fi
+    - contrib/make-coverage-badge "fuzz-coverage" "$coverage%"
+    - mv badge.svg public/fuzz-coverage.svg
     - rm -rf public/fuzz-coverage
     - mv lcov public/fuzz-coverage
-    - mv wget2-*.gz public/wget2-latest.tar.gz
   tags:
     - shared
+    - linux
   artifacts:
     when: on_success
     paths:
@@ -419,7 +440,6 @@ MinGW64:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$MINGW_BUILD
   script:
-    - cp -a /usr/local/gnulib .
     - ./bootstrap --skip-po
     - cp pthread_sigmask.c.mingw lib/pthread_sigmask.c
     - export CC="ccache $PREFIX-gcc"
@@ -431,7 +451,7 @@ MinGW64:
     - make check -j$(nproc) LOG_COMPILER=wine
   tags:
     - shared
-    - docker
+    - linux
   except:
     - tags
     - coverity-scan@gnuwget/wget2
@@ -458,7 +478,7 @@ Arch:
     - make check -j$(nproc)
   tags:
     - shared
-    - docker
+    - linux
   except:
     - coverity-scan@gnuwget/wget2
   artifacts:
@@ -486,7 +506,7 @@ Tarball:
     - tar xvf wget2-*.gz
     - cd wget2-*
     - unset CC
-    - ./configure $CONFIGURE_BASE_FLAGS --disable-manywarnings
+    - ./configure $CONFIGURE_BASE_FLAGS --with-ssl=none --disable-manywarnings
     - make -j$(nproc)
     - make -j$(nproc) check
     # check if essential files are accidentally cleaned
@@ -494,6 +514,7 @@ Tarball:
     - make -j$(nproc)
   tags:
     - shared
+    - linux
   dependencies:
     - Full+VPATH/Debian
   except:
@@ -535,7 +556,7 @@ Debian/HTTP2:
     - make code-coverage-capture
   tags:
     - shared
-    - docker
+    - linux
   allow_failure: true
   except:
     - coverity-scan@gnuwget/wget2
@@ -555,6 +576,7 @@ Debian/HTTP2:
 
 # That is a specific runner that we cannot enable universally.
 # We restrict it to builds under the $BUILD_IMAGES_PROJECT project.
+# The OpenSSL version on this machine is too old to be supported.
 FreeBSD.x86_64:
   stage: stage1-testing
   image:
@@ -564,18 +586,15 @@ FreeBSD.x86_64:
     - sed -i.bak '/^python/d' bootstrap.conf
     - sed -i.bak '/^lzip/d' bootstrap.conf
     - sed -i.bak '/^makeinfo/d' bootstrap.conf
-    - ./bootstrap --skip-po && touch .manywarnings
-    - LIBS="-L/usr/local/lib" ./configure --cache-file cache/config.cache --disable-doc
-    - gmake -j$(sysctl hw.ncpu | awk '{print $2}')
-    - gmake check -j$(sysctl hw.ncpu | awk '{print $2}')
-    - LIBS="-L/usr/local/lib" ./configure --cache-file cache/config.cache --disable-doc --disable-threads
-    - gmake clean
+    - ./bootstrap --skip-po
+    - LIBS="-L/usr/local/lib" ./configure --cache-file cache/config.cache --disable-doc --with-ssl=none
     - gmake -j$(sysctl hw.ncpu | awk '{print $2}')
     - gmake check -j$(sysctl hw.ncpu | awk '{print $2}')
   tags:
     - freebsd
   only:
     - branches@gnuwget/wget2
+  allow_failure: true
   except:
     - tags
     - coverity-scan@gnuwget/wget2
@@ -604,6 +623,7 @@ coverity:
       --form description="CI build"
   tags:
     - shared
+    - linux
   only:
     - coverity-scan@gnuwget/wget2
   artifacts:

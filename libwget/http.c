@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2019 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2021 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -740,6 +740,32 @@ void wget_http_close(wget_http_connection **conn)
 }
 
 #ifdef WITH_LIBNGHTTP2
+static ssize_t data_prd_read_callback(
+	nghttp2_session *session, int32_t stream_id, uint8_t *buf, size_t length,
+	uint32_t *data_flags, nghttp2_data_source *source, void *user_data WGET_GCC_UNUSED)
+{
+	struct http2_stream_context *ctx = nghttp2_session_get_stream_user_data(session, stream_id);
+	const char *bodyp = source->ptr;
+
+	if (!ctx)
+		return NGHTTP2_ERR_CALLBACK_FAILURE;
+
+//	debug_printf("[INFO] C ----------------------------> S (DATA post body), length:%zu %zu\n", length, ctx->resp->req->body_length);
+
+	size_t len = ctx->resp->req->body_length - (bodyp - ctx->resp->req->body);
+
+	if (len > length)
+		len = length;
+
+	memcpy(buf, bodyp, len);
+	source->ptr = (char *) (bodyp + len);
+
+	if (!len)
+		*data_flags = NGHTTP2_DATA_FLAG_EOF;
+
+	return len;
+}
+
 static void init_nv(nghttp2_nv *nv, const char *name, const char *value)
 {
 	nv->name = (uint8_t *)name;
@@ -756,6 +782,7 @@ int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 
 #ifdef WITH_LIBNGHTTP2
 	if (wget_tcp_get_protocol(conn->tcp) == WGET_PROTOCOL_HTTP_2_0) {
+		char length_str[32];
 		int n = 4 + wget_vector_size(req->headers);
 		nghttp2_nv nvs[n], *nvp;
 		char resource[req->esc_resource.length + 2];
@@ -782,6 +809,11 @@ int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 			init_nv(nvp++, param->name, param->value);
 		}
 
+		if (req->body_length) {
+			wget_snprintf(length_str, sizeof(length_str), "%zu", req->body_length);
+			init_nv(nvp++, "Content-Length", length_str);
+		}
+
 		struct http2_stream_context *ctx = wget_calloc(1, sizeof(struct http2_stream_context));
 		// HTTP/2.0 has the streamid as link between
 		ctx->resp = wget_calloc(1, sizeof(wget_http_response));
@@ -791,8 +823,16 @@ int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 		ctx->resp->keep_alive = 1;
 		req->request_start = wget_get_timemillis();
 
-		// nghttp2 does strdup of name+value and lowercase conversion of 'name'
-		req->stream_id = nghttp2_submit_request(conn->http2_session, NULL, nvs, nvp - nvs, NULL, ctx);
+		if (req->body_length) {
+			nghttp2_data_provider data_prd;
+			data_prd.source.ptr = (void *) req->body;
+			debug_printf("body length: %zu %zu\n", req->body_length, ctx->resp->req->body_length);
+			data_prd.read_callback = data_prd_read_callback;
+			req->stream_id = nghttp2_submit_request(conn->http2_session, NULL, nvs, nvp - nvs, &data_prd, ctx);
+		} else {
+			// nghttp2 does strdup of name+value and lowercase conversion of 'name'
+			req->stream_id = nghttp2_submit_request(conn->http2_session, NULL, nvs, nvp - nvs, NULL, ctx);
+		}
 
 		if (req->stream_id < 0) {
 			error_printf(_("Failed to submit HTTP2 request\n"));
@@ -903,7 +943,7 @@ wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 		while (!wget_vector_size(conn->received_http2_responses) && !conn->abort_indicator && !abort_indicator) {
 			int rc;
 
-			while (nghttp2_session_want_write(conn->http2_session) && (rc = nghttp2_session_send(conn->http2_session)) == 0)
+			while (nghttp2_session_want_write(conn->http2_session) && nghttp2_session_send(conn->http2_session) == 0)
 				;
 
 			if ((nbytes = wget_tcp_read(conn->tcp, buf, bufsize)) <= 0) {
@@ -955,7 +995,7 @@ wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 
 		if (nread < 4) continue;
 
-		if (nread == nbytes)
+		if (nread - nbytes <= 4)
 			p = buf;
 		else
 			p = buf + nread - nbytes - 3;
@@ -1011,6 +1051,7 @@ wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 		}
 	}
 	if (!nread) goto cleanup;
+	if (!p) goto cleanup;
 
 	if (resp && resp->code == HTTP_STATUS_RANGE_NOT_SATISFIABLE) {
 		/*
@@ -1094,6 +1135,16 @@ wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 				if (conn->abort_indicator || abort_indicator)
 					goto cleanup;
 
+				if (body_len + 1024 > bufsize) {
+					if (wget_buffer_ensure_capacity(conn->buf, bufsize + 1024) != WGET_E_SUCCESS) {
+						error_printf(_("Failed to allocate %zu bytes\n"), bufsize + 1024);
+						goto cleanup;
+					}
+					p = conn->buf->data + (p - buf);
+					buf = conn->buf->data;
+					bufsize = conn->buf->size;
+				}
+
 				if ((nbytes = wget_tcp_read(conn->tcp, buf + body_len, bufsize - body_len)) <= 0)
 					goto cleanup;
 
@@ -1104,7 +1155,13 @@ wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 			end += 2;
 
 			// now p points to chunk-size (hex)
-			chunk_size = strtoll(p, NULL, 16);
+			errno = 0;
+			chunk_size = (size_t) strtoll(p, NULL, 16);
+			if (errno) {
+				error_printf(_("Failed to convert chunk size '%.31s'\n"), p);
+				goto cleanup;
+			}
+
 			// debug_printf("chunk size is %zu\n", chunk_size);
 			if (chunk_size == 0) {
 				// now read 'trailer CRLF' which is '*(entity-header CRLF) CRLF'
@@ -1130,14 +1187,14 @@ wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 					end = buf;
 					// debug_printf("a nbytes %zd\n", nbytes);
 				}
-				debug_printf("end of trailer \n");
+				debug_printf("end of trailer\n");
 				goto cleanup;
 			}
 
 			// check for pointer overflow
 			if (chunk_size > SIZE_MAX/2 - 2 || end >= end + chunk_size + 2) {
 //			if (end > end + chunk_size || end >= end + chunk_size + 2) {
-				error_printf(_("Chunk size overflow: %lX\n"), chunk_size);
+				error_printf(_("Chunk size overflow: %zX\n"), chunk_size);
 				goto cleanup;
 			}
 
@@ -1149,8 +1206,16 @@ wget_http_response *wget_http_get_response_cb(wget_http_connection *conn)
 				continue;
 			}
 
-			resp->cur_downloaded += (buf + body_len) - end;
-			wget_decompress(dc, end, (buf + body_len) - end);
+//			resp->cur_downloaded += (buf + body_len) - end;
+//			wget_decompress(dc, end, (buf + body_len) - end);
+
+			if ((uintptr_t)((buf + body_len) - end) > chunk_size) {
+				resp->cur_downloaded += chunk_size;
+				wget_decompress(dc, end, chunk_size);
+			} else {
+				resp->cur_downloaded += (buf + body_len) - end;
+				wget_decompress(dc, end, (buf + body_len) - end);
+			}
 
 			chunk_size = (((uintptr_t) p) - ((uintptr_t) (buf + body_len))); // in fact needed bytes to have chunk_size+2 in buf
 
@@ -1284,10 +1349,9 @@ static wget_vector *parse_proxies(const char *proxy, const char *encoding)
 	for (s = p = proxy; *p; s = p + 1) {
 		if ((p = strchrnul(s, ',')) != s && p - s < 256) {
 			wget_iri *iri;
-			char host[p - s + 1];
+			char host[256];
 
-			memcpy(host, s, p - s);
-			host[p - s] = 0;
+			wget_strmemcpy(host, sizeof(host), s, p - s);
 
 			iri = wget_iri_parse (host, encoding);
 			if (iri) {
