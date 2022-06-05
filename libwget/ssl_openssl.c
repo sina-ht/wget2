@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -591,7 +591,7 @@ static int ocsp_resp_cb(SSL *s, void *arg)
 	result = check_ocsp_response(ocspresp,
 		certstack,
 		vflags->certstore,
-		config.ocsp_date); /* check time? */
+		0);
 
 	if (result == -1) {
 		OCSP_RESPONSE_free(ocspresp);
@@ -640,7 +640,7 @@ static OCSP_REQUEST *send_ocsp_request(const char *uri,
 		WGET_HTTP_URL, uri,
 		WGET_HTTP_SCHEME, "POST",
 		WGET_HTTP_HEADER_ADD, "Accept-Encoding", "identity",
-		WGET_HTTP_HEADER_ADD, "Accept", "application/ocsp-response",
+		WGET_HTTP_HEADER_ADD, "Accept", "*/*",
 		WGET_HTTP_HEADER_ADD, "Content-Type", "application/ocsp-request",
 		WGET_HTTP_MAX_REDIRECTIONS, 5,
 		WGET_HTTP_BODY, ocspreq_bytes, ocspreq_bytes_len,
@@ -681,64 +681,132 @@ static const char *get_printable_ocsp_reason_desc(int reason)
 	case OCSP_REVOKED_STATUS_REMOVEFROMCRL:
 		return "remove from CRL";
 	default:
-		return NULL;
+		return "unknown reason";
 	}
 }
 
-static int print_ocsp_response_status(int status)
+static void print_ocsp_response_status(int status)
 {
-	debug_printf("*** OCSP response status: ");
+	char msg[64];
+	const char *status_string;
 
 	switch (status) {
 	case OCSP_RESPONSE_STATUS_SUCCESSFUL:
-		debug_printf("successful\n");
+		status_string = "successful";
 		break;
 	case OCSP_RESPONSE_STATUS_MALFORMEDREQUEST:
-		debug_printf("malformed request\n");
+		status_string = "malformed request";
 		break;
 	case OCSP_RESPONSE_STATUS_INTERNALERROR:
-		debug_printf("internal error\n");
+		status_string = "internal error";
 		break;
 	case OCSP_RESPONSE_STATUS_TRYLATER:
-		debug_printf("try later\n");
+		status_string = "try later";
 		break;
 	case OCSP_RESPONSE_STATUS_SIGREQUIRED:
-		debug_printf("signature required\n");
+		status_string = "signature required";
 		break;
 	case OCSP_RESPONSE_STATUS_UNAUTHORIZED:
-		debug_printf("unauthorized\n");
+		status_string = "unauthorized";
 		break;
 	default:
-		debug_printf("unknown status code\n");
+		wget_snprintf(msg, sizeof(msg), "unknown status code %d", status);
+		status_string = msg;
 		break;
 	}
 
-	return status;
+	debug_printf("*** OCSP response status: %s\n", status_string);
 }
 
-static int print_ocsp_cert_status(int status, int reason)
+static void print_ocsp_cert_status(int status, int reason)
 {
-	const char *reason_desc;
-
-	debug_printf("*** OCSP cert status: ");
+	char msg[64];
+	const char *reason_string;
 
 	switch (status) {
 	case V_OCSP_CERTSTATUS_GOOD:
-		debug_printf("good\n");
+		reason_string = "good";
 		break;
 	case V_OCSP_CERTSTATUS_UNKNOWN:
-		debug_printf("unknown\n");
-		break;
-	default:
-		debug_printf("invalid status code\n");
+		reason_string = "unknown";
 		break;
 	case V_OCSP_CERTSTATUS_REVOKED:
-		reason_desc = get_printable_ocsp_reason_desc(reason);
-		debug_printf("Revoked. Reason: %s\n", (reason_desc ? reason_desc : "unknown reason"));
+		wget_snprintf(msg, sizeof(msg), "revoked (%s)", get_printable_ocsp_reason_desc(reason));
+		reason_string = msg;
+		break;
+	default:
+		reason_string = "invalid status code";
 		break;
 	}
 
-	return status;
+	debug_printf("*** OCSP cert status: %s\n", reason_string);
+}
+
+static void print_openssl_time(const char *prefix, const ASN1_GENERALIZEDTIME *t)
+{
+	int nread;
+	char buf[128];
+	BIO *mem = BIO_new(BIO_s_mem());
+
+	ASN1_GENERALIZEDTIME_print(mem, t);
+
+	nread = BIO_read(mem, buf, sizeof(buf)-1);
+	if (nread > 0) {
+		buf[nread] = '\0';
+		debug_printf("%s%s\n", prefix, buf);
+	} else {
+		error_printf(_("ERROR: print_openssl_time: BIO_read failed\n"));
+	}
+
+	BIO_free_all(mem);
+}
+
+static int check_ocsp_response_times(const ASN1_GENERALIZEDTIME *thisupd,
+				     const ASN1_GENERALIZEDTIME *nextupd)
+{
+	int day, sec, retval = -1;
+	ASN1_TIME *now;
+
+	now = ASN1_TIME_adj(NULL, time(NULL), 0, 0);
+	if (!now) {
+		error_printf(_("Could not get current time!\n"));
+		return -1;
+	}
+
+	print_openssl_time("*** OCSP issued time: ", thisupd);
+
+	if (!nextupd) {
+		debug_printf("OCSP nextUpd not set. Checking thisUpd is not too old.\n");
+		if (!ASN1_TIME_diff(&day, &sec, now, thisupd)) {
+			error_printf(_("Could not compute time difference for thisUpd. Aborting.\n"));
+			goto end;
+		}
+		if (day < -3) {
+			error_printf(_("*** OCSP response thisUpd is too old. Aborting.\n"));
+			goto end;
+		}
+
+		retval = 0;
+		goto end;
+	}
+
+	print_openssl_time("*** OCSP update time: ", nextupd);
+
+	if (!ASN1_TIME_diff(&day, &sec, now, nextupd)) {
+		error_printf(_("Could not compute time difference for nextUpd. Aborting.\n"));
+		goto end;
+	}
+
+	if (day < 0 || (day == 0 && sec < 0)) {
+		error_printf(_("*** OCSP next update is in the past!\n"));
+		goto end;
+	}
+
+	retval = 0;
+
+end:
+	ASN1_STRING_free(now);
+	return retval;
 }
 
 static int check_ocsp_response(OCSP_RESPONSE *ocspresp,
@@ -748,18 +816,17 @@ static int check_ocsp_response(OCSP_RESPONSE *ocspresp,
 {
 	int
 		retval = -1,
-		status, reason,
-		day, sec;
+		status, reason;
 	OCSP_BASICRESP *ocspbs = NULL;
 	OCSP_SINGLERESP *single;
 	ASN1_GENERALIZEDTIME *revtime = NULL,
 			*thisupd = NULL,
 			*nextupd = NULL;
-	ASN1_TIME *now;
 
 	status = OCSP_response_status(ocspresp);
-	if (print_ocsp_response_status(status)
-			!= OCSP_RESPONSE_STATUS_SUCCESSFUL) {
+	print_ocsp_response_status(status);
+
+	if (status != OCSP_RESPONSE_STATUS_SUCCESSFUL) {
 		error_printf(_("Unsuccessful OCSP response\n"));
 		goto end;
 	}
@@ -778,14 +845,18 @@ static int check_ocsp_response(OCSP_RESPONSE *ocspresp,
 		goto end;
 	}
 
+	// thisupd and nextupd are internal pointers and MUST NOT be freed
 	status = OCSP_single_get0_status(single, &reason, &revtime, &thisupd, &nextupd);
 	if (status == -1) {
 		error_printf(_("Could not obtain OCSP response status\n"));
 		goto end;
 	}
 
-	if (print_ocsp_cert_status(status, reason) != V_OCSP_CERTSTATUS_GOOD) {
-		error_printf(_("Certificate revoked by OCSP\n"));
+	print_ocsp_cert_status(status, reason);
+
+	if (status == V_OCSP_CERTSTATUS_REVOKED) {
+		print_openssl_time("*** Certificate revoked by OCSP at: ", revtime);
+		retval = 1; // Failure
 		goto end;
 	}
 
@@ -796,16 +867,13 @@ static int check_ocsp_response(OCSP_RESPONSE *ocspresp,
 			goto end;
 		}
 
-		now = ASN1_TIME_adj(NULL, time(NULL), 0, 0);
-
-		if (ASN1_TIME_diff(&day, &sec, now, thisupd) && day <= -3) {
-			error_printf(_("OCSP response is too old. Ignoring.\n"));
+		if (check_ocsp_response_times(thisupd, nextupd) < 0) {
+			retval = 1; // Failure
 			goto end;
 		}
 	}
 
-	/* Success! */
-	retval = 0;
+	retval = 0; // Success!
 
 end:
 	if (ocspbs)
@@ -818,7 +886,7 @@ static int verify_ocsp(const char *ocsp_uri,
 		STACK_OF(X509) *certs, X509_STORE *certstore,
 		bool check_time, bool check_nonce)
 {
-	int retval = 1;
+	int retval;
 	wget_http_response *resp;
 	const unsigned char *body;
 	OCSP_CERTID *certid;
@@ -827,7 +895,7 @@ static int verify_ocsp(const char *ocsp_uri,
 	OCSP_BASICRESP *ocspbs = NULL;
 
 	/* Generate CertID and OCSP request */
-	certid = OCSP_cert_to_id(EVP_sha256(), subject_cert, issuer_cert);
+	certid = OCSP_cert_to_id(EVP_sha1(), subject_cert, issuer_cert);
 	if (!(ocspreq = send_ocsp_request(ocsp_uri,
 			certid,
 			&resp)))
@@ -842,17 +910,19 @@ static int verify_ocsp(const char *ocsp_uri,
 		return -1;
 	}
 
-	if (check_ocsp_response(ocspresp, certs, certstore, check_time) < 0)
+	if ((retval = check_ocsp_response(ocspresp, certs, certstore, check_time)) != 0)
 		goto end;
 
 	if (check_nonce) {
 		if (!(ocspbs = OCSP_response_get1_basic(ocspresp))) {
 			error_printf(_("Could not obtain OCSP_BASICRESPONSE\n"));
+			retval = -1;
 			goto end;
 		}
 
 		if (!OCSP_check_nonce(ocspreq, ocspbs)) {
 			error_printf(_("OCSP nonce does not match\n"));
+			retval = 1; // Failure
 			goto end;
 		}
 
@@ -860,7 +930,7 @@ static int verify_ocsp(const char *ocsp_uri,
 		ocspbs = NULL;
 	}
 
-	retval = 0; /* Success */
+	retval = 0; // Success
 
 end:
 	if (ocspbs)
@@ -871,25 +941,17 @@ end:
 	return retval;
 }
 
-static char *read_ocsp_uri_from_certificate(const X509 *cert)
+static char *read_ocsp_uri_from_certificate(X509 *cert)
 {
-	int idx;
-	unsigned char *ocsp_uri = NULL;
-	X509_EXTENSION *ext;
-	ASN1_OCTET_STRING *extdata;
-	const STACK_OF(X509_EXTENSION) *exts = X509_get0_extensions(cert);
+	STACK_OF(OPENSSL_STRING) *str_stack = X509_get1_ocsp(cert);
 
-	if (exts) {
-		/* Read the authorityInfoAccess extension */
-		if ((idx = X509v3_get_ext_by_NID(exts, NID_info_access, -1)) >= 0) {
-			ext = sk_X509_EXTENSION_value(exts, idx);
-			extdata = X509_EXTENSION_get_data(ext);
-			if (extdata)
-				ASN1_STRING_to_UTF8(&ocsp_uri, extdata);
-		}
+	if (str_stack && sk_OPENSSL_STRING_num(str_stack) > 0) {
+		char *uri = wget_strdup(sk_OPENSSL_STRING_value(str_stack, 0));
+		X509_email_free(str_stack); // utterly misnamed, it simply frees a stack of strings.
+		return uri;
 	}
 
-	return (char *) ocsp_uri;
+	return NULL;
 }
 
 static char *compute_cert_fingerprint(X509 *cert)
@@ -1013,6 +1075,8 @@ static int check_cert_chain_for_ocsp(STACK_OF(X509) *certs, X509_STORE *store, c
 			num_ok++;
 		else if (ocsp_ok == 1)
 			num_revoked++;
+		else
+			num_ignored++;
 
 		/* Add the certificate to the OCSP cache */
 		if (ocsp_ok == 0 || ocsp_ok == 1) {
@@ -1023,9 +1087,7 @@ static int check_cert_chain_for_ocsp(STACK_OF(X509) *certs, X509_STORE *store, c
 		}
 
 		xfree(fingerprint);
-
-		if (ocsp_uri)
-			OPENSSL_free(ocsp_uri);
+		xfree(ocsp_uri);
 	}
 
 	if (ocsp_stats_callback) {
@@ -1484,8 +1546,9 @@ int wget_ssl_open(wget_tcp *tcp)
 		SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 #endif
 	}
-#ifndef LIBRESSL_VERSION_NUMBER
+#if !defined LIBRESSL_VERSION_NUMBER || !defined X509_CHECK_FLAG_NEVER_CHECK_SUBJECT
 // LibreSSL <= 3.0.2 does not know SSL_set_hostflags() nor X509_CHECK_FLAG_NEVER_CHECK_SUBJECT
+// OpenSSL < 1.1 doesn't have X509_CHECK_FLAG_NEVER_CHECK_SUBJECT
 	else {
 		SSL_set_hostflags(ssl, X509_CHECK_FLAG_NEVER_CHECK_SUBJECT);
 		info_printf(_("Host name check disabled. Server certificate's subject name will not be checked.\n"));

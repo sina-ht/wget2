@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2014 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -216,10 +216,14 @@ static long long quota_modify_read(size_t nbytes)
 static void nop(int sig)
 {
 	if (sig == SIGTERM) {
-		abort(); // hard stop if got a SIGTERM
+		// Hard stop on SIGTERM
+		exit(EXIT_STATUS_GENERIC);
 	} else if (sig == SIGINT) {
-		if (terminate)
-			abort(); // hard stop if pressed CTRL-C a second time
+		if (terminate) {
+			// Hard stop if pressed CTRL-C a second time.
+			// Do not use abort() to avoid a core dump.
+			exit(EXIT_STATUS_GENERIC);
+		}
 
 		terminate = 1; // set global termination flag
 		wget_http_abort_connection(NULL); // soft-abort all connections
@@ -283,7 +287,7 @@ static void program_init(void)
 	struct sigaction sig_action;
 	memset(&sig_action, 0, sizeof(sig_action));
 
-	sig_action.sa_sigaction = (void (*)(int, siginfo_t *, void *))SIG_IGN;
+	sig_action.sa_handler = SIG_IGN;
 	sigaction(SIGPIPE, &sig_action, NULL); // this forces socket error return
 	sig_action.sa_handler = nop;
 	sigaction(SIGTERM, &sig_action, NULL);
@@ -784,7 +788,7 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 		iri = wget_iri_parse(url, encoding);
 
 	if (!iri) {
-		error_printf(_("Cannot resolve URI '%s'\n"), url);
+		info_printf(_("Cannot resolve URI '%s'\n"), url);
 		return;
 	}
 
@@ -1066,12 +1070,12 @@ static void convert_link_file_only(const char *filename, wget_string *url, wget_
 		wget_buffer_memcpy(buf, linkname, link_basename-linkname);
 		wget_buffer_strcat(buf, local_basename);
 
-		wget_info_printf(_("  %.*s -> %s\n"), (int) url->len,  linkname, localname);
-		wget_info_printf(_("       -> %s\n"), buf->data);
+		wget_debug_printf("  %.*s -> %s\n", (int) url->len,  linkname, localname);
+		wget_debug_printf("       -> %s\n", buf->data);
 	} else {
 		// insert initial URL without any change
 		wget_buffer_memcpy(buf, url->p, url->len);
-		wget_info_printf(_("  %.*s -> %s\n"), (int) url->len,  url->p, buf->data);
+		wget_debug_printf("  %.*s -> %s\n", (int) url->len,  url->p, buf->data);
 	}
 }
 
@@ -1096,13 +1100,13 @@ static void convert_link_whole(const char *filename, conversion_t *conversion, w
 			if (*p2++ == '/')
 				wget_buffer_memcat(buf, "../", 3);
 		}
-		wget_buffer_strcat(buf, dir);
+		wget_iri_escape_path(dir, buf);
 
-		wget_info_printf(_("  %.*s -> %s\n"), (int) url->len,  url->p, linkpath); // no translation
-		wget_info_printf(_("       -> %s\n"), buf->data); // no translation
+		wget_debug_printf("  %.*s -> %s\n", (int) url->len,  url->p, linkpath);
+		wget_debug_printf("       -> %s\n", buf->data);
 	} else {
 		// insert absolute URL
-		wget_info_printf(_("  %.*s -> %s\n"), (int) url->len,  url->p, buf->data); // no translation
+		wget_debug_printf("  %.*s -> %s\n", (int) url->len,  url->p, buf->data);
 	}
 }
 
@@ -1145,7 +1149,7 @@ static void convert_links(void)
 				blacklist_entry *blacklist_entry;
 
 				if (!iri) {
-					wget_error_printf(_("Cannot resolve URI '%s'\n"), buf.data);
+					info_printf(_("Cannot resolve URI '%s'\n"), buf.data);
 					continue;
 				}
 
@@ -1156,9 +1160,13 @@ static void convert_links(void)
 
 				const char *filename = blacklist_entry->local_filename;
 
-				if (config.convert_links)
+				if (config.convert_links) {
 					convert_link_whole(filename, conversion, url, &buf);
-				else if (config.convert_file_only)
+					if (blacklist_entry->iri->fragment) {
+						wget_buffer_memcat(&buf, "#", 1);
+						wget_buffer_strcat(&buf, blacklist_entry->iri->fragment);
+					}
+				} else if (config.convert_file_only)
 					convert_link_file_only(filename, url, &buf);
 
 				if (buf.length != url->len || strncmp(buf.data, url->p, url->len)) {
@@ -1672,8 +1680,10 @@ static int process_response_header(wget_http_response *resp)
 	if (resp->length_inconsistent && resp->code == 200) {
 		print_status(downloader, "Unexpected body length %zu.", resp->content_length);
 		if (config.tries && ++job->failures < config.tries) {
-			debug_printf("Removing %s\n", job->blacklist_entry->local_filename);
-			unlink(job->blacklist_entry->local_filename);
+			if  (job->blacklist_entry->local_filename) {
+				debug_printf("Removing %s\n", job->blacklist_entry->local_filename);
+				unlink(job->blacklist_entry->local_filename);
+			}
 
 			// retry later
 			job->done = 0;
@@ -2213,9 +2223,14 @@ static void process_response(wget_http_response *resp)
 		if (process_decision && recurse_decision) {
 			const char *local_filename;
 
-			if (config.content_disposition && resp->content_filename)
-				local_filename = resp->content_filename;
-			else
+			if (config.content_disposition && resp->content_filename) {
+				wget_iri iri = {
+					.scheme = job->iri->scheme,
+					.host = job->iri->host,
+					.path = resp->content_filename
+				};
+				local_filename = get_local_filename(&iri);
+			} else
 				local_filename = job->blacklist_entry->local_filename;
 
 			parse_localfile(job, local_filename, resp->content_type_encoding, resp->content_type, job->iri);
@@ -2363,10 +2378,11 @@ void *downloader_thread(void *p)
 				if (config.tries && ++job->failures >= config.tries) {
 					print_status(downloader, "Job reached max tries.");
 					job->done=1;
+					if (resp->code >= 400)
+						set_exit_status(EXIT_STATUS_NETWORK);
 				} else if (check_status_code_list(config.retry_on_http_error, resp->code)) {
 					job->done = 0;
 					job->retry_ts = wget_get_timemillis() + job->failures * 1000;
-					set_exit_status(EXIT_STATUS_NETWORK);
 				}
 			}
 
@@ -2864,7 +2880,7 @@ static void add_urls(JOB *job, wget_vector *urls, const char *encoding, const wg
 		wget_string *url = wget_vector_get(urls, it);
 
 		if (baselen && (url->len <= baselen || wget_strncasecmp(url->p, base->uri, baselen))) {
-			info_printf(_("URL '%.*s' not followed (not matching sitemap location)\n"), (int)url->len, url->p);
+			info_printf(_("URL '%.*s' not followed (not matching base)\n"), (int)url->len, url->p);
 			continue;
 		}
 
@@ -3395,7 +3411,7 @@ static int WGET_GCC_NONNULL((1)) prepare_file(wget_http_response *resp, const ch
 	// debug_printf("1 fd=%d flag=%02x (%02x %02x %02x) errno=%d %s\n",fd,flag,O_EXCL,O_TRUNC,O_APPEND,errno,fname);
 
 	// Store the "actual" file name (with any extensions that were added present)
-	wget_asprintf(actual_file_name, "%s", unique[0] ? unique : fname);
+	*actual_file_name = wget_strdup(unique[0] ? unique : fname);
 
 	if (fd >= 0) {
 		ssize_t rc;
@@ -3482,9 +3498,7 @@ static int get_header(wget_http_response *resp, void *context)
 	PART *part;
 	const char *dest = NULL, *name;
 	int ret = 0;
-#ifdef _WIN32
-	char *fname_allocated = NULL;
-#endif
+	char *name_allocated = NULL;
 
 	bool metalink = config.metalink && resp->content_type
 		&& (!wget_strcasecmp_ascii(resp->content_type, "application/metalink4+xml") ||
@@ -3508,16 +3522,15 @@ static int get_header(wget_http_response *resp, void *context)
 		}
 	}
 	else if (config.content_disposition && resp->content_filename) {
-#ifdef _WIN32
-		fname_allocated = wget_malloc(strlen(resp->content_filename) * 3 + 1);
-		name = dest = wget_restrict_file_name(resp->content_filename, fname_allocated, WGET_RESTRICT_NAMES_WINDOWS);
-		if (name != fname_allocated)
-			xfree(fname_allocated);
-#else
-		name = dest = resp->content_filename;
-#endif
-	} else
+		wget_iri iri = {
+			.scheme = ctx->job->iri->scheme,
+			.host = ctx->job->iri->host,
+			.path = resp->content_filename
+		};
+		name = dest = name_allocated = get_local_filename(&iri);
+	} else {
 		name = dest = config.output_document ? config.output_document : ctx->job->blacklist_entry->local_filename;
+	}
 
 	if (dest
 		&& ((config.save_content_on && check_status_code_list(config.save_content_on, resp->code))
@@ -3543,10 +3556,6 @@ static int get_header(wget_http_response *resp, void *context)
 	}
 
 //	info_printf("Opened %d\n", ctx->outfd);
-
-#ifdef _WIN32
-	xfree(fname_allocated);
-#endif
 
 out:
 	if (config.progress) {
@@ -3575,6 +3584,8 @@ out:
 			bar_slot_begin(ctx->progress_slot, name, ((resp->code == 200 || resp->code == 206) ? 1 : 0), resp->content_length);
 		}
 	}
+
+	xfree(name_allocated);
 
 	return ret;
 }
@@ -3889,31 +3900,6 @@ static wget_http_request *http_create_request(const wget_iri *iri, JOB *job)
 		}
 	}
 
-	if (config.headers) {
-		for (int i = 0; i < wget_vector_size(config.headers); i++) {
-			wget_http_header_param *param = wget_vector_get(config.headers, i);
-			char replaced = 0;
-
-			// replace wget's HTTP headers by user-provided headers, except Cookie (which will just be added))
-			if (wget_strcasecmp_ascii(param->name, "Cookie")) {
-				for (int j = 0; j < wget_vector_size(req->headers); j++) {
-					wget_http_header_param *h = wget_vector_get(req->headers, j);
-
-					if (!wget_strcasecmp_ascii(param->name, h->name)) {
-						xfree(h->name);
-						xfree(h->value);
-						h->name = wget_strdup(param->name);
-						h->value = wget_strdup(param->value);
-						replaced = 1;
-					}
-				}
-			}
-
-			if (!replaced)
-				wget_http_add_header_param(req, param);
-		}
-	}
-
 	if (config.post_data) {
 		size_t length = strlen(config.post_data);
 
@@ -3939,6 +3925,31 @@ static wget_http_request *http_create_request(const wget_iri *iri, JOB *job)
 			wget_http_request_set_body(req, "application/x-www-form-urlencoded", data, length);
 		} else {
 			wget_http_free_request(&req);
+		}
+	}
+
+	if (config.headers) {
+		for (int i = 0; i < wget_vector_size(config.headers); i++) {
+			wget_http_header_param *param = wget_vector_get(config.headers, i);
+			char replaced = 0;
+
+			// replace wget's HTTP headers by user-provided headers, except Cookie (which will just be added))
+			if (wget_strcasecmp_ascii(param->name, "Cookie")) {
+				for (int j = 0; j < wget_vector_size(req->headers); j++) {
+					wget_http_header_param *h = wget_vector_get(req->headers, j);
+
+					if (!wget_strcasecmp_ascii(param->name, h->name)) {
+						xfree(h->name);
+						xfree(h->value);
+						h->name = wget_strdup(param->name);
+						h->value = wget_strdup(param->value);
+						replaced = 1;
+					}
+				}
+			}
+
+			if (!replaced)
+				wget_http_add_header_param(req, param);
 		}
 	}
 

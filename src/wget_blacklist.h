@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -45,5 +45,8 @@ blacklist_entry *blacklist_get(const wget_iri *iri);
 void blacklist_print(void);
 void blacklist_free(void);
 void blacklist_set_filename(blacklist_entry *blacklistp, const char *fname);
+
+WGET_GCC_NONNULL_ALL
+char *get_local_filename(const wget_iri *iri);
 
 #endif /* SRC_WGET_BLACKLIST_H */

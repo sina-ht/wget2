@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -150,7 +150,7 @@ static char * get_local_filename_real(const wget_iri *iri)
 }
 
 WGET_GCC_NONNULL_ALL
-static char * get_local_filename(const wget_iri *iri)
+char * get_local_filename(const wget_iri *iri)
 {
 	if (config.delete_after)
 		return NULL;

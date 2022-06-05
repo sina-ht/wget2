@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -31,6 +31,15 @@ int main(void)
 			.headers = {
 				"Content-Type: text/plain",
 			},
+			.https_only = 1 // only exists for the HTTPS server
+		},
+		{	.name = "/index.html",
+			.code = "200 Dontcare",
+			.body = "from HTTP",
+			.headers = {
+				"Content-Type: text/plain",
+			},
+			.http_only = 1 // only exists for the HTTP server
 		},
 	};
 
@@ -42,14 +51,17 @@ int main(void)
 		WGET_TEST_FEATURE_TLS,
 		0);
 
-	// we don't start a HTTPS server, so we expect no fallback to HTTP and a exit code of 4
-	// depending on the network stack and timing, we see different failures (handshake or network error)
+	// wget2 tries HTTPS, then falls back to HTTP
 	wget_test(
 		// WGET_TEST_KEEP_TMPFILES, 1,
-		WGET_TEST_OPTIONS, "--ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp --https-enforce=hard --default-https-port={{sslport}} --default-http-port={{port}}",
+		WGET_TEST_OPTIONS,
+			"--ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp"
+			" --https-enforce=soft --default-https-port={{sslport}} --default-http-port={{port}}",
 		WGET_TEST_REQUEST_URL, "http://localhost/index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE2, 5, // TLS handshake error
-		WGET_TEST_EXPECTED_ERROR_CODE,  4, // network error
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[1].name + 1, urls[1].body },
+			{	NULL } },
 		0);
 
 	exit(EXIT_SUCCESS);

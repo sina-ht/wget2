@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2022 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -1272,6 +1272,10 @@ wget_http_response *wget_http_parse_response_header(char *buf)
 		xfree(resp);
 		return NULL;
 	}
+
+	// 'close' is default on HTTP/1.0, else 'keep_alive' is default
+	if ((resp->major == 1 && resp->minor >= 1) || resp->major > 1)
+		resp->keep_alive = 1;
 
 	for (char *line = eol + 1; eol && *line && *line != '\r' && *line != '\n'; line = eol ? eol + 1 : NULL) {
 		eol = strchr(line, '\n');

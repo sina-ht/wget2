@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -238,6 +238,7 @@ int wget_hash_deinit(wget_hash_hd **handle, void *digest)
 #define WOLFSSL_SHA384
 #define WOLFSSL_SHA512
 #define WC_NO_HARDEN
+#include <wolfssl/options.h>
 #include <wolfssl/wolfcrypt/hash.h>
 
 struct wget_hash_hd_st {

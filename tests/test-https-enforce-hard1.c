@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -27,53 +27,37 @@ int main(void)
 	wget_test_url_t urls[]={
 		{	.name = "/index.html",
 			.code = "200 Dontcare",
-			.body =
-				"<html><head><title>Main Page</title></head><body><p>A link to a" \
-				" <a href=\"http://localhost/secondpage.html\">second page</a>." \
-				" <a href=\"thirdpage.html\">third page</a>." \
-				"</p></body></html>",
-			.headers = {
-				"Content-Type: text/html",
-			},
-		},
-		{	.name = "/secondpage.html",
-			.code = "200 Dontcare",
-			.body = "page2",
-			.headers = {
-				"Content-Type: text/plain",
-			}
-		},
-		{	.name = "/thirdpage.html",
-			.code = "200 Dontcare",
-			.body = "page3",
+			.body = "from HTTPS",
 			.headers = {
 				"Content-Type: text/plain",
 			},
+			.https_only = 1 // only exists for the HTTPS server
+		},
+		{	.name = "/index.html",
+			.code = "200 Dontcare",
+			.body = "from HTTP",
+			.headers = {
+				"Content-Type: text/plain",
+			},
+			.http_only = 1 // only exists for the HTTP server
 		},
 	};
 
 	// functions won't come back if an error occurs
 	wget_test_start_server(
 		WGET_TEST_RESPONSE_URLS, &urls, countof(urls),
-		WGET_TEST_HTTPS_REJECT_CONNECTIONS,
 		WGET_TEST_FEATURE_MHD,
 		WGET_TEST_FEATURE_TLS,
-		WGET_TEST_SKIP_H2,
 		0);
 
-	// wget2 downloads recursively from HTTPS though we give an http:// URL.
-	// But since we don't start a HTTPS server, all files should fall back to HTTP
+	// wget2 downloads from HTTPS though we give an http:// URL
 	wget_test(
 		// WGET_TEST_KEEP_TMPFILES, 1,
-		WGET_TEST_OPTIONS,
-			"--https-enforce=soft --recursive -nH"
-			" --default-https-port={{sslport}} --default-http-port={{port}}",
-		WGET_TEST_REQUEST_URL, "http://localhost/index.html",
+		WGET_TEST_OPTIONS, "--ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp --https-enforce=hard",
+		WGET_TEST_REQUEST_URL, "http://localhost:{{sslport}}/index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
 			{	NULL } },
 		0);
 

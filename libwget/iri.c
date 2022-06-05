@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -325,7 +325,7 @@ static char *iri_unescape_inline(char *src, int ctype)
 			if (s[1] == 'x') {
 				unsigned char *p = s + 2;
 				while (c_isxdigit(*p)) {
-					value = (value << 4) | unhex(*p);
+					value = ((value & 0x0FFFFFFF) << 4) | unhex(*p);
 					p++;
 				}
 				if (*p == ';') {
@@ -1210,10 +1210,7 @@ const char *wget_iri_get_escaped_resource(const wget_iri *iri, wget_buffer *buf)
 	if (iri->query) {
 		wget_buffer_memcat(buf, "?", 1);
 		for (const char *p = iri->query; *p; p++)
-			if (*p == ' ')
-				wget_buffer_memcat(buf, "%20", 3);
-			else
-				wget_buffer_memcat(buf, p, 1);
+			wget_buffer_memcat(buf, *p == ' ' ? "+" : p, 1);
 	}
 
 	return buf->data;

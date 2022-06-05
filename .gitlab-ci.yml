@@ -28,7 +28,7 @@ after_script:
 
 variables:
   BUILD_IMAGES_PROJECT: gnuwget/build-images
-  DEBIAN_BUILD: buildenv-debian-stretch
+  DEBIAN_BUILD: buildenv-debian-stable
   DEBIAN_TESTING_BUILD: buildenv-debian-testing
   DEBIAN_STABLEi386_BUILD: buildenv-debian-stable-i386
   DEBIAN_UNSTABLE_BUILD: buildenv-debian-unstable
@@ -36,6 +36,7 @@ variables:
   FEDORA_BUILD: buildenv-fedora
   CENTOS7_BUILD: buildenv-centos7
   MINGW_BUILD: buildenv-mingw
+  MINGW_BUILD_STATIC: buildenv-mingw-static
   ALPINE_BUILD: buildenv-alpine
   ARCH_BUILD: buildenv-arch
   BASIC_BUILD: buildenv-basic
@@ -69,14 +70,14 @@ variables:
 
 Full+VPATH/Debian:
   stage: stage1-testing
-  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_TESTING_BUILD
   script:
     - contrib/spell-checker
     - export CFLAGS="$CFLAGS_DEFAULT"
     - sed -i 's/dist-lzip//g' configure.ac
     - ./bootstrap --skip-po && touch .manywarnings
     - mkdir vpath && cd vpath
-    - ../configure $CONFIGURE_BASE_FLAGS --cache-file ../cache/config.cache
+    - ../configure $CONFIGURE_BASE_FLAGS --enable-manylibs --cache-file ../cache/config.cache
     - make -j$(nproc)
     - make -j$(nproc) distcheck
     - mv wget2-*.gz ..
@@ -390,7 +391,7 @@ Alpine:
 
 pages:
   stage: stage1-testing
-  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_BUILD
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$DEBIAN_TESTING_BUILD
   script:
     - mkdir -p public
     - ./bootstrap --skip-po
@@ -426,6 +427,7 @@ pages:
     - mv badge.svg public/fuzz-coverage.svg
     - rm -rf public/fuzz-coverage
     - mv lcov public/fuzz-coverage
+    - mv wget2.exe public/
   tags:
     - shared
     - linux
@@ -441,7 +443,6 @@ MinGW64:
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$MINGW_BUILD
   script:
     - ./bootstrap --skip-po
-    - cp pthread_sigmask.c.mingw lib/pthread_sigmask.c
     - export CC="ccache $PREFIX-gcc"
     - export GCCLIB=$(dirname $(find /usr/lib/gcc/$PREFIX -name libgcc_s_seh-1.dll|grep posix))
     - export WINEPATH="$WINEPATH;/usr/$PREFIX/bin;/usr/$PREFIX/lib;$PWD/libwget/.libs;$GCCLIB"
@@ -465,6 +466,28 @@ MinGW64:
       - fuzz/*.log
       - unit-tests/*.log
       - tests/*.log
+
+MinGW64-static:
+  stage: stage1-testing
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$MINGW_BUILD_STATIC
+  script:
+    - unset CC
+    - ./bootstrap --skip-po
+    - LDFLAGS="-Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive"
+      CFLAGS="$CFLAGS -DNGHTTP2_STATICLIB"
+      ./configure $CONFIGURE_BASE_FLAGS --build=x86_64-pc-linux-gnu --host=$PREFIX --disable-shared --enable-static --without-gpgme
+    - make -j$(nproc)
+    - mv src/wget2.exe .
+  tags:
+    - shared
+    - linux
+  allow_failure: true
+  artifacts:
+    when: on_success
+    paths:
+      - wget2.exe
+  only:
+    - master
 
 Arch:
   stage: stage1-testing
@@ -586,6 +609,7 @@ FreeBSD.x86_64:
     - sed -i.bak '/^python/d' bootstrap.conf
     - sed -i.bak '/^lzip/d' bootstrap.conf
     - sed -i.bak '/^makeinfo/d' bootstrap.conf
+    - git config --global http.sslVerify false
     - ./bootstrap --skip-po
     - LIBS="-L/usr/local/lib" ./configure --cache-file cache/config.cache --disable-doc --with-ssl=none
     - gmake -j$(sysctl hw.ncpu | awk '{print $2}')

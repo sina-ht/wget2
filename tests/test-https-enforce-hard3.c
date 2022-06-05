@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -31,7 +31,6 @@ int main(void)
 			.body =
 				"<html><head><title>Main Page</title></head><body><p>A link to a" \
 				" <a href=\"http://localhost/secondpage.html\">second page</a>." \
-				" <a href=\"https://localhost/thirdpage.html\">third page</a>." \
 				"</p></body></html>",
 			.headers = {
 				"Content-Type: text/html",
@@ -39,17 +38,10 @@ int main(void)
 		},
 		{	.name = "/secondpage.html",
 			.code = "200 Dontcare",
-			.body = "page2",
+			.body = "juhu",
 			.headers = {
 				"Content-Type: text/plain",
 			}
-		},
-		{	.name = "/thirdpage.html",
-			.code = "200 Dontcare",
-			.body = "page3",
-			.headers = {
-				"Content-Type: text/plain",
-			},
 		},
 	};
 
@@ -73,19 +65,17 @@ int main(void)
 	wget_error_printf("Built with MHD 0x%08x\n", (unsigned) MHD_VERSION);
 #endif
 
-	// wget2 downloads recursively from HTTPS though we give an http:// URL.
+	// wget2 downloads from HTTPS though we give an http:// URL
 	wget_test(
 		// WGET_TEST_KEEP_TMPFILES, 1,
 		WGET_TEST_OPTIONS,
 			"--ca-certificate=" SRCDIR "/certs/x509-ca-cert.pem --no-ocsp"
-			" --https-enforce=soft --recursive -nH"
-			" --default-https-port={{sslport}} --default-http-port={{port}}",
+			" --https-enforce=hard --recursive --default-https-port={{sslport}} --default-http-port={{port}} -nH",
 		WGET_TEST_REQUEST_URL, "http://localhost/index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{ urls[0].name + 1, urls[0].body },
 			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
 			{	NULL } },
 		0);
 

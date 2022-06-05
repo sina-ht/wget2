@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -18,17 +17,15 @@
  * along with Wget  If not, see <https://www.gnu.org/licenses/>.
  *
  *
- * Testing Wget
- *
- * Changelog
- * 15.07.2013  Tim Ruehsen  created
- *
+ * Testing --directory-prefix
  */
 
 #include <config.h>
 
 #include <stdlib.h> // exit()
 #include "libtest.h"
+
+#define PREFIX "prefix"
 
 int main(void)
 {
@@ -38,7 +35,6 @@ int main(void)
 			.body =
 				"<html><head><title>Main Page</title></head><body><p>A link to a" \
 				" <a href=\"http://localhost:{{port}}/secondpage.html\">second page</a>." \
-				" Also, a <a href=\"http://localhost:{{port}}/nonexistent\">broken link</a>." \
 				"</p></body></html>",
 			.headers = {
 				"Content-Type: text/html",
@@ -47,31 +43,19 @@ int main(void)
 		{	.name = "/secondpage.html",
 			.code = "200 Dontcare",
 			.body =
-				"<html><head><title>Second Page</title></head><body><p>A link to a" \
-				" <a href=\"http://localhost:{{port}}/thirdpage.html\">third page</a>." \
-				" Also, a <a href=\"http://localhost:{{port}}/nonexistent\">broken link</a>." \
-				"</p></body></html>",
+				"<html><head><title>Second Page</title></head><body>secondpage</body></html>",
 			.headers = {
 				"Content-Type: text/html",
 				"Content-Disposition: attachment; filename=\"filename.html\"",
 			}
 		},
-		{	.name = "/thirdpage.html",
+		{	.name = "/escape.html",
 			.code = "200 Dontcare",
 			.body =
-				"<html><head><title>Third Page</title></head><body><p>A link to a" \
-				" <a href=\"http://localhost:{{port}}/dummy.txt\">text file</a>." \
-				" Also, a <a href=\"http://localhost:{{port}}/againnonexistent\">broken link</a>." \
-				"</p></body></html>",
+				"<html><head><title>Second Page</title></head><body>escape</body></html>",
 			.headers = {
 				"Content-Type: text/html",
-			}
-		},
-		{	.name = "/dummy.txt",
-			.code = "200 Dontcare",
-			.body = "What ever",
-			.headers = {
-				"Content-Type: text/plain",
+				"Content-Disposition: attachment; filename=\"../filename.html\"",
 			}
 		},
 	};
@@ -82,21 +66,36 @@ int main(void)
 		WGET_TEST_FEATURE_MHD,
 		0);
 
-	// test--spider-r-HTTP-Content-Disposition
+	// Single download
 	wget_test(
 //		WGET_TEST_KEEP_TMPFILES, 1,
-		WGET_TEST_OPTIONS, "--spider -r",
+//		WGET_TEST_EXECUTABLE, "wget",
+		WGET_TEST_OPTIONS, "--directory-prefix=" PREFIX " -nH",
 		WGET_TEST_REQUEST_URL, "index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 8,
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ PREFIX "/index.html", urls[0].body },
+			{	NULL } },
 		0);
 
-	// test--spider-r
-	urls[1].headers[1] = NULL;
+	// Single download with Content-Disposition
 	wget_test(
-//		WGET_TEST_KEEP_TMPFILES, 1,
-		WGET_TEST_OPTIONS, "--spider -r",
-		WGET_TEST_REQUEST_URL, "index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 8,
+		WGET_TEST_OPTIONS, "--directory-prefix=" PREFIX " --content-disposition -nH",
+		WGET_TEST_REQUEST_URL, "secondpage.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ PREFIX "/filename.html", urls[1].body },
+			{	NULL } },
+		0);
+
+	// Single download with Content-Disposition, trying to escape the directory
+	wget_test(
+		WGET_TEST_OPTIONS, "--directory-prefix=" PREFIX " --content-disposition -nH",
+		WGET_TEST_REQUEST_URL, "escape.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ PREFIX "/filename.html", urls[2].body },
+			{	NULL } },
 		0);
 
 	exit(EXIT_SUCCESS);

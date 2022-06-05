@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -188,6 +188,44 @@ static const char *getToken(xml_context *context)
 		context->p++;
 
 	if (c) {
+		debug_printf("getToken =%.*s\n", (int)(context->p - context->token), context->token);
+		context->token_len = context->p - context->token;
+		return context->token;
+	}
+
+	return NULL;
+}
+
+static const char *getHTMLValue(xml_context *context)
+{
+	int c;
+	const char *p;
+
+	// skip leading whitespace
+	while ((c = *context->p) && ascii_isspace(c))
+		context->p++;
+	if (!c) return NULL; // eof
+	context->token = context->p++;
+
+	// Check for and read in quoted value.
+	if (c == '\"' || c == '\'' || c == '`') {
+		int quote = c;
+
+		context->token = context->p;
+
+		if (!(p = strchr(context->p, quote)))
+			return NULL;
+		context->p = p + 1;
+
+		context->token_len = context->p - context->token - 1;
+		return context->token;
+	}
+
+	// Read in unquoted value.
+	while ((c = *context->p) && !ascii_isspace(c) && c != '<' && c != '>' && !(c == '/' && *context->p == '>'))
+		context->p++;
+	if (c) {
+		debug_printf("getHTMLValue =%.*s\n", (int)(context->p - context->token), context->token);
 		context->token_len = context->p - context->token;
 		return context->token;
 	}
@@ -209,6 +247,14 @@ static int getValue(xml_context *context)
 
 	if (c == '=') {
 		context->p++;
+
+		if (context->hints&XML_HINT_HTML) {
+			if (!getHTMLValue(context))
+				return EOF; // syntax error
+			else
+				return 1; // token valid
+		}
+
 		if (!getToken(context))
 			return EOF; // syntax error
 		else
@@ -607,8 +653,10 @@ void wget_xml_parse_file(
 				size_t nread = st.st_size;
 				char *buf = mmap(NULL, nread + 1, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
 #else
-				char *buf=wget_malloc(st.st_size + 1);
-				size_t nread=read(fd, buf, st.st_size);
+				char *buf = wget_malloc(st.st_size + 1);
+				if (!buf)
+					error_printf(_("Failed to allocate %zu bytes for XML parse buffer\n"), st.st_size + 1);
+				size_t nread = buf ? read(fd, buf, st.st_size) : -1;
 #endif
 
 				if (nread > 0) {

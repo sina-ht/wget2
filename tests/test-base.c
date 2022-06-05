@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -50,7 +50,7 @@ int main(void)
 				"<html><head><title>Main Page</title><base href=\"/subdir2/\"></head><body><p>A link to a" \
 				" <A hreF=\"../secondpage.html\">second page</a>." \
 				" <a  HreF=\"subpage1.html?query&param#frag\">page in subdir2</a>." \
-				" <a href=\"./subpage2.html\">page in subdir2</a>." \
+				" <a href=./subpage2.html>page in subdir2</a>." \
 				"</p></body></html>",
 			.headers = {
 				"Content-Type: text/html",

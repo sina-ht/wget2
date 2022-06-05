@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2021 Free Software Foundation, Inc.
+# Copyright (C) 2015-2022 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -41,7 +41,8 @@ ACLOCAL_AMFLAGS = -I m4 ${ACLOCAL_FLAGS}
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libwget.pc
 
-EXTRA_DIST = cfg.mk build-aux/config.rpath m4/gnulib-cache.m4 README.md contrib/check_options
+EXTRA_DIST = cfg.mk build-aux/config.rpath m4/gnulib-cache.m4 README.md \
+             contrib/check_options
 
 include $(top_srcdir)/aminclude_static.am
 clean-local: code-coverage-clean
@@ -89,7 +90,6 @@ fuzz-coverage: clean clean-lcov
 	@echo "You can now view the coverage report with 'xdg-open lcov/index.html'"
 
 check-local:
-	$(AM_V_at)$(MAKE) -s syntax-check >/dev/null
 	$(AM_V_at)$(srcdir)/contrib/check_options $(srcdir)/docs/wget2.md $(builddir)/src/wget2$(EXEEXT)
 
 # ppl often forget to run ldconfig after an install, so let's do it here

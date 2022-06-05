@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <c-ctype.h>
+#include <errno.h>
 
 #include <wget.h>
 #include "../libwget/private.h"
@@ -1231,7 +1232,14 @@ static void test_cookies(void)
 	int result, result_psl;
 
 	cookies = wget_cookie_db_init(NULL);
-	wget_cookie_db_load_psl(cookies, SRCDIR "/files/public_suffix_list.dat");
+
+	if (wget_cookie_db_load_psl(cookies, SRCDIR "/files/public_suffix_list.dat") == -1) {
+#ifdef WITH_LIBPSL
+			failed++;
+			info_printf("Failed to load %s (errno=%d)\n", SRCDIR "/files/public_suffix_list.dat", errno);
+#endif
+			goto out;
+	}
 
 	for (it = 0; it < countof(test_data); it++) {
 		char *header, *set_cookie;
@@ -1294,6 +1302,7 @@ next:
 		wget_iri_free(&iri);
 	}
 
+out:
 	wget_cookie_db_free(&cookies);
 }
 
@@ -2161,9 +2170,22 @@ static void test_netrc(void)
 			3,
 			{
 				{ "localhost", "theuser", "thepw" },
-				{ "localhost2", "theuser2", "thepw2" }
+				{ "localhost2", "theuser2", "thepw2" },
+				{ "abc", "111", "222" }
 			}
 		},
+		{ "machine m\nlogin u\npassword a\\b", 1,       {{ "m", "u", "ab" }} },
+		{ "machine m\nlogin u\npassword a\\\\b", 1,     {{ "m", "u", "a\\b" }} },
+		{ "machine m\nlogin u\npassword \"a\\\\b\"", 1, {{ "m", "u", "a\\b" }} },
+		{ "machine m\nlogin u\npassword \"a\\\"b\"", 1, {{ "m", "u", "a\"b" }} },
+		{ "machine m\nlogin u\npassword a\"b", 1,       {{ "m", "u", "a\"b" }} },
+		{ "machine m\nlogin u\npassword a\\\\\\\\b", 1, {{ "m", "u", "a\\\\b" }} },
+		{ "machine m\nlogin u\npassword a\\\\", 1,      {{ "m", "u", "a\\" }} },
+		{ "machine m\nlogin u\npassword \"a\\\\\"", 1,  {{ "m", "u", "a\\" }} },
+		{ "machine m\nlogin u\npassword a\\", 1,        {{ "m", "u", "a" }} },
+		{ "machine m\nlogin u\npassword \"a b\"", 1,    {{ "m", "u", "a b" }} },
+		{ "machine m\nlogin u\npassword a b", 1,        {{ "m", "u", "a" }} },
+		{ "machine m\nlogin u\npassword a\\ b", 1,        {{ "m", "u", "a b" }} },
 	};
 	FILE *fp;
 	wget_netrc_db *netrc_db;
@@ -2199,11 +2221,11 @@ static void test_netrc(void)
 					failed++;
 				}
 				else if (strcmp(netrc->login, e->login)) {
-					info_printf("[%u] Login mismatch '%s' / '%s' in netrc_db\n", it, netrc->login, e->login);
+					info_printf("[%u] Login mismatch in netrc_db: expected '%s', got '%s'\n", it, e->login, netrc->login);
 					failed++;
 				}
 				else if (strcmp(netrc->password, e->password)) {
-					info_printf("[%u] Password mismatch '%s' / '%s' in netrc_db\n", it, netrc->login, e->login);
+					info_printf("[%u] Password mismatch in netrc_db: expected '%s', got '%s'\n", it, e->password, netrc->password);
 					failed++;
 				} else
 					ok++;

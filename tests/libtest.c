@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2014 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -853,7 +853,7 @@ static int _http_server_start(int SERVER_MODE)
 				file_load_err(SRCDIR "/certs/ocsp/x509-server-key.pem", gnutls_strerror(rc));
 
 			gnutls_privkey_import_x509_raw(*privkey, &data, GNUTLS_X509_FMT_PEM, NULL, 0);
-			gnutls_free(data.data);
+			wget_xfree(data.data);
 
 			pcrt = wget_malloc(sizeof(gnutls_pcert_st)*2);
 
@@ -861,13 +861,13 @@ static int _http_server_start(int SERVER_MODE)
 				file_load_err(SRCDIR "/certs/ocsp/x509-server-cert.pem", gnutls_strerror(rc));
 
 			gnutls_pcert_import_x509_raw(pcrt, &data, GNUTLS_X509_FMT_PEM, 0);
-			gnutls_free(data.data);
+			wget_xfree(data.data);
 
 			if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-interm-cert.pem", &data)) < 0)
 				file_load_err(SRCDIR "/certs/ocsp/x509-interm-cert.pem", gnutls_strerror(rc));
 
 			gnutls_pcert_import_x509_raw(pcrt+1, &data, GNUTLS_X509_FMT_PEM, 0);
-			gnutls_free(data.data);
+			wget_xfree(data.data);
 
 			if (!httpsdaemon) {
 				wget_error_printf("Cannot start the HTTPS server.\n");
@@ -915,7 +915,7 @@ static int _http_server_start(int SERVER_MODE)
 			file_load_err(SRCDIR "/certs/ocsp/x509-server-key.pem", gnutls_strerror(rc));
 
 		gnutls_privkey_import_x509_raw(*privkey, &data, GNUTLS_X509_FMT_PEM, NULL, 0);
-		gnutls_free(data.data);
+		wget_xfree(data.data);
 
 		/* Load certificate chain */
 		pcrt = wget_malloc(sizeof(gnutls_pcert_st) * 2);
@@ -924,13 +924,13 @@ static int _http_server_start(int SERVER_MODE)
 			file_load_err(SRCDIR "/certs/ocsp/x509-server-cert.pem", gnutls_strerror(rc));
 
 		gnutls_pcert_import_x509_raw(pcrt, &data, GNUTLS_X509_FMT_PEM, 0);
-		gnutls_free(data.data);
+		wget_xfree(data.data);
 
 		if ((rc = gnutls_load_file(SRCDIR "/certs/ocsp/x509-interm-cert.pem", &data)) < 0)
 			file_load_err(SRCDIR "/certs/ocsp/x509-interm-cert.pem", gnutls_strerror(rc));
 
 		gnutls_pcert_import_x509_raw(pcrt+1, &data, GNUTLS_X509_FMT_PEM, 0);
-		gnutls_free(data.data);
+		wget_xfree(data.data);
 
 		/* Load stapled OCSP response */
 		ocsp_stap_resp = wget_malloc(sizeof(gnutls_ocsp_data_st));
@@ -1714,7 +1714,7 @@ void wget_test(int first_key, ...)
 			else
 				wget_buffer_printf(cmd, "%s %s", executable, options);
 		} else if (!strcmp(valgrind, "1")) {
-			wget_buffer_printf(cmd, "valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes --child-silent-after-fork=yes --suppressions=" SRCDIR "/valgrind-suppressions %s %s", executable, options);
+			wget_buffer_printf(cmd, "valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes --child-silent-after-fork=yes --suppressions=" SRCDIR "/valgrind-suppressions --gen-suppressions=all %s %s", executable, options);
 		} else
 			wget_buffer_printf(cmd, "%s %s %s", valgrind, executable, options);
 

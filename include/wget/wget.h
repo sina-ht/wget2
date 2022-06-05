@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2015 Tim Ruehsen
- * Copyright (c) 2015-2021 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2022 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -184,7 +184,7 @@
 #	define WGET_END_DECLS
 #endif
 
-/// define MALLOC_RETURNS_NONNULL when using appropriate implementations of the alloc functions
+// define MALLOC_RETURNS_NONNULL when using appropriate implementations of the alloc functions
 #ifdef MALLOC_RETURNS_NONNULL
 #  define RETURNS_NONNULL WGET_GCC_RETURNS_NONNULL
 #  define NULLABLE

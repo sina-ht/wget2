@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2021 Free Software Foundation, Inc.
+# Copyright (C) 2015-2022 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,7 +14,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Explicit syntax-check exceptions.
-VC_LIST_ALWAYS_EXCLUDE_REGEX = ^data/.*|tests/(files|gpg|certs)/.*|.*\.png|^fuzz/.*\.(in|repro)/.*|^contrib/libtool.patch$$
+VC_LIST_ALWAYS_EXCLUDE_REGEX = ^data/.*|tests/(files|gpg|certs)/.*|.*\.png|^fuzz/.*\.(in|repro)/.*$$
 
 # Syntax Check Rules that we want to skip
 #  * sc_immutable_NEWS: I can't make this test ever pass. If someone fixes it,
@@ -31,7 +31,8 @@ local-checks-to-skip =            \
   sc_makefile_at_at_check         \
   sc_prohibit_atoi_atof           \
   sc_prohibit_gnu_make_extensions \
-  sc_prohibit_strcmp
+  sc_prohibit_strcmp              \
+  sc_indent
 
 update-copyright-env = UPDATE_COPYRIGHT_FORCE=1 UPDATE_COPYRIGHT_USE_INTERVALS=1
 

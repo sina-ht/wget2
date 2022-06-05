@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2022 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -17,8 +17,7 @@
  * along with Wget  If not, see <https://www.gnu.org/licenses/>.
  *
  *
- * Testing basic robots.txt functionality
- *
+ * Testing --level
  */
 
 #include <config.h>
@@ -29,71 +28,82 @@
 int main(void)
 {
 	wget_test_url_t urls[]={
-		{	.name = "/robots.txt",
+		{	.name = "/index.html",
 			.code = "200 Dontcare",
 			.body =
-				"User-agent: Badboy\n"\
-				"Disallow: /\n"\
-				"\n"
-				"# a simple comment\n"\
-				"User-agent: *\n"\
-				"Disallow: /subdir2/\n"\
-			,
+				"<html><head><title>Main Page</title></head><body><p>A link to a" \
+				" <a href=\"http://localhost:{{port}}/level0.txt\">level0</a>." \
+				" <a href=\"http://localhost:{{port}}/sub1/page.html\">sub1 page</a>." \
+			"</p></body></html>",
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+		{	.name = "/sub1/page.html",
+			.code = "200 Dontcare",
+			.body =
+				"<html><head><title>Main Page</title></head><body><p>A link to a" \
+				" <a href=\"http://localhost:{{port}}/level1.txt\">level1</a>." \
+				" <a href=\"http://localhost:{{port}}/sub1/sub2/page.html\">sub2 page</a>." \
+			"</p></body></html>",
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+		{	.name = "/sub1/sub2/page.html",
+			.code = "200 Dontcare",
+			.body =
+				"<html><head><title>Main Page</title></head><body><p>A link to a" \
+				" <a href=\"http://localhost:{{port}}/level2.txt\">level2</a>." \
+				" <a href=\"http://localhost:{{port}}/sub1/sub2/sub3/page.html\">sub3 page</a>." \
+			"</p></body></html>",
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+		{	.name = "/sub1/sub2/sub3/page.html",
+			.code = "200 Dontcare",
+			.body =
+				"<html><head><title>Main Page</title></head><body><p>A link to a" \
+				" <a href=\"http://localhost:{{port}}/level3.txt\">level3</a>." \
+				" <a href=\"http://localhost:{{port}}/sub1/sub2/sub3/sub4/page.html\">sub4 page</a>." \
+			"</p></body></html>",
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+		{	.name = "/sub1/sub2/sub3/sub4/page.html",
+			.code = "200 Dontcare",
+			.body =
+				"<html><head><title>Main Page</title></head><body><p>No links</p></body></html>",
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+		{	.name = "/level0.txt",
+			.code = "200 Dontcare",
+			.body = "level0",
 			.headers = {
 				"Content-Type: text/plain",
 			}
 		},
-		{	.name = "/index.html",
+		{	.name = "/level1.txt",
 			.code = "200 Dontcare",
-			.body =
-				"<html><head><title>Main Page</title><body><p>A link to a" \
-				" <A href=\"http://localhost:{{port}}/secondpage.html\">second page</a>." \
-				" <a href=\"/subdir1/subpage1.html?query&param#frag\">page in subdir1</a>." \
-				" <a href=\"./subdir1/subpage2.html\">page in subdir1</a>." \
-				"</p></body></html>",
+			.body = "level0",
 			.headers = {
-				"Content-Type: text/html",
+				"Content-Type: text/plain",
 			}
 		},
-		{	.name = "/secondpage.html",
+		{	.name = "/level2.txt",
 			.code = "200 Dontcare",
-			.body =
-				"<html><head><title>Main Page</title><base href=\"/subdir2/\"></head><body><p>A link to a" \
-				" <A href=\"../secondpage.html\">second page</a>." \
-				" <a href=\"subpage1.html?query&param#frag\">page in subdir2</a>." \
-				" <a href=\"./subpage2.html\">page in subdir2</a>." \
-				" <a href=\"./audio.mp3\">mp3 in subdir2</a>." \
-				"</p></body></html>",
+			.body = "level0",
 			.headers = {
-				"Content-Type: text/html",
+				"Content-Type: text/plain",
 			}
 		},
-		{	.name = "/subdir1/subpage1.html?query&param",
+		{	.name = "/level3.txt",
 			.code = "200 Dontcare",
-			.body = "sub1_1"
-		},
-		{	.name = "/subdir1/subpage2.html",
-			.code = "200 Dontcare",
-			.body = "sub1_2"
-		},
-		{	.name = "/subdir2/subpage1.html?query&param",
-			.code = "200 Dontcare",
-			.body = "sub2_1"
-		},
-		{	.name = "/subdir2/subpage2.html",
-			.code = "200 Dontcare",
-			.body = "sub2_2"
-		},
-		{	.name = "/subdir2/audio.mp3",
-			.code = "200 Dontcare",
-			.body = "sub2_audio.mp3"
-		},
-		{	.name = "/robots_open.txt",
-			.code = "200 Dontcare",
-			.body =
-				"User-agent: *\n"\
-				"Allow: /\n"\
-			,
+			.body = "level0",
 			.headers = {
 				"Content-Type: text/plain",
 			}
@@ -106,75 +116,9 @@ int main(void)
 		WGET_TEST_FEATURE_MHD,
 		0);
 
-	// Check if robots is actually honoured when it already exists on the
-	// file system
+	// test --level 0 = indefinitely
 	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH",
-		WGET_TEST_REQUEST_URL, "index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXISTING_FILES, &(wget_test_file_t []) {
-			{ "robots.txt", urls[7].body },
-			{	NULL } },
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
-			{ urls[3].name + 1, urls[3].body },
-			{ urls[4].name + 1, urls[4].body },
-			{	NULL } },
-		0);
-
-
-	// Check if robots is actually honoured when it already exists on the
-	// file system
-	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH -c",
-		WGET_TEST_REQUEST_URL, "index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXISTING_FILES, &(wget_test_file_t []) {
-			{ "robots.txt", urls[0].body },
-			{	NULL } },
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
-			{ urls[3].name + 1, urls[3].body },
-			{ urls[4].name + 1, urls[4].body },
-			{	NULL } },
-		0);
-
-	// robots.txt forbids /subdir2/ for '*'
-	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH",
-		WGET_TEST_REQUEST_URL, "index.html",
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
-			{ urls[3].name + 1, urls[3].body },
-			{ urls[4].name + 1, urls[4].body },
-			{	NULL } },
-		0);
-
-	// robots.txt forbids /subdir2/ for '*', but we download user-requested page
-	wget_test(
-		WGET_TEST_OPTIONS, "-r -nH",
-		WGET_TEST_REQUEST_URLS, "index.html", "subdir2/subpage2.html", NULL,
-		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
-			{ urls[0].name + 1, urls[0].body },
-			{ urls[1].name + 1, urls[1].body },
-			{ urls[2].name + 1, urls[2].body },
-			{ urls[3].name + 1, urls[3].body },
-			{ urls[4].name + 1, urls[4].body },
-			{ urls[6].name + 1, urls[6].body },
-			{	NULL } },
-		0);
-
-	// Disable robots.txt
-	wget_test(
-		WGET_TEST_OPTIONS, "-r --no-robots -nH",
+		WGET_TEST_OPTIONS, "-r --level 0 -nH",
 		WGET_TEST_REQUEST_URL, "index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
@@ -186,6 +130,85 @@ int main(void)
 			{ urls[5].name + 1, urls[5].body },
 			{ urls[6].name + 1, urls[6].body },
 			{ urls[7].name + 1, urls[7].body },
+			{ urls[8].name + 1, urls[8].body },
+			{	NULL } },
+		0);
+
+	// test --level inf = indefinitely
+	wget_test(
+		WGET_TEST_OPTIONS, "-r --level inf -nH",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body },
+			{ urls[1].name + 1, urls[1].body },
+			{ urls[2].name + 1, urls[2].body },
+			{ urls[3].name + 1, urls[3].body },
+			{ urls[4].name + 1, urls[4].body },
+			{ urls[5].name + 1, urls[5].body },
+			{ urls[6].name + 1, urls[6].body },
+			{ urls[7].name + 1, urls[7].body },
+			{ urls[8].name + 1, urls[8].body },
+			{	NULL } },
+		0);
+
+	// test level 1
+	wget_test(
+		WGET_TEST_OPTIONS, "-r --level 1 -nH",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body },
+			{ urls[1].name + 1, urls[1].body },
+			{ urls[5].name + 1, urls[5].body },
+			{	NULL } },
+		0);
+
+	// test level 2
+	wget_test(
+		WGET_TEST_OPTIONS, "-r --level 2 -nH",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body },
+			{ urls[1].name + 1, urls[1].body },
+			{ urls[2].name + 1, urls[2].body },
+			{ urls[5].name + 1, urls[5].body },
+			{ urls[6].name + 1, urls[6].body },
+			{	NULL } },
+		0);
+
+	// test level 3
+	wget_test(
+		WGET_TEST_OPTIONS, "-r --level 3 -nH",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body },
+			{ urls[1].name + 1, urls[1].body },
+			{ urls[2].name + 1, urls[2].body },
+			{ urls[3].name + 1, urls[3].body },
+			{ urls[5].name + 1, urls[5].body },
+			{ urls[6].name + 1, urls[6].body },
+			{ urls[7].name + 1, urls[7].body },
+			{	NULL } },
+		0);
+
+	// test level 4
+	wget_test(
+		WGET_TEST_OPTIONS, "-r --level 4 -nH",
+		WGET_TEST_REQUEST_URL, "index.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{ urls[0].name + 1, urls[0].body },
+			{ urls[1].name + 1, urls[1].body },
+			{ urls[2].name + 1, urls[2].body },
+			{ urls[3].name + 1, urls[3].body },
+			{ urls[4].name + 1, urls[4].body },
+			{ urls[5].name + 1, urls[5].body },
+			{ urls[6].name + 1, urls[6].body },
+			{ urls[7].name + 1, urls[7].body },
+			{ urls[8].name + 1, urls[8].body },
 			{	NULL } },
 		0);
 
