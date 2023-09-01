@@ -1,5 +1,5 @@
 dnl Template file for GNU Autoconf
-dnl Copyright (C) 2015-2022 Free Software Foundation, Inc.
+dnl Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 dnl This program is free software; you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@ CFLAGS=$CFLAGS
 LDFLAGS=$LDFLAGS
 
 AC_PREREQ([2.69])
-AC_INIT([wget2],[2.0.1],[bug-wget@gnu.org],[wget2],[https://savannah.gnu.org/projects/wget])
+AC_INIT([wget2],[2.1.0],[bug-wget@gnu.org],[wget2],[https://savannah.gnu.org/projects/wget])
 
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -77,7 +77,7 @@ LT_INIT([dlopen])
 # 4. If any interfaces have been added, removed, or changed since the last update, increment current, and set revision to 0.
 # 5. If any interfaces have been added since the last public release, then increment age.
 # 6. If any existing interfaces have been removed or changed since the last public release, then set age to 0.
-AC_SUBST([LIBWGET_SO_VERSION], [1:0:0])
+AC_SUBST([LIBWGET_SO_VERSION], [2:0:0])
 AC_SUBST([LIBWGET_VERSION], [2.1.0])
 
 #
@@ -119,7 +119,6 @@ if test -n "$WARN_CFLAGS"; then
     # Set up list of unwanted warnings
     nw=
     nw="$nw -Wsystem-headers"       # System headers may trigger lot's of useless warnings
-    nw="$nw -Wvla"                  # This project is C99
     nw="$nw -Wstack-protector"
     nw="$nw -Wmissing-field-initializer"
     nw="$nw -Wtraditional"
@@ -134,6 +133,9 @@ if test -n "$WARN_CFLAGS"; then
     nw="$nw -Wabi" # gcc 8, very noisy
     nw="$nw -Wunused-macros" # triggers in auto-generated lex css parser, #pragma doesn't work, conflicts with -Werror
     nw="$nw -Wchkp" # gcc-9 says: not supported any more (but emits it via -Q --help=C)"
+    nw="$nw -Wc90-c99-compat" # gcc-12, we use C99
+    nw="$nw -Wlong-long" # gcc-12, we use C99
+    nw="$nw -Wstrict-flex-arrays" # gcc-13 warns about it
     if test "$cross_compiling" = yes; then
       nw="$nw -Wformat"
     fi
@@ -177,14 +179,14 @@ if test -n "$WARN_CFLAGS"; then
     # disable options implicitly set by other options
     GNULIB_WARN_CFLAGS="-Wno-error $GNULIB_WARN_CFLAGS"
     GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-sign-compare -Wno-unused-parameter -Wno-alloca"
-    GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-float-conversion -Wno-cast-function-type"
+    GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-float-conversion -Wno-cast-function-type -Wno-vla"
     if test "$cross_compiling" = yes; then
       GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-incompatible-pointer-types"
     fi
 
   elif test "$CCNAME" = "clang"; then
     # setup flags for this project
-    WARN_CFLAGS="$WARN_CFLAGS -Wno-system-headers -Wno-vla -Wno-cast-qual -Wno-padded"
+    WARN_CFLAGS="$WARN_CFLAGS -Wno-system-headers -Wno-cast-qual -Wno-padded"
     WARN_CFLAGS="$WARN_CFLAGS -Wno-reserved-id-macro -Wno-sign-conversion  -Wno-disabled-macro-expansion"
     WARN_CFLAGS="$WARN_CFLAGS -Wno-documentation -Wno-documentation-unknown-command"
     WARN_CFLAGS="$WARN_CFLAGS -Wno-covered-switch-default -Wno-unused-macros"
@@ -202,6 +204,14 @@ if test -n "$WARN_CFLAGS"; then
 
     if test $CLANG_VERSION -ge 13; then
       WARN_CFLAGS="$WARN_CFLAGS -Wno-reserved-identifier"
+    fi
+
+    if test $CLANG_VERSION -ge 14; then
+      WARN_CFLAGS="$WARN_CFLAGS -Wno-declaration-after-statement"
+    fi
+
+    if test $CLANG_VERSION -ge 16; then
+      WARN_CFLAGS="$WARN_CFLAGS -Wno-unsafe-buffer-usage -Wno-cast-function-type-strict"
     fi
 
     # remove all flags from WARN_FLAGS that are already in CFLAGS
@@ -386,7 +396,7 @@ m4_ifdef([AM_GNU_GETTEXT], [
 ])
 m4_ifdef([AM_GNU_GETTEXT_VERSION], [
 #do not indent here
-AM_GNU_GETTEXT_VERSION([0.19.3])
+AM_GNU_GETTEXT_VERSION([0.21])
 ])
 AM_CONDITIONAL([HAVE_PO], [ test "$have_po" = "yes" ])
 
@@ -621,6 +631,25 @@ AS_IF([(test "$with_gnutls" != "yes" || test "$with_gnutls_hash" != "yes") && te
 
 AM_CONDITIONAL([WITH_LIBNETTLE], [test "$with_libnettle" = "yes"])
 AM_CONDITIONAL([WITH_CRYPT], [test "$with_gcrypt" = "yes"])
+
+AC_ARG_WITH(libdane, AS_HELP_STRING([--without-libdane], [enable support for DANE certificate checking]), with_libdane=$withval, with_libdane=yes)
+AS_IF([test "$with_libdane" != "no"], [
+  PKG_CHECK_MODULES([LIBDANE], [gnutls-dane >= 3.0.0], [
+    with_libdane=yes
+    LIBS="$LIBDANE_LIBS $LIBS"
+    CFLAGS="$LIBDANE_CFLAGS $CFLAGS"
+    AC_DEFINE([WITH_LIBDANE], [1], [DANE support enabled])
+  ], [
+    OLD_LIBS="$LIBS"
+    LIBS=
+    AC_SEARCH_LIBS(dane_verify_crt, gnutls-dane,
+      [with_libdane=yes; AC_DEFINE([WITH_LIBDANE], [1], [DANE support enabled])],
+      [with_libdane=no;  AC_MSG_WARN(*** libgnutls-dane was not found.)])
+    LIBDANE_LIBS="$LIBS"
+    LIBS="$LIBS $OLD_LIBS"
+  ])
+])
+AM_CONDITIONAL([WITH_LIBDANE], [test "$with_libdane" = "yes"])
 
 AC_ARG_WITH(libpsl, AS_HELP_STRING([--without-libpsl], [disable support for libpsl cookie checking]), with_libpsl=$withval, with_libpsl=yes)
 AS_IF([test "$with_libpsl" != "no"], [
@@ -1035,6 +1064,7 @@ AC_MSG_NOTICE([Summary of build options:
   Library types:      shared=${enable_shared}, static=${enable_static}
   Small libraries:    $enable_manylibs
   SSL/TLS support:    $ssl_enabled
+  DANE support:       $with_libdane
   GZIP compression:   $with_zlib
   BZIP2 compression:  $with_bzip2
   LZMA compression:   $with_lzma

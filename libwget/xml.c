@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -470,13 +470,10 @@ static int parseXML(const char *dir, xml_context *context)
 					wget_snprintf(&directory[pos], sizeof(directory) - pos, "%.*s", (int)context->token_len, tok);
 			} else {
 				// wget_snprintf(directory, sizeof(directory), "%.*s", (int)context->token_len, tok);
-				if (context->token_len < sizeof(directory)) {
-					memcpy(directory, tok, context->token_len);
-					directory[context->token_len] = 0;
-				} else {
-					memcpy(directory, tok, sizeof(directory) - 1);
-					directory[sizeof(directory) - 1] = 0;
-				}
+				size_t dirlen = context->token_len >= sizeof(directory) ? sizeof(directory) - 1 : context->token_len;
+
+				memcpy(directory, tok, dirlen);
+				directory[dirlen] = 0;
 			}
 
 			while ((tok = getToken(context))) {
@@ -538,10 +535,16 @@ static int parseXML(const char *dir, xml_context *context)
 					if (!(context->hints & XML_HINT_HTML))
 						context->callback(context->user_ctx, XML_FLG_END, directory, NULL, NULL, 0, 0);
 					else {
-						char tag[context->token_len + 1]; // we need to \0 terminate tok
-						memcpy(tag, tok, context->token_len);
-						tag[context->token_len] = 0;
-						context->callback(context->user_ctx, XML_FLG_END, tag, NULL, NULL, 0, 0);
+						char tmp[128], *tag = tmp; // we need to \0 terminate tok
+						if (context->token_len >= sizeof(tmp))
+							tag = wget_malloc(context->token_len + 1);
+						if (tag) {
+							memcpy(tag, tok, context->token_len);
+							tag[context->token_len] = 0;
+							context->callback(context->user_ctx, XML_FLG_END, tag, NULL, NULL, 0, 0);
+							if (tag != tmp)
+								xfree(tag);
+						}
 					}
 				}
 				if (!(tok = getToken(context))) return WGET_E_XML_PARSE_ERR;
@@ -711,5 +714,71 @@ void wget_html_parse_file(
 {
 	wget_xml_parse_file(fname, callback, user_ctx, hints | XML_HINT_HTML);
 }
+
+/**
+ * \param[in] src A string
+ * \return A pointer to \p src, after the XML entities have been converted
+ *
+ * Decode XML entities from \p src.
+ *
+ * **The transformation is done inline**, so `src` will be modified after this function returns.
+ * If no XML entities have been found, \p src is left untouched.
+ *
+ * Only a small subset of available XML entities is currently recognized.
+ */
+char *wget_xml_decode_entities_inline(char *src)
+{
+	char *ret = NULL;
+	unsigned char *s = (unsigned char *)src; // just a helper to avoid casting a lot
+	unsigned char *d = s;
+
+	while (*s) {
+		if (*s == '&') {
+			// entities are case sensitive (RFC1866, 3.2.3)
+			if (s[1] == '#') {
+				if (s[2] == 'x')
+					*d = (unsigned char) strtol((char *) s + 3, (char **) &s, 16);
+				else
+					*d = (unsigned char) strtol((char *) s + 2, (char **) &s, 10);
+				if (*d == ' ') *d = '+'; // hack
+				d++;
+				if (*s == ';') s++;
+				ret = src;
+				continue;
+			} else if (!strncmp((char *) s + 1, "amp;", 4)) {
+				*d++ = '&';
+				s += 5;
+				ret = src;
+				continue;
+			} else if (!strncmp((char *) s + 1, "gt;", 3)) {
+				*d++ = '>';
+				s += 4;
+				ret = src;
+				continue;
+			} else if (!strncmp((char *) s + 1, "lt;", 3)) {
+				*d++ = '<';
+				s += 4;
+				ret = src;
+				continue;
+			} else if (!strncmp((char *) s + 1, "quot;", 5)) {
+				*d++ = '\"';
+				s += 6;
+				ret = src;
+				continue;
+			} else if (!strncmp((char *) s + 1, "apos;", 5)) {
+				*d++ = '\'';
+				s += 6;
+				ret = src;
+				continue;
+			}
+		}
+
+		*d++ = *s++;
+	}
+	*d = 0;
+
+	return ret;
+}
+
 
 /** @} */

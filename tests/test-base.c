@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -34,9 +34,9 @@ int main(void)
 			.body =
 				"<html><head><title>Main Page</title><base href=\"/subdir1/\"></head><body><p>A link to a" \
 				" <A hreF=\"http://localhost:{{port}}/second\r\npage.html\">second page</a>." \
-				" <a  HreF=\"subpage1.h#116;ml?qu#x65;ry&amp;param#frag\">page in subdir1</a>." \
+				" <a  HreF=\"subpage1.h&#116;ml?qu&#x65;ry&amp;param#frag\">page in subdir1</a>." \
 				" <a href=\"./subpage2.html\">page in subdir1</a>." \
-				" <a href=\"http://localhost:{{port}}/page+with+spaces.html\">page with spaces</a>." \
+				" <a href=\"http://localhost:{{port}}/page+with&#32spaces.html\">page with spaces</a>." \
 				" <a href=\"http://localhost:{{port}}/css?query+with+spaces&param=bla+blubb\">query with spaces</a>." \
 				" <a href=\"../subdir3%3A/\">subdir3 with colon</a>." \
 				"</p></body></html>",

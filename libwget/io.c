@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -191,6 +191,29 @@ ssize_t wget_getline(char **buf, size_t *bufsize, FILE *fp)
 	return getline_internal(buf, bufsize, (void *)fp, read_fp);
 }
 
+#ifdef _WIN32
+#define MIN_TIMEOUT_FIX_MS 50
+static int poll_retry(struct pollfd* pfd, nfds_t nfd, int timeout, int max_retries) {
+	DWORD startTime;
+	BOOL retryTrack = timeout > 0 && timeout != INFTIM && timeout > MIN_TIMEOUT_FIX_MS;
+	if (retryTrack)
+		startTime = GetTickCount();
+	int rc;
+	for (int x = 0; x < max_retries; x++) {
+		rc = poll(pfd, nfd, timeout);
+		if (rc != 0 || !retryTrack)
+			return rc;
+		int msElapsed = GetTickCount() - startTime;
+		if (msElapsed < 0 || (timeout - MIN_TIMEOUT_FIX_MS) < msElapsed)
+			// error or timeout
+			return 0;
+	}
+
+	// max_tries has been reached
+	return 0;
+}
+#endif
+
 /**
  * \param[in] fd File descriptor to wait for
  * \param[in] timeout Max. duration in milliseconds to wait
@@ -222,7 +245,11 @@ int wget_ready_2_transfer(int fd, int timeout, int mode)
 		pollfd.events |= POLLOUT;
 
 	// wait for socket to be ready to read or write
+#ifdef _WIN32
+	if ((rc = poll_retry(&pollfd, 1, timeout, 20)) > 0) {
+#else
 	if ((rc = poll(&pollfd, 1, timeout)) > 0) {
+#endif
 		rc = 0;
 		if (pollfd.revents & POLLIN)
 			rc |= WGET_IO_READABLE;
@@ -367,80 +394,78 @@ char *wget_read_file(const char *fname, size_t *size)
 int wget_update_file(const char *fname,
 	wget_update_load_fn *load_func, wget_update_load_fn *save_func, void *context)
 {
-	FILE *fp;
-	const char *tmpdir, *basename;
-	int lockfd;
+	FILE *fp = NULL;
+	const char *tmpdir;
+	char *tmpfile, *basename = NULL, *lockfile = NULL;
+	int lockfd = -1;
+	int rc = WGET_E_SUCCESS;
 
-	char tmpfile[strlen(fname) + 6 + 1];
-	wget_snprintf(tmpfile, sizeof(tmpfile), "%sXXXXXX", fname);
+	if (!(tmpfile = wget_aprintf("%sXXXXXX", fname))) {
+		rc = WGET_E_MEMORY;
+		goto out;
+	}
+
+	if (!(basename = base_name(fname))) {
+		rc = WGET_E_MEMORY;
+		goto out;
+	}
 
 	// find out system temp directory
 	if (!(tmpdir = getenv("TMPDIR")) && !(tmpdir = getenv("TMP"))
 		&& !(tmpdir = getenv("TEMP")) && !(tmpdir = getenv("TEMPDIR")))
 		tmpdir = "/tmp";
 
-	basename = base_name(fname);
-
-	if (!basename)
-		return WGET_E_MEMORY;
-
 	// create a per-usr tmp file name
-	size_t tmplen = strlen(tmpdir);
-	char *lockfile;
-
 #ifdef HAVE_GETUID
-	if (!tmplen)
-		lockfile = wget_aprintf("%s_lck_%u", basename, (unsigned) getuid());
-	else
+	if (*tmpdir)
 		lockfile = wget_aprintf("%s/%s_lck_%u", tmpdir, basename, (unsigned) getuid());
-#else
-	if (!tmplen)
-		lockfile = wget_aprintf("%s_lck", basename);
 	else
+		lockfile = wget_aprintf("%s_lck_%u", basename, (unsigned) getuid());
+#else
+	if (*tmpdir)
 		lockfile = wget_aprintf("%s/%s_lck", tmpdir, basename);
+	else
+		lockfile = wget_aprintf("%s_lck", basename);
 #endif
 
-	xfree(basename);
-
-	if (!lockfile)
-		return WGET_E_MEMORY;
+	if (!lockfile) {
+		rc = WGET_E_MEMORY;
+		goto out;
+	}
 
 	// create & open the lock file
 	if ((lockfd = open(lockfile, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1) {
 		error_printf(_("Failed to create '%s' (%d)\n"), lockfile, errno);
-		xfree(lockfile);
-		return WGET_E_OPEN;
+		rc = WGET_E_OPEN;
+		goto out;
 	}
 
 	// set the lock
 	if (flock(lockfd, LOCK_EX) == -1) {
-		close(lockfd);
 		error_printf(_("Failed to lock '%s' (%d)\n"), lockfile, errno);
-		xfree(lockfile);
-		return WGET_E_IO;
+		rc = WGET_E_IO;
+		goto out;
 	}
-
-	xfree(lockfile);
 
 	if (load_func) {
 		// open fname for reading
 		if (!(fp = fopen(fname, "r"))) {
 			if (errno != ENOENT) {
-				close(lockfd);
 				error_printf(_("Failed to read open '%s' (%d)\n"), fname, errno);
-				return WGET_E_OPEN;
+				rc = WGET_E_OPEN;
+				goto out;
 			}
 		}
 
 		if (fp) {
 			// read fname data
 			if (load_func(context, fp)) {
-				fclose(fp);
-				close(lockfd);
-				return WGET_E_UNKNOWN;
+				rc = WGET_E_UNKNOWN;
+				goto out;
 			}
 
 			fclose(fp);
+			fp = NULL;
 		}
 	}
 
@@ -449,50 +474,57 @@ int wget_update_file(const char *fname,
 		// create & open temp file to write data into with 0600 - rely on Gnulib to set correct
 		// ownership instead of using umask() here.
 		if ((fd = mkstemp(tmpfile)) == -1) {
-			close(lockfd);
 			error_printf(_("Failed to open tmpfile '%s' (%d)\n"), tmpfile, errno);
-			return WGET_E_OPEN;
+			rc = WGET_E_OPEN;
+			goto out;
 		}
 
 		// open the output stream from fd
 		if (!(fp = fdopen(fd, "w"))) {
 			unlink(tmpfile);
 			close(fd);
-			close(lockfd);
 			error_printf(_("Failed to write open '%s' (%d)\n"), tmpfile, errno);
-			return WGET_E_OPEN;
+			rc = WGET_E_OPEN;
+			goto out;
 		}
 
 		// write into temp file
 		if (save_func(context, fp)) {
 			unlink(tmpfile);
-			fclose(fp);
-			close(lockfd);
-			return WGET_E_UNKNOWN;
+			rc = WGET_E_UNKNOWN;
+			goto out;
 		}
 
 		// write buffers and close temp file
 		if (fclose(fp)) {
+			fp = NULL;
 			unlink(tmpfile);
-			close(lockfd);
 			error_printf(_("Failed to write/close '%s' (%d)\n"), tmpfile, errno);
-			return WGET_E_IO;
+			rc = WGET_E_IO;
+			goto out;
 		}
+		fp = NULL;
 
 		// rename written file (now complete without errors) to FNAME
 		if (rename(tmpfile, fname) == -1) {
-			close(lockfd);
 			error_printf(_("Failed to rename '%s' to '%s' (%d)\n"), tmpfile, fname, errno);
 			error_printf(_("Take manually care for '%s'\n"), tmpfile);
-			return WGET_E_IO;
+			rc = WGET_E_IO;
+			goto out;
 		}
 
 		debug_printf("Successfully updated '%s'.\n", fname);
 	}
 
-	close(lockfd);
-
-	return WGET_E_SUCCESS;
+out:
+	if (fp)
+		fclose(fp);
+	if (lockfd != -1)
+		close(lockfd);
+	xfree(lockfile);
+	xfree(basename);
+	xfree(tmpfile);
+	return rc;
 }
 
 /**

@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2022 Free Software Foundation, Inc.
+# Copyright (c) 2018-2023 Free Software Foundation, Inc.
 #
 # This file is part of GNU Wget.
 #
@@ -50,7 +50,7 @@ run_bench() {
 
 	rm -f "../../${program}_${BENCHM_NAME}.data"
 
-	# Warmup Run
+	# Warm-up Run
 	$cmdline
 
 	for ((nreq=1; nreq<=NURL; nreq++)); do

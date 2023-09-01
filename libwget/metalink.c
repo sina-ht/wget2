@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -110,9 +110,8 @@ static void add_file_hash(metalink_context *ctx, const char *value)
 
 	if (*ctx->hash_type && *ctx->hash) {
 		// hashes for the complete file
-		wget_metalink_hash hash;
+		wget_metalink_hash hash = { 0 };
 
-		memset(&hash, 0, sizeof(wget_metalink_hash));
 		wget_strscpy(hash.type, ctx->hash_type, sizeof(hash.type));
 		wget_strscpy(hash.hash_hex, ctx->hash, sizeof(hash.hash_hex));
 

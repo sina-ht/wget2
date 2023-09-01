@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2015 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -42,6 +42,7 @@ struct wget_tcp_st {
 	struct addrinfo *
 		connect_addrinfo; // needed for TCP_FASTOPEN delayed connect
 	const char
+		*host,
 		*ssl_hostname, // if set, do SSL hostname checking
 		*ip,
 		*bind_interface;
@@ -59,7 +60,8 @@ struct wget_tcp_st {
 		protocol; // WGET_PROTOCOL_HTTP1_1, WGET_PROTOCOL_HTTP2_0
 	wget_hpkp_stats_result
 		hpkp; // hpkp stats
-
+	uint16_t
+		remote_port; // needed for not yet connected situations (e.g. DANE)
 	bool
 		ssl : 1,
 		tls_false_start : 1,

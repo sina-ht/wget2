@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -125,6 +125,22 @@ static struct wget_tcp_st global_tcp = {
 
 /* for Windows compatibility */
 #include "sockets.h"
+
+#ifdef TCP_FASTOPEN_LINUX
+// helper function to give context for errors
+static inline void print_error(const wget_tcp *tcp, const char *msg)
+{
+	error_printf(_("%s (hostname='%s', ip=%s, errno=%d)\n"),
+		msg, tcp->host ? tcp->host: "", tcp->ip ? tcp->ip : "", errno);
+}
+#endif
+
+static inline void print_error_host(const char *msg, const char *host)
+{
+	error_printf(_("%s (hostname='%s', errno=%d)\n"),
+		msg, host, errno);
+}
+
 /**
  * \return 0 for success, else failure
  *
@@ -646,6 +662,54 @@ int wget_tcp_ready_2_transfer(wget_tcp *tcp, int flags)
 		return -1;
 }
 
+static void debug_addr(const char *caption, const struct sockaddr *ai_addr, socklen_t ai_addrlen)
+{
+	int rc;
+	char adr[NI_MAXHOST], s_port[NI_MAXSERV];
+
+	rc = getnameinfo(ai_addr, ai_addrlen,
+			 adr, sizeof(adr),
+			 s_port, sizeof(s_port),
+			 NI_NUMERICHOST | NI_NUMERICSERV);
+	if (rc == 0)
+		debug_printf("%s %s:%s...\n", caption, adr, s_port);
+	else
+		debug_printf("%s ???:%s (%s)...\n", caption, s_port, gai_strerror(rc));
+}
+
+static int tcp_connect(wget_tcp *tcp, struct addrinfo *ai, int sockfd)
+{
+	int rc;
+
+	/* Enable TCP Fast Open, if required by the user and available */
+#ifdef TCP_FASTOPEN_OSX
+	if (tcp->tcp_fastopen) {
+		sa_endpoints_t endpoints = { .sae_dstaddr = ai->ai_addr, .sae_dstaddrlen = ai->ai_addrlen };
+		rc = connectx(sockfd, &endpoints,
+			      SAE_ASSOCID_ANY, CONNECT_RESUME_ON_READ_WRITE | CONNECT_DATA_IDEMPOTENT, NULL, 0, NULL, NULL);
+		tcp->first_send = 0;
+#elif defined TCP_FASTOPEN_LINUX
+	if (tcp->tcp_fastopen) {
+		errno = 0;
+		tcp->connect_addrinfo = ai;
+		rc = 0;
+		tcp->first_send = 1;
+#elif defined TCP_FASTOPEN_LINUX_411
+	if (tcp->tcp_fastopen) {
+		tcp->connect_addrinfo = ai;
+		rc = connect(sockfd, ai->ai_addr, ai->ai_addrlen);
+		tcp->first_send = 0;
+#else
+	if (0) {
+#endif
+	} else {
+		rc = connect(sockfd, ai->ai_addr, ai->ai_addrlen);
+		tcp->first_send = 0;
+	}
+
+	return rc;
+}
+
 /**
  * \param[in] tcp A `wget_tcp` structure representing a TCP connection, returned by wget_tcp_init().
  * \param[in] host Hostname or IP address to connect to.
@@ -676,26 +740,24 @@ int wget_tcp_connect(wget_tcp *tcp, const char *host, uint16_t port)
 	struct addrinfo *ai;
 	int rc, ret = WGET_E_UNKNOWN;
 	char adr[NI_MAXHOST], s_port[NI_MAXSERV];
-	int debug = wget_logger_is_active(wget_get_logger(WGET_LOGGER_DEBUG));
+	bool debug = wget_logger_is_active(wget_get_logger(WGET_LOGGER_DEBUG));
 
 	if (unlikely(!tcp))
 		return WGET_E_INVALID;
 
 	wget_dns_freeaddrinfo(tcp->dns, &tcp->addrinfo);
+	xfree(tcp->host);
 
 	tcp->addrinfo = wget_dns_resolve(tcp->dns, host, port, tcp->family, tcp->preferred_family);
+	tcp->remote_port = port;
 
 	for (ai = tcp->addrinfo; ai; ai = ai->ai_next) {
-		if (debug) {
-			rc = getnameinfo(ai->ai_addr, ai->ai_addrlen,
-					adr, sizeof(adr),
-					s_port, sizeof(s_port),
-					NI_NUMERICHOST | NI_NUMERICSERV);
-			if (rc == 0)
-				debug_printf("trying %s:%s...\n", adr, s_port);
-			else
-				debug_printf("trying ???:%s (%s)...\n", s_port, gai_strerror(rc));
-		}
+		// Skip non-TCP sockets
+		if (ai->ai_socktype != SOCK_STREAM)
+			continue;
+
+		if (debug)
+			debug_addr("trying", ai->ai_addr, ai->ai_addrlen);
 
 		int sockfd;
 		if ((sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) != -1) {
@@ -703,56 +765,24 @@ int wget_tcp_connect(wget_tcp *tcp, const char *host, uint16_t port)
 			set_socket_options(tcp, sockfd);
 
 			if (tcp->bind_addrinfo) {
-				if (debug) {
-					rc = getnameinfo(tcp->bind_addrinfo->ai_addr,
-							tcp->bind_addrinfo->ai_addrlen,
-							adr, sizeof(adr),
-							s_port, sizeof(s_port),
-							NI_NUMERICHOST | NI_NUMERICSERV);
-					if (rc == 0)
-						debug_printf("binding to %s:%s...\n", adr, s_port);
-					else
-						debug_printf("binding to ???:%s (%s)...\n", s_port, gai_strerror(rc));
-				}
+				if (debug)
+					debug_addr("binding to",
+						   tcp->bind_addrinfo->ai_addr, tcp->bind_addrinfo->ai_addrlen);
 
 				if (bind(sockfd, tcp->bind_addrinfo->ai_addr, tcp->bind_addrinfo->ai_addrlen) != 0) {
-					error_printf(_("Failed to bind (%d)\n"), errno);
+					print_error_host(_("Failed to bind"), host);
 					close(sockfd);
 
 					return WGET_E_UNKNOWN;
 				}
 			}
 
-			/* Enable TCP Fast Open, if required by the user and available */
-#ifdef TCP_FASTOPEN_OSX
-			if (tcp->tcp_fastopen) {
-				sa_endpoints_t endpoints = { .sae_dstaddr = ai->ai_addr, .sae_dstaddrlen = ai->ai_addrlen };
-				rc = connectx(sockfd, &endpoints, SAE_ASSOCID_ANY, CONNECT_RESUME_ON_READ_WRITE | CONNECT_DATA_IDEMPOTENT, NULL, 0, NULL, NULL);
-				tcp->first_send = 0;
-#elif defined TCP_FASTOPEN_LINUX
-			if (tcp->tcp_fastopen) {
-				errno = 0;
-				tcp->connect_addrinfo = ai;
-				rc = 0;
-				tcp->first_send = 1;
-#elif defined TCP_FASTOPEN_LINUX_411
-			if (tcp->tcp_fastopen) {
-				tcp->connect_addrinfo = ai;
-				rc = connect(sockfd, ai->ai_addr, ai->ai_addrlen);
-				tcp->first_send = 0;
-#else
-			if (0) {
-#endif
-			} else {
-				rc = connect(sockfd, ai->ai_addr, ai->ai_addrlen);
-				tcp->first_send = 0;
-			}
-
+			rc = tcp_connect(tcp, ai, sockfd);
 			if (rc < 0
 				&& errno != EAGAIN
 				&& errno != EINPROGRESS
 			) {
-				error_printf(_("Failed to connect (%d)\n"), errno);
+				print_error_host(_("Failed to connect"), host);
 				ret = WGET_E_CONNECT;
 				close(sockfd);
 			} else {
@@ -775,15 +805,18 @@ int wget_tcp_connect(wget_tcp *tcp, const char *host, uint16_t port)
 					}
 				}
 
-				if (getnameinfo(ai->ai_addr, ai->ai_addrlen, adr, sizeof(adr), s_port, sizeof(s_port), NI_NUMERICHOST | NI_NUMERICSERV) == 0)
+				if (getnameinfo(ai->ai_addr, ai->ai_addrlen,
+						adr, sizeof(adr), s_port, sizeof(s_port), NI_NUMERICHOST | NI_NUMERICSERV) == 0)
 					tcp->ip = wget_strdup(adr);
 				else
 					tcp->ip = NULL;
 
+				tcp->host = wget_strdup(host);
+
 				return WGET_E_SUCCESS;
 			}
 		} else
-			error_printf(_("Failed to create socket (%d)\n"), errno);
+			print_error_host(_("Failed to create socket"), host);
 	}
 
 	return ret;
@@ -862,7 +895,8 @@ ssize_t wget_tcp_read(wget_tcp *tcp, char *buf, size_t count)
 	}
 
 	if (rc < 0)
-		error_printf(_("Failed to read %zu bytes (%d)\n"), count, errno);
+		error_printf(_("Failed to read %zu bytes (hostname='%s', ip=%s, errno=%d)\n"),
+			count, tcp->host, tcp->ip, errno);
 
 	return rc;
 }
@@ -922,7 +956,7 @@ ssize_t wget_tcp_write(wget_tcp *tcp, const char *buf, size_t count)
 					&& errno != ENOTCONN
 					&& errno != EINPROGRESS)
 				{
-					error_printf(_("Failed to connect (%d)\n"), errno);
+					print_error(tcp, _("Failed to connect"));
 					return -1;
 				}
 				errno = EAGAIN;
@@ -944,7 +978,8 @@ ssize_t wget_tcp_write(wget_tcp *tcp, const char *buf, size_t count)
 				&& errno != ENOTCONN
 				&& errno != EINPROGRESS)
 			{
-				error_printf(_("Failed to write %zu bytes (%d)\n"), count, errno);
+				error_printf(_("Failed to send %zu bytes (hostname='%s', ip=%s, errno=%d)\n"),
+					count, tcp->host, tcp->ip, errno);
 				return -1;
 			}
 
@@ -1023,6 +1058,7 @@ void wget_tcp_close(wget_tcp *tcp)
 			tcp->sockfd = -1;
 		}
 		wget_dns_freeaddrinfo(tcp->dns, &tcp->addrinfo);
+		xfree(tcp->host);
 	}
 }
 /** @} */

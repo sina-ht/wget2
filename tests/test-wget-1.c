@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -143,6 +143,13 @@ int main(void)
 		},
 		{	.name = "/error.html",
 			.code = "404 Not exist",
+			.body = errorpage,
+			.headers = {
+				"Content-Type: text/html",
+			}
+		},
+		{	.name = "/error503.html",
+			.code = "503 Service Unavailable",
 			.body = errorpage,
 			.headers = {
 				"Content-Type: text/html",
@@ -643,6 +650,15 @@ int main(void)
 	wget_test(
 		WGET_TEST_OPTIONS, "",
 		WGET_TEST_REQUEST_URL, "error.html",
+		WGET_TEST_EXPECTED_ERROR_CODE, 8,
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{	NULL } },
+		0);
+
+	// test response code 503
+	wget_test(
+		WGET_TEST_OPTIONS, "",
+		WGET_TEST_REQUEST_URL, "error503.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 8,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{	NULL } },

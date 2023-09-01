@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -42,7 +42,7 @@ static int stream_callback(wget_http_response *resp WGET_GCC_UNUSED, void *user_
 	size_t nbytes = fwrite(data, 1, length, stream);
 
 	if (nbytes != length) {
-		error_printf(_("Failed to write %zu bytes of data (%d)\n"), length, errno);
+		error_printf(_("Failed to fwrite %zu bytes of data (%d)\n"), length, errno);
 
 		if (feof(stream))
 			return -1;

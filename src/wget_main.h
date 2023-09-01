@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -34,10 +34,15 @@
 #include <wget.h>
 
 // gnulib convenience header for libintl.h, turn of annoying warnings
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wundef"
+#pragma GCC diagnostic ignored "-Wvla"
+#endif // __GNUC__
 #include <gettext.h>
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
+#endif // __GNUC__
 
 #ifdef ENABLE_NLS
 #	define _(STRING) gettext(STRING)

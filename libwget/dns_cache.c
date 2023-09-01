@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -200,7 +200,7 @@ int wget_dns_cache_add(wget_dns_cache *cache, const char *host, uint16_t port, s
 	}
 
 	entryp->port = port;
-	entryp->host = ((char *)entryp) + sizeof(struct cache_entry);
+	entryp->host = (char *)(entryp + 1);
 	memcpy((char *)entryp->host, host, hostlen); // ugly cast, but semantically ok
 	entryp->addrinfo = *addrinfo;
 

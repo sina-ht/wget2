@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -33,10 +33,15 @@
 #include <stdarg.h> // needed for va_list
 
 // gnulib convenience header for libintl.h, turn of annoying warnings
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wundef"
+#pragma GCC diagnostic ignored "-Wvla"
+#endif // __GNUC__
 #include <gettext.h>
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
+#endif // __GNUC__
 
 #ifdef ENABLE_NLS
 #	define _(STRING) gettext(STRING)
@@ -62,6 +67,35 @@
 #define error_printf_exit wget_error_printf_exit
 #define debug_printf wget_debug_printf
 #define debug_write wget_debug_write
+
+
+
+#ifdef __cplusplus
+    #define INITIALIZER(f) \
+        static void f(void); \
+        struct f##_t_ { f##_t_(void) { f(); } }; static f##_t_ f##_; \
+        static void f(void)
+#elif defined(_MSC_VER)
+#define ___old_read read
+#undef read
+#pragma section(".CRT$XCU",read)
+#define read ___old_read
+    #define INITIALIZER2_(f,p) \
+        static void f(void); \
+        __declspec(allocate(".CRT$XCU")) void (*f##__constructor__)(void) = f; \
+        __pragma(comment(linker,"/include:" p #f "__constructor__")) \
+        static void f(void)
+    #ifdef _WIN64
+        #define INITIALIZER(f) INITIALIZER2_(f,"")
+    #else
+        #define INITIALIZER(f) INITIALIZER2_(f,"_")
+    #endif
+#pragma data_seg()
+#else
+    #define INITIALIZER(f) \
+        static void f(void) __attribute__((constructor)); \
+        static void f(void)
+#endif
 
 
 #endif /* LIBWGET_PRIVATE_H */

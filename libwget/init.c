@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -50,19 +50,19 @@ static int global_initialized;
 static wget_thread_mutex _mutex;
 static bool initialized;
 
-static void __attribute__ ((constructor)) global_init(void)
-{
-	if (!initialized) {
-		wget_thread_mutex_init(&_mutex);
-		initialized = 1;
-	}
-}
-
-static void __attribute__ ((destructor)) global_exit(void)
+static void global_exit(void)
 {
 	if (initialized) {
 		wget_thread_mutex_destroy(&_mutex);
-		initialized = 0;
+		initialized = false;
+	}
+}
+INITIALIZER(global_init)
+{
+	if (!initialized) {
+		wget_thread_mutex_init(&_mutex);
+		initialized = true;
+		atexit(global_exit);
 	}
 }
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -57,7 +57,7 @@ static void check(int result, int line, const char *msg)
 		ok++;
 	} else {
 		failed++;
-		wget_info_printf("L%d: %s\n", line, msg);
+		wget_error_printf_exit("L%d: %s\n", line, msg);
 	}
 }
 
@@ -273,11 +273,12 @@ static void test_buffer(void)
 	wget_buffer_init(&buf, sbuf, sizeof(sbuf));
 	for (int mid_ws = 0; mid_ws <= 2; mid_ws++) {
 		char expected[16];
-		snprintf(expected, sizeof(expected), "x%.*sy", mid_ws, "  ");
+		snprintf(expected, sizeof(expected), "x%*.*sy", mid_ws, mid_ws, "");
 
 		for (int lead_ws = 0; lead_ws <= 2; lead_ws++) {
 			for (int trail_ws = 0; trail_ws <= 2; trail_ws++) {
-				wget_buffer_printf(&buf, "%.*sx%.*sy%.*s", lead_ws, "  ", mid_ws, "  ", trail_ws, "  ");
+				wget_buffer_printf(&buf, "%*.*sx%*.*sy%*.*s",
+					lead_ws, lead_ws, "", mid_ws, mid_ws, "", trail_ws, trail_ws, "");
 				wget_buffer_trim(&buf);
 				if (!strcmp(buf.data, expected))
 					ok++;
@@ -286,6 +287,18 @@ static void test_buffer(void)
 					info_printf("test_buffer_trim: got '%s' (expected '%s') (%d, %d, %d)\n", buf.data, expected, lead_ws, mid_ws, trail_ws);
 				}
 			}
+		}
+	}
+
+	char expected[] = "";
+	for (int ws = 0; ws <= 3; ws++) {
+		wget_buffer_printf(&buf, "%*.*s", ws, ws, "");
+		wget_buffer_trim(&buf);
+		if (!strcmp(buf.data, expected))
+			ok++;
+		else {
+			failed++;
+			info_printf("test_buffer_trim: got '%s' (expected '%s') (%d)\n", buf.data, expected, ws);
 		}
 	}
 	wget_buffer_deinit(&buf);
@@ -302,6 +315,12 @@ static void test_buffer(void)
 	wget_buffer_bufcpy(&buf, bufp);
 	wget_buffer_free(&bufp);
 	wget_buffer_deinit(&buf);
+
+	bufp = wget_buffer_alloc(16);
+	assert(wget_buffer_strcpy(bufp, "moin") == 4);
+	assert(wget_buffer_memset(bufp, 'A', 0) == 0);
+	assert(*bufp->data == 0);
+	wget_buffer_free(&bufp);
 }
 
 static void test_buffer_printf(void)
@@ -1053,8 +1072,8 @@ static void test_parser(void)
 		while ((dp = readdir(dirp)) != NULL) {
 			if (*dp->d_name == '.') continue;
 			if ((ext = strrchr(dp->d_name, '.'))) {
-				char fname[strlen(SRCDIR) + strlen(dp->d_name) + 8];
-				snprintf(fname, sizeof(fname), "%s/files/%s", SRCDIR, dp->d_name);
+				char fname[4096];
+				wget_snprintf(fname, sizeof(fname), "%s/files/%s", SRCDIR, dp->d_name);
 				if (!wget_strcasecmp_ascii(ext, ".xml")) {
 					info_printf("parsing %s\n", fname);
 					wget_xml_parse_file(fname, NULL, NULL, 0);
@@ -1638,7 +1657,7 @@ static void test_utils(void)
 		for (it = 0; it <= 255; it++) {
 			src[0] = (unsigned char) it;
 			wget_memtohex(src, 1, dst1, ndst);
-			snprintf(dst2, ndst, "%02x", src[0]);
+			wget_snprintf(dst2, ndst, "%02x", src[0]);
 			if (strcmp(dst1, dst2)) {
 				info_printf("buffer_to_hex failed: '%s' instead of '%s' (ndst=%d)\n", dst1, dst2, ndst);
 				failed++;
@@ -1960,7 +1979,7 @@ static void test_stringmap(void)
 
 		// now, remove every single entry
 		for (it = 0; it < 26; it++) {
-			snprintf(keybuf, sizeof(keybuf), "http://www.example.com/subdir/%d.html", it);
+			wget_snprintf(keybuf, sizeof(keybuf), "http://www.example.com/subdir/%d.html", it);
 			wget_stringmap_remove(m, keybuf);
 		}
 
@@ -2244,42 +2263,52 @@ static void test_robots(void)
 {
 	static const struct test_data {
 		const char *
-			data;
+			name;
+		const char *
+			input;
 		const char *
 			path[3];
 		const char *
 			sitemap[3];
 	} test_data[] = {
 		{
-			// Deny all robots from part of the server
+			"Allow all + sitemap",
 			"User-agent: *\n"
-			"Disallow: /cgi-bin/\n",
-			{ "/cgi-bin/", NULL },
-			{ "", NULL }
+			"Disallow: # allow all\n"
+			"Sitemap: http://www.example.com/sitemap.xml",
+			{ NULL },
+			{ "http://www.example.com/sitemap.xml", NULL }
 		},
 		{
-			// Deny all robots from the entire server
+			"Deny all /cgi-bin",
+			"User-agent: *\n"
+			"Disallow: /cgi-bin/ # comment\n",
+			{ "/cgi-bin/", NULL },
+			{ NULL }
+		},
+		{
+			"Deny all /",
 			"User-agent: *\n"
 			"Disallow: /\n",
 			{ "/", NULL },
 			{ NULL }
 		},
 		{
-			// allow a single robot for part of the server
+			"Deny wget2 /cgi/bin",
 			"User-agent: wget2\n"
 			"Disallow: /cgi-bin/\n",
 			{ "/cgi-bin/", NULL },
 			{ NULL }
 		},
 		{
-			// deny a single robot
+			"Deny wget2 /",
 			"User-agent: wget2\n"
 			"Disallow: /\n",
 			{ "/", NULL },
 			{ NULL }
 		},
 		{
-			// allow a single robot
+			"Allow all but deny wget2 /",
 			"User-agent: *\n"
 			"Disallow: /\n"
 			"User-agent: wget2\n"
@@ -2288,14 +2317,14 @@ static void test_robots(void)
 			{ NULL }
 		},
 		{
-			// Allow all robots complete access
-			// or simply don't use a robots.txt at all
+			"Allow all",
 			"User-agent: *\n"
 			"Disallow: \n",
 			{ NULL },
 			{ NULL }
 		},
 		{
+			"Deny all /cgi-bin + sitemap",
 			// with 1 sitemap
 			"User-agent: *\n"
 			"Disallow: /cgi-bin/\n"
@@ -2304,7 +2333,7 @@ static void test_robots(void)
 			{ "http://www.example.com/sitemap.xml", NULL }
 		},
 		{
-			// with 2 sitemap
+			"Deny all /cgi-bin + 2 sitemaps",
 			"User-agent: *\n"
 			"Disallow: /cgi-bin/\n"
 			"Sitemap: http://www.example1.com/sitemap.xml\n"
@@ -2313,7 +2342,7 @@ static void test_robots(void)
 			{ "http://www.example1.com/sitemap.xml", "http://www.example2.com/sitemap.xml", NULL }
 		},
 		{
-			// with 2 "Disallow" entries
+			"Deny all /cgi-bin, /tmp + 2 sitemaps",
 			"User-agent: *\n"
 			"Disallow: /cgi-bin/\n"
 			"Disallow: /tmp/\n"
@@ -2323,7 +2352,7 @@ static void test_robots(void)
 			{ "http://www.example1.com/sitemap.xml", "http://www.example2.com/sitemap.xml", NULL }
 		},
 		{
-			// with equal number entries
+			"Deny all /cgi-bin, /tmp, /jumk + 3 sitemaps",
 			"User-agent: *\n"
 			"Disallow: /cgi-bin/\n"
 			"Disallow: /tmp/\n"
@@ -2335,27 +2364,41 @@ static void test_robots(void)
 			{ "http://www.example1.com/sitemap.xml", "http://www.example2.com/sitemap.xml", "http://www.example3.com/sitemap.xml" }
 		},
 		{
-			// null termination test
+			"Missing EOL",
 			"User-agent: *\n"
 			"Disallow: /cgi-bin/",
 			{ "/cgi-bin/", NULL },
-			{ "", NULL }
+			{ NULL }
 		},
-		{
-			// null termination test #2
-			"User-agent: *"
-			"Disallow: /cgi-bin/",
-			{ "/cgi-bin/", NULL },
-			{ "", NULL }
-		}
 	};
 
 	for (unsigned it = 0; it < countof(test_data); it++) {
 		const struct test_data *t = &test_data[it];
 		wget_robots *robots;
+		int count;
 
-		if (wget_robots_parse(&robots, t->data, PACKAGE_NAME) != WGET_E_SUCCESS) {
-			info_printf("Failed to parse: \"%s\" on robots\n", t->path[it]);
+		if (wget_robots_parse(&robots, t->input, PACKAGE_NAME) != WGET_E_SUCCESS) {
+			info_printf("'%s': Failed to parse input\n", t->name);
+			failed++;
+			continue;
+		}
+
+		count = 0;
+		for (unsigned it2 = 0; it2 < countof(test_data[it].path) && t->path[it2]; it2++, count++)
+			;
+		if (count != wget_robots_get_path_count(robots)) {
+			info_printf("'%s': paths mismatch: expected %d, got %d\n",
+				t->name, count, wget_robots_get_path_count(robots));
+			failed++;
+			continue;
+		}
+
+		count = 0;
+		for (unsigned it2 = 0; it2 < countof(test_data[it].sitemap) && t->sitemap[it2]; it2++, count++)
+			;
+		if (count != wget_robots_get_sitemap_count(robots)) {
+			info_printf("'%s': sitemap # mismatch: expected %d, got %d\n",
+				t->name, count, wget_robots_get_sitemap_count(robots));
 			failed++;
 			continue;
 		}
@@ -2369,7 +2412,7 @@ static void test_robots(void)
 					it3 = n;
 					ok++;
 				} else if ((strcmp(paths->p, t->path[it2]) && it3 == n - 1)) {
-					info_printf("Cannot find path: \"%s\" on robots\n", t->path[it2]);
+					info_printf("'%s': Cannot find path: \"%s\" on robots\n", t->name, t->path[it2]);
 					failed++;
 				}
 			}
@@ -2384,7 +2427,7 @@ static void test_robots(void)
 					it3 = n;
 					ok++;
 				} else if ((strcmp(sitemaps, t->sitemap[it2]) && it3 == n - 1)) {
-					info_printf("Cannot find sitemap: \"%s\" on robots\n", t->sitemap[it2]);
+					info_printf("'%s': Cannot find sitemap: \"%s\" on robots\n", t->name, t->sitemap[it2]);
 					failed++;
 				}
 			}
@@ -2438,6 +2481,52 @@ static void test_set_proxy(void)
 		else {
 			failed++;
 			info_printf("Failed [%u]: wget_http_set_https_proxy(%s,%s) -> %d (expected %d)\n", it, t->proxy, t->encoding, n, t->result);
+		}
+	}
+}
+
+
+static void test_match_no_proxy(void)
+{
+	static const struct test_data {
+		const char *
+			no_proxy;
+		const char *
+			hostip;
+		const char *
+			encoding;
+		int
+			result;
+	} test_data[] = {
+		{ "10.250.192.78/12", "142.251.33.101", NULL, 0},
+		{ "142.250.192.78/12", "142.251.33.101", NULL, 1},
+		{ "142.250.192.78/50", "142.251.33.101", NULL, 0},
+		{ "10.250.192.78.123/12", "142.251.33.101", NULL, 0},
+		{ "142.250.192.78/32", "142.250.180.101", NULL, 0},
+		{ "142.250.192.78/0", "142.250.180.101", NULL, 1},
+		{ "142.250.192.78/-1", "142.250.180.101", NULL, 0},
+		{ "", "142.250.180.101", NULL, 0},
+		{ "142.251.33.101,10.250.192.78/12", "142.251.33.101", NULL, 1},
+		{ "10.250.192.78/12, 142.251.33.101", "142.251.33.101", NULL, 1},
+		{ "10.250.192.78/12, 142.251.33.101", "142.251.33.101", NULL, 1},
+		{ "2402:9400:1234:5670::", "2402:9400:1234:5670::", NULL, 1},
+		{ "2402:9400:1234:5670::", "2402:9400:1234:5671::", NULL, 0},
+		{ "2402:9400:1234:5670::/60", "2402:9400:1234:5678::", NULL, 1},
+		{ "2402:9400:1234:5670::/60", "2402:9400:1234:5680::", NULL, 0}
+	};
+
+	for (unsigned it = 0; it < countof(test_data); it++) {
+		const struct test_data *t = &test_data[it];
+		wget_http_set_no_proxy(t->no_proxy, t->encoding);
+		const wget_vector *no_proxies = wget_http_get_no_proxy();
+		int n = wget_http_match_no_proxy(no_proxies, t->hostip);
+
+		if (n == t->result) {
+			ok++;
+		} else {
+			failed++;
+			info_printf("Failed [%u]: wget_http_match_no_proxy(\"%s\",\"%s\") -> %d (expected %d)\n",
+				it, t->no_proxy, t->hostip, n, t->result);
 		}
 	}
 }
@@ -2542,14 +2631,14 @@ int main(int argc, const char **argv)
 		// fallthrough
 	}
 	else if (!strcmp(valgrind, "1")) {
-		char cmd[strlen(argv[0]) + 256];
+		char cmd[4096];
 
-		snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS=\"\" valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes %s", argv[0]);
+		wget_snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS=\"\" valgrind --error-exitcode=301 --leak-check=yes --show-reachable=yes --track-origins=yes %s", argv[0]);
 		return system(cmd) != 0;
 	} else {
-		char cmd[strlen(valgrind) + strlen(argv[0]) + 32];
+		char cmd[4096];
 
-		snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS="" %s %s", valgrind, argv[0]);
+		wget_snprintf(cmd, sizeof(cmd), "VALGRIND_TESTS="" %s %s", valgrind, argv[0]);
 		return system(cmd) != 0;
 	}
 
@@ -2587,7 +2676,7 @@ int main(int argc, const char **argv)
 	test_iri_relative_to_absolute();
 	test_iri_compare();
 	test_parser();
-
+	test_match_no_proxy();
 	test_cookies();
 	test_hsts();
 	test_hpkp();

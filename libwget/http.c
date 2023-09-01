@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -40,9 +40,7 @@
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#ifdef WITH_ZLIB
-//#include <zlib.h>
-#endif
+#include <arpa/inet.h>
 #ifdef WITH_LIBNGHTTP2
 	#include <nghttp2/nghttp2.h>
 #endif
@@ -67,23 +65,25 @@ static wget_thread_mutex
 static bool
 	initialized;
 
-static void __attribute__ ((constructor)) http_init(void)
-{
-	if (!initialized) {
-		wget_thread_mutex_init(&proxy_mutex);
-		wget_thread_mutex_init(&hosts_mutex);
-		initialized = 1;
-	}
-}
-
-static void __attribute__ ((destructor)) http_exit(void)
+static void http_exit(void)
 {
 	if (initialized) {
 		wget_thread_mutex_destroy(&proxy_mutex);
 		wget_thread_mutex_destroy(&hosts_mutex);
-		initialized = 0;
+		initialized = false;
 	}
 }
+
+INITIALIZER(http_init)
+{
+	if (!initialized) {
+		wget_thread_mutex_init(&proxy_mutex);
+		wget_thread_mutex_init(&hosts_mutex);
+		initialized = true;
+		atexit(http_exit);
+	}
+}
+
 
 /**
  * HTTP API initialization, allocating/preparing the internal resources.
@@ -318,34 +318,38 @@ void wget_http_add_credentials(wget_http_request *req, wget_http_challenge *chal
 		if (!realm || !nonce)
 			return;
 
+		char a1buf[32 * 2 + 1], a2buf[32 * 2 + 1];
+		char response_digest[32 * 2 + 1], cnonce[16] = "";
+
 		hashlen = wget_hash_get_len(hashtype);
-		char a1buf[hashlen * 2 + 1], a2buf[hashlen * 2 + 1];
-		char response_digest[hashlen * 2 + 1], cnonce[16] = "";
+		size_t buflen = hashlen * 2 + 1;
+		if (buflen > sizeof(a1buf))
+			return;
 
 		// A1BUF = H(user ":" realm ":" password)
-		wget_hash_printf_hex(hashtype, a1buf, sizeof(a1buf), "%s:%s:%s", username, realm, password);
+		wget_hash_printf_hex(hashtype, a1buf, buflen, "%s:%s:%s", username, realm, password);
 
 		if (!wget_strcasecmp_ascii(algorithm, "MD5-sess") || !wget_strcasecmp_ascii(algorithm, "SHA-256-sess")) {
 			// A1BUF = H( H(user ":" realm ":" password) ":" nonce ":" cnonce )
 			wget_snprintf(cnonce, sizeof(cnonce), "%08x", (unsigned) wget_random()); // create random hex string
-			wget_hash_printf_hex(hashtype, a1buf, sizeof(a1buf), "%s:%s:%s", a1buf, nonce, cnonce);
+			wget_hash_printf_hex(hashtype, a1buf, buflen, "%s:%s:%s", a1buf, nonce, cnonce);
 		}
 
 		// A2BUF = H(method ":" path)
-		wget_hash_printf_hex(hashtype, a2buf, sizeof(a2buf), "%s:/%s", req->method, req->esc_resource.data);
+		wget_hash_printf_hex(hashtype, a2buf, buflen, "%s:/%s", req->method, req->esc_resource.data);
 
 		if (!qop) {
 			// RFC 2069 Digest Access Authentication
 
 			// RESPONSE_DIGEST = H(A1BUF ":" nonce ":" A2BUF)
-			wget_hash_printf_hex(hashtype, response_digest, sizeof(response_digest), "%s:%s:%s", a1buf, nonce, a2buf);
+			wget_hash_printf_hex(hashtype, response_digest, buflen, "%s:%s:%s", a1buf, nonce, a2buf);
 		} else { // if (!wget_strcasecmp_ascii(qop, "auth") || !wget_strcasecmp_ascii(qop, "auth-int")) {
 			// RFC 2617 Digest Access Authentication
 			if (!*cnonce)
 				wget_snprintf(cnonce, sizeof(cnonce), "%08x", (unsigned) wget_random()); // create random hex string
 
 			// RESPONSE_DIGEST = H(A1BUF ":" nonce ":" nc ":" cnonce ":" qop ": " A2BUF)
-			wget_hash_printf_hex(hashtype, response_digest, sizeof(response_digest),
+			wget_hash_printf_hex(hashtype, response_digest, buflen,
 				"%s:%s:00000001:%s:%s:%s", a1buf, nonce, /* nc, */ cnonce, qop, a2buf);
 		}
 
@@ -607,6 +611,46 @@ static void setup_nghttp2_callbacks(nghttp2_session_callbacks *callbacks)
 }
 #endif
 
+static int establish_proxy_connect(wget_tcp *tcp, const char *host, uint16_t port)
+{
+	char sbuf[1024];
+	wget_buffer buf;
+
+	wget_buffer_init(&buf, sbuf, sizeof(sbuf));
+
+	// The use of Proxy-Connection has been discouraged in RFC 7230 A.1.2.
+	// wget_buffer_sprintf(buf, "CONNECT %s:%hu HTTP/1.1\r\nHost: %s\r\nProxy-Connection: keep-alive\r\n\r\n",
+
+	wget_buffer_printf(&buf, "CONNECT %s:%hu HTTP/1.1\r\nHost: %s:%hu\r\n\r\n",
+		host, port, host, port);
+
+	if (wget_tcp_write(tcp, buf.data, buf.length) != (ssize_t) buf.length) {
+		wget_buffer_deinit(&buf);
+		return WGET_E_CONNECT;
+	}
+
+	wget_buffer_deinit(&buf);
+
+	ssize_t nbytes;
+	if ((nbytes = wget_tcp_read(tcp, sbuf, sizeof(sbuf) - 1)) < 0) {
+		return WGET_E_CONNECT;
+	}
+	sbuf[nbytes] = 0;
+
+	// strip trailing whitespace
+	while (nbytes > 0 && c_isspace(sbuf[--nbytes]))
+		sbuf[nbytes] = 0;
+
+	if (wget_strncasecmp_ascii(sbuf, "HTTP/1.1 200", 12)) {
+		error_printf(_("Proxy connection failed with: %s\n"), sbuf);
+		return WGET_E_CONNECT;
+	}
+
+	debug_printf("Proxy connection established: %s\n", sbuf);
+
+	return WGET_E_SUCCESS;
+}
+
 int wget_http_open(wget_http_connection **_conn, const wget_iri *iri)
 {
 	static int next_http_proxy = -1;
@@ -621,6 +665,8 @@ int wget_http_open(wget_http_connection **_conn, const wget_iri *iri)
 	int
 		rc,
 		ssl = iri->scheme == WGET_IRI_SCHEME_HTTPS;
+	bool
+		need_connect = false;
 
 	if (!_conn)
 		return WGET_E_INVALID;
@@ -629,86 +675,107 @@ int wget_http_open(wget_http_connection **_conn, const wget_iri *iri)
 
 	host = iri->host;
 	port = iri->port;
+	conn->tcp = wget_tcp_init();
 
-	wget_thread_mutex_lock(proxy_mutex);
 	if (!wget_http_match_no_proxy(no_proxies, iri->host)) {
-		wget_iri *proxy;
+		if (!ssl && http_proxies) {
+			wget_thread_mutex_lock(proxy_mutex);
+			wget_iri *proxy = wget_vector_get(http_proxies, (++next_http_proxy) % wget_vector_size(http_proxies));
+			wget_thread_mutex_unlock(proxy_mutex);
 
-		if (iri->scheme == WGET_IRI_SCHEME_HTTP && http_proxies) {
-			proxy = wget_vector_get(http_proxies, (++next_http_proxy) % wget_vector_size(http_proxies));
 			host = proxy->host;
 			port = proxy->port;
+			ssl = proxy->scheme == WGET_IRI_SCHEME_HTTPS;
 			conn->proxied = 1;
-		} else if (iri->scheme == WGET_IRI_SCHEME_HTTPS && https_proxies) {
-			proxy = wget_vector_get(https_proxies, (++next_https_proxy) % wget_vector_size(https_proxies));
+		} else if (ssl && https_proxies) {
+			wget_thread_mutex_lock(proxy_mutex);
+			wget_iri *proxy = wget_vector_get(https_proxies, (++next_https_proxy) % wget_vector_size(https_proxies));
+			wget_thread_mutex_unlock(proxy_mutex);
+
 			host = proxy->host;
 			port = proxy->port;
-			conn->proxied = 1;
+			ssl = proxy->scheme == WGET_IRI_SCHEME_HTTPS;
+//			conn->proxied = 1;
+
+			need_connect = true;
 		}
 	}
-	wget_thread_mutex_unlock(proxy_mutex);
 
-	conn->tcp = wget_tcp_init();
 	if (ssl) {
 		wget_tcp_set_ssl(conn->tcp, 1); // switch SSL on
 		wget_tcp_set_ssl_hostname(conn->tcp, host); // enable host name checking
 	}
 
-	if ((rc = wget_tcp_connect(conn->tcp, host, port)) == WGET_E_SUCCESS) {
-		conn->esc_host = iri->host ? wget_strdup(iri->host) : NULL;
-		conn->port = iri->port;
-		conn->scheme = iri->scheme;
-		conn->buf = wget_buffer_alloc(102400); // reusable buffer, large enough for most requests and responses
-#ifdef WITH_LIBNGHTTP2
-		if ((conn->protocol = (char) wget_tcp_get_protocol(conn->tcp)) == WGET_PROTOCOL_HTTP_2_0) {
-			nghttp2_session_callbacks *callbacks;
-
-			if (nghttp2_session_callbacks_new(&callbacks)) {
-				error_printf(_("Failed to create HTTP2 callbacks\n"));
-				wget_http_close(_conn);
-				return WGET_E_INVALID;
-			}
-
-			setup_nghttp2_callbacks(callbacks);
-			rc = nghttp2_session_client_new(&conn->http2_session, callbacks, conn);
-			nghttp2_session_callbacks_del(callbacks);
-
-			if (rc) {
-				error_printf(_("Failed to create HTTP2 client session (%d)\n"), rc);
-				wget_http_close(_conn);
-				return WGET_E_INVALID;
-			}
-
-			nghttp2_settings_entry iv[] = {
-				// {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100},
-				{NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 1 << 30}, // prevent window size changes
-				{NGHTTP2_SETTINGS_ENABLE_PUSH, 0}, // avoid push messages from server
-			};
-
-			if ((rc = nghttp2_submit_settings(conn->http2_session, NGHTTP2_FLAG_NONE, iv, countof(iv)))) {
-				error_printf(_("Failed to submit HTTP2 client settings (%d)\n"), rc);
-				wget_http_close(_conn);
-				return WGET_E_INVALID;
-			}
-
-#if NGHTTP2_VERSION_NUM >= 0x010c00
-			// without this we experience slow downloads on fast networks
-			if ((rc = nghttp2_session_set_local_window_size(conn->http2_session, NGHTTP2_FLAG_NONE, 0, 1 << 30)))
-				debug_printf("Failed to set HTTP2 connection level window size (%d)\n", rc);
-#endif
-
-			conn->received_http2_responses = wget_vector_create(16, NULL);
-		} else
-			conn->pending_requests = wget_vector_create(16, NULL);
-#else
-		conn->pending_requests = wget_vector_create(16, NULL);
-#endif
-	} else {
+	if ((rc = wget_tcp_connect(conn->tcp, host, port)) != WGET_E_SUCCESS) {
 		if (server_stats_callback && (rc == WGET_E_CERTIFICATE))
 			server_stats_callback(conn, NULL);
 
 		wget_http_close(_conn);
+		return rc;
 	}
+
+	if (need_connect) {
+		if ((rc = establish_proxy_connect(conn->tcp, iri->host, iri->port)) != WGET_E_SUCCESS) {
+			wget_http_close(_conn);
+			return rc;
+		}
+
+		if (iri->scheme == WGET_IRI_SCHEME_HTTPS) {
+			wget_tcp_set_ssl(conn->tcp, 1); // switch SSL on
+			wget_tcp_set_ssl_hostname(conn->tcp, iri->host); // enable host name checking
+			wget_tcp_tls_start(conn->tcp);
+		}
+	}
+
+	conn->esc_host = iri->host ? wget_strdup(iri->host) : NULL;
+	conn->port = iri->port;
+	conn->scheme = iri->scheme;
+	conn->buf = wget_buffer_alloc(102400); // reusable buffer, large enough for most requests and responses
+#ifdef WITH_LIBNGHTTP2
+	if ((conn->protocol = (char) wget_tcp_get_protocol(conn->tcp)) == WGET_PROTOCOL_HTTP_2_0) {
+		nghttp2_session_callbacks *callbacks;
+
+		if (nghttp2_session_callbacks_new(&callbacks)) {
+			error_printf(_("Failed to create HTTP2 callbacks\n"));
+			wget_http_close(_conn);
+			return WGET_E_INVALID;
+		}
+
+		setup_nghttp2_callbacks(callbacks);
+		rc = nghttp2_session_client_new(&conn->http2_session, callbacks, conn);
+		nghttp2_session_callbacks_del(callbacks);
+
+		if (rc) {
+			error_printf(_("Failed to create HTTP2 client session (%d)\n"), rc);
+			wget_http_close(_conn);
+			return WGET_E_INVALID;
+		}
+
+		nghttp2_settings_entry iv[] = {
+			// {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 100},
+			{NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 1 << 30}, // prevent window size changes
+			{NGHTTP2_SETTINGS_ENABLE_PUSH, 0}, // avoid push messages from server
+		};
+
+		if ((rc = nghttp2_submit_settings(conn->http2_session, NGHTTP2_FLAG_NONE, iv, countof(iv)))) {
+			error_printf(_("Failed to submit HTTP2 client settings (%d)\n"), rc);
+			wget_http_close(_conn);
+			return WGET_E_INVALID;
+		}
+
+#if NGHTTP2_VERSION_NUM >= 0x010c00
+		// without this we experience slow downloads on fast networks
+		if ((rc = nghttp2_session_set_local_window_size(conn->http2_session, NGHTTP2_FLAG_NONE, 0, 1 << 30)))
+			debug_printf("Failed to set HTTP2 connection level window size (%d)\n", rc);
+#endif
+
+		conn->received_http2_responses = wget_vector_create(16, NULL);
+	} else
+		conn->pending_requests = wget_vector_create(16, NULL);
+
+#else
+	conn->pending_requests = wget_vector_create(16, NULL);
+#endif
 
 	return rc;
 }
@@ -783,9 +850,19 @@ int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 #ifdef WITH_LIBNGHTTP2
 	if (wget_tcp_get_protocol(conn->tcp) == WGET_PROTOCOL_HTTP_2_0) {
 		char length_str[32];
-		int n = 4 + wget_vector_size(req->headers);
-		nghttp2_nv nvs[n], *nvp;
-		char resource[req->esc_resource.length + 2];
+		nghttp2_nv *nvs, *nvp;
+		char *resource;
+
+		if (!(nvs = wget_malloc(sizeof(nghttp2_nv) * (4 + wget_vector_size(req->headers))))) {
+			error_printf(_("Failed to allocate nvs[%d]\n"), 4 + wget_vector_size(req->headers));
+			return -1;
+		}
+
+		if (!(resource = wget_malloc(req->esc_resource.length + 2))) {
+			xfree(nvs);
+			error_printf(_("Failed to allocate resource[%zu]\n"), req->esc_resource.length + 2);
+			return -1;
+		}
 
 		resource[0] = '/';
 		memcpy(resource + 1, req->esc_resource.data, req->esc_resource.length + 1);
@@ -834,6 +911,9 @@ int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 			req->stream_id = nghttp2_submit_request(conn->http2_session, NULL, nvs, nvp - nvs, NULL, ctx);
 		}
 
+		xfree(resource);
+		xfree(nvs);
+
 		if (req->stream_id < 0) {
 			error_printf(_("Failed to submit HTTP2 request\n"));
 			wget_http_free_response(&ctx->resp);
@@ -849,7 +929,7 @@ int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 	}
 #endif
 
-	if ((nbytes = wget_http_request_to_buffer(req, conn->buf, conn->proxied)) < 0) {
+	if ((nbytes = wget_http_request_to_buffer(req, conn->buf, conn->proxied, conn->port)) < 0) {
 		error_printf(_("Failed to create request buffer\n"));
 		return -1;
 	}
@@ -872,7 +952,7 @@ int wget_http_send_request(wget_http_connection *conn, wget_http_request *req)
 	return 0;
 }
 
-ssize_t wget_http_request_to_buffer(wget_http_request *req, wget_buffer *buf, int proxied)
+ssize_t wget_http_request_to_buffer(wget_http_request *req, wget_buffer *buf, int proxied, int port)
 {
 	char have_content_length = 0;
 	char check_content_length = req->body && req->body_length;
@@ -885,6 +965,7 @@ ssize_t wget_http_request_to_buffer(wget_http_request *req, wget_buffer *buf, in
 		wget_buffer_strcat(buf, wget_iri_scheme_get_name(req->scheme));
 		wget_buffer_memcat(buf, "://", 3);
 		wget_buffer_bufcat(buf, &req->esc_host);
+		wget_buffer_printf_append(buf, ":%d", port);
 	}
 	wget_buffer_memcat(buf, "/", 1);
 	wget_buffer_bufcat(buf, &req->esc_resource);
@@ -1407,7 +1488,9 @@ static wget_vector *parse_no_proxies(const char *no_proxy, const char *encoding)
 		if ((p = strchrnul(s, ',')) != s && p - s < 256) {
 			char *host, *hostp;
 
-			if (!(host = wget_strmemdup(s, p - s)))
+			while (c_isspace(*s) && s < p) s++;
+
+			if (s >= p || !(host = wget_strmemdup(s, p - s)))
 				continue;
 
 			// May be a hostname, domainname (optional with leading dot or wildcard), IP address.
@@ -1464,10 +1547,81 @@ int wget_http_set_no_proxy(const char *no_proxy, const char *encoding)
 	return 0;
 }
 
-int wget_http_match_no_proxy(wget_vector *no_proxies_vec, const char *host)
+const wget_vector *wget_http_get_no_proxy(void)
 {
-	if (!no_proxies_vec || !host)
+	return no_proxies;
+}
+
+static bool cidr_v4_match(const char *cidr, struct in_addr *addr)
+{
+	const char *slash_pos = strchr(cidr, '/');
+	if (slash_pos == NULL) {
+		return false; // invalid CIDR range
+	}
+	int prefix_len = atoi(slash_pos + 1);
+	if (prefix_len < 0 || prefix_len > 32) {
+		return false; // invalid prefix length
+	}
+	struct in_addr network_addr;
+	const char *prefix = wget_strmemdup(cidr, slash_pos - cidr);
+	if (inet_pton(AF_INET, prefix, &network_addr) != 1) {
+		xfree(prefix);
+		return false; // invalid network address
+	}
+	xfree(prefix);
+
+	uint32_t mask = (uint32_t) ~(0xFFFFFFFFLLU >> prefix_len);
+	uint32_t network = ntohl(network_addr.s_addr) & mask;
+	uint32_t test_addr = ntohl(addr->s_addr);
+	return (test_addr & mask) == network;
+}
+
+#include <netinet/in.h>
+
+static bool cidr_v6_match(const char *cidr, struct in6_addr *addr)
+{
+	const char *slash_pos = strchr(cidr, '/');
+	if (slash_pos == NULL) {
+		return false; // invalid CIDR range
+	}
+	int prefix_len = atoi(slash_pos + 1);
+	if (prefix_len < 0 || prefix_len > 128) {
+		return false; // invalid prefix length
+	}
+	struct in6_addr network_addr;
+	const char *prefix = wget_strmemdup(cidr, slash_pos - cidr);
+	if (inet_pton(AF_INET6, prefix, &network_addr) != 1) {
+		xfree(prefix);
+		return false; // invalid network address
+	}
+	xfree(prefix);
+
+	int bytes = prefix_len / 8;
+	if (bytes && memcmp(network_addr.s6_addr, addr->s6_addr, bytes))
+		return false;
+
+	int bits = prefix_len & 7;
+	if (!bits)
+		return true;
+
+	uint8_t mask = (uint8_t) ~(0xFF >> bits);
+	return ((network_addr.s6_addr[bytes] ^ addr->s6_addr[bytes]) & mask) == 0;
+}
+
+int wget_http_match_no_proxy(const wget_vector *no_proxies_vec, const char *host)
+{
+	if (wget_vector_size(no_proxies_vec) < 1 || !host)
 		return 0;
+
+	struct in_addr addr;
+	struct in6_addr addr6;
+	bool ipv4 = false, ipv6 = false;
+
+	if (inet_pton(AF_INET, host, &addr) == 1) {
+		ipv4 = true;
+	} else if (inet_pton(AF_INET6, host, &addr6) == 1) {
+		ipv6 = true;
+	}
 
 	// https://www.gnu.org/software/emacs/manual/html_node/url/Proxies.html
 	for (int it = 0; it < wget_vector_size(no_proxies_vec); it++) {
@@ -1478,6 +1632,16 @@ int wget_http_match_no_proxy(wget_vector *no_proxies_vec, const char *host)
 
 		if (!strcmp(no_proxy, host))
 			return 1; // exact match
+
+		if (ipv4) {
+			if (cidr_v4_match(no_proxy, &addr)) {
+				return 1;
+			}
+		} else if (ipv6) {
+			if (cidr_v6_match(no_proxy, &addr6)) {
+				return 1;
+			}
+		}
 
 		// check for subdomain match
 		if (*no_proxy == '.' && wget_match_tail(host, no_proxy))

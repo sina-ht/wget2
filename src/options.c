@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -61,6 +61,7 @@
 #include "wget_stats.h"
 #include "wget_testing.h"
 #include "wget_utils.h"
+#include "wget_bar.h"
 #ifdef WITH_GPGME
 #  include "wget_gpgme.h"
 #endif
@@ -143,7 +144,8 @@ static int print_version(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const cha
 {
 #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 	puts("GNU Wget2 " PACKAGE_VERSION " - multithreaded metalink/file/website downloader\n");
-	puts("+digest"
+	const char version_info[] =
+	"+digest"
 
 #if defined WITH_GNUTLS
 	" +https"
@@ -259,10 +261,12 @@ static int print_version(WGET_GCC_UNUSED option_t opt, WGET_GCC_UNUSED const cha
 #else
 	" -gpgme"
 #endif
-	);
-#endif // #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+	;
 
+	puts(version_info);
 	puts(version_text);
+
+#endif // #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 
 	set_exit_status(EXIT_STATUS_NO_ERROR);
 	return -1; // stop processing & exit
@@ -663,6 +667,24 @@ static int parse_taglist(option_t opt, const char *val, WGET_GCC_UNUSED const ch
 	return 0;
 }
 
+static int parse_check_certificate(option_t opt, const char *val, const char invert)
+{
+	if (opt->var) {
+		if (!val || !strcmp(val, "1") || !wget_strcasecmp_ascii(val, "y") || !wget_strcasecmp_ascii(val, "yes") || !wget_strcasecmp_ascii(val, "on"))
+			*((check_certificate_mode *) opt->var) = !invert ? CHECK_CERTIFICATE_ENABLED : CHECK_CERTIFICATE_DISABLED;
+		else if (!*val || !strcmp(val, "0") || !wget_strcasecmp_ascii(val, "n") || !wget_strcasecmp_ascii(val, "no") || !wget_strcasecmp_ascii(val, "off"))
+			*((check_certificate_mode *) opt->var) = invert ? CHECK_CERTIFICATE_ENABLED : CHECK_CERTIFICATE_DISABLED;
+		else if (!strcmp(val, "quiet"))
+			*((check_certificate_mode *) opt->var) = CHECK_CERTIFICATE_LOG_DISABLED;
+		else {
+			error_printf(_("Invalid value '%s'\n"), val);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static int parse_bool(option_t opt, const char *val, const char invert)
 {
 	if (opt->var) {
@@ -775,10 +797,17 @@ static int WGET_GCC_PURE WGET_GCC_NONNULL((1)) parse_progress_type(option_t opt,
 	}
 
 	if (!wget_strcasecmp_ascii(val, "none"))
-		*((char *)opt->var) = 0;
-	else if (!wget_strcasecmp_ascii(val, "bar"))
-		*((char *)opt->var) = 1;
-	else {
+		*((char *)opt->var) = PROGRESS_TYPE_NONE;
+	else if (!wget_strncasecmp_ascii(val, "bar", 3)) {
+		*((char *)opt->var) = PROGRESS_TYPE_BAR;
+		// Silent Wget compatibility
+		if (!wget_strncasecmp_ascii(val+3, ":force", 6) || !wget_strncasecmp_ascii(val+3, ":noscroll:force", 15)) {
+			config.force_progress = true;
+		}
+	} else if (!wget_strcasecmp_ascii(val, "dot")) {
+		// Wget compatibility, whether want to support 'dot' depends on user feedback.
+		info_printf(_("Progress type '%s' ignored. It is not implemented yet\n"), val);
+	} else {
 		error_printf(_("Unknown progress type '%s'\n"), val);
 		return -1;
 	}
@@ -1197,6 +1226,7 @@ static int print_plugin_help(WGET_GCC_UNUSED option_t opt,
 }
 
 // default values for config options (if not 0 or NULL)
+// WARNING: any constant string used here must be allocated in init as we may call xfree on them later
 struct config config = {
 	.auth_no_challenge = false,
 	.connect_timeout = -1,
@@ -1208,12 +1238,13 @@ struct config config = {
 	.tcp_fastopen = 1,
 	.user_agent = PACKAGE_NAME"/"PACKAGE_VERSION,
 	.verbose = 1,
-	.check_certificate=1,
+	.check_certificate= CHECK_CERTIFICATE_ENABLED,
 	.check_hostname=1,
 	.cert_type = WGET_SSL_X509_FMT_PEM,
 	.private_key_type = WGET_SSL_X509_FMT_PEM,
 	.secure_protocol = "AUTO",
 	.ca_directory = "system",
+	.ca_cert = "system",
 	.cookies = 1,
 	.keep_alive = 1,
 	.use_server_timestamps = 1,
@@ -1256,7 +1287,9 @@ struct config config = {
 	.default_http_port = 80,
 	.default_https_port = 443,
 	.hyperlink = false,
-	.if_modified_since = 1
+	.if_modified_since = 1,
+	.progress = PROGRESS_TYPE_BAR,
+	.follow_sitemaps = true
 };
 
 static int parse_execute(option_t opt, const char *val, const char invert);
@@ -1370,7 +1403,7 @@ static const struct optionw options[] = {
 		  "(default: PEM)\n"
 		}
 	},
-	{ "check-certificate", &config.check_certificate, parse_bool, -1, 0,
+	{ "check-certificate", &config.check_certificate, parse_check_certificate, -1, 0,
 		SECTION_SSL,
 		{ "Check the server's certificate. (default: on)\n"
 		}
@@ -1473,6 +1506,11 @@ static const struct optionw options[] = {
 		{ "Cut HTTP GET vars from URLs. (default: off)\n"
 		}
 	},
+	{ "dane", &config.dane, parse_bool, -1, 0,
+		SECTION_SSL,
+		{ "Enable DANE certificate checking.(default: off)\n"
+		}
+	},
 	{ "debug", &config.debug, parse_bool, -1, 'd',
 		SECTION_STARTUP,
 		{ "Print debugging messages.(default: off)\n"
@@ -1565,10 +1603,15 @@ static const struct optionw options[] = {
 		{ "Specify a list of mime types to be saved or ignored\n"
 		}
 	},
-	{ "filter-urls", &config.filter_urls, parse_bool, 0, 0,
+	{ "filter-urls", &config.filter_urls, parse_bool, -1, 0,
 		SECTION_DOWNLOAD,
 		{ "Apply the accept and reject filters on the URL\n",
 		  "before starting a download. (default: off)\n"
+		}
+	},
+	{ "follow-sitemaps", &config.follow_sitemaps, parse_bool, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "Scan sitemaps found in robots.txt. (default: on)\n"
 		}
 	},
 	{ "follow-tags", &config.follow_tags, parse_taglist, 1, 0,
@@ -1622,7 +1665,7 @@ static const struct optionw options[] = {
 	{ "fsync-policy", &config.fsync_policy, parse_bool, -1, 0,
 		SECTION_STARTUP,
 		{ "Use fsync() to wait for data being written to\n",
-		  "the pysical layer. (default: off) (NEW!)\n"
+		  "the physical layer. (default: off) (NEW!)\n"
 		}
 	},
 #ifdef WITH_GPGME
@@ -3276,6 +3319,7 @@ int init(int argc, const char **argv)
 	config.user_agent = wget_strdup(config.user_agent);
 	config.secure_protocol = wget_strdup(config.secure_protocol);
 	config.ca_directory = wget_strdup(config.ca_directory);
+	config.ca_cert = wget_strdup(config.ca_cert);
 	config.default_page = wget_strdup(config.default_page);
 	config.system_config = wget_strdup(config.system_config);
 
@@ -3372,6 +3416,11 @@ int init(int argc, const char **argv)
 	}
 
 	log_init();
+
+	if (config.logfile) {
+		// Currently, we do not support mixing progress bar and log output.
+		config.progress = PROGRESS_TYPE_NONE;
+	}
 
 	if (config.https_only && config.https_enforce)
 		// disable https enforce if https-only is enabled
@@ -3662,14 +3711,20 @@ int init(int argc, const char **argv)
 	wget_iri_set_defaultpage(config.default_page);
 
 	// SSL settings
-	wget_ssl_set_config_int(WGET_SSL_CHECK_CERTIFICATE, config.check_certificate);
+	wget_ssl_set_config_int(WGET_SSL_CHECK_CERTIFICATE, config.check_certificate == CHECK_CERTIFICATE_ENABLED);
+	wget_ssl_set_config_int(WGET_SSL_REPORT_INVALID_CERT, config.check_certificate != CHECK_CERTIFICATE_LOG_DISABLED);
 	wget_ssl_set_config_int(WGET_SSL_CHECK_HOSTNAME, config.check_hostname);
 	wget_ssl_set_config_int(WGET_SSL_CERT_TYPE, config.cert_type);
+#ifdef WITH_LIBDANE
+	wget_ssl_set_config_int(WGET_SSL_DANE, config.dane);
+#endif
 	wget_ssl_set_config_int(WGET_SSL_KEY_TYPE, config.private_key_type);
 	wget_ssl_set_config_int(WGET_SSL_PRINT_INFO, config.debug);
 	wget_ssl_set_config_int(WGET_SSL_OCSP, config.ocsp);
+#ifndef WITH_LIBWOLFCRYPT
 	wget_ssl_set_config_int(WGET_SSL_OCSP_DATE, config.ocsp_date);
 	wget_ssl_set_config_int(WGET_SSL_OCSP_NONCE, config.ocsp_nonce);
+#endif
 	wget_ssl_set_config_int(WGET_SSL_OCSP_STAPLING, config.ocsp_stapling);
 	wget_ssl_set_config_string(WGET_SSL_OCSP_SERVER, config.ocsp_server);
 	wget_ssl_set_config_string(WGET_SSL_SECURE_PROTOCOL, config.secure_protocol);

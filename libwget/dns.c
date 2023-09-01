@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2019-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -69,19 +69,20 @@ static wget_dns default_dns = {
 static bool
 	initialized;
 
-static void __attribute__((constructor)) net_init(void)
-{
-	if (!initialized) {
-		wget_thread_mutex_init(&default_dns.mutex);
-		initialized = true;
-	}
-}
-
-static void __attribute__((destructor)) net_exit(void)
+static void dns_exit(void)
 {
 	if (initialized) {
 		wget_thread_mutex_destroy(&default_dns.mutex);
 		initialized = false;
+	}
+}
+
+INITIALIZER(dns_init)
+{
+	if (!initialized) {
+		wget_thread_mutex_init(&default_dns.mutex);
+		initialized = true;
+		atexit(dns_exit);
 	}
 }
 
@@ -91,9 +92,15 @@ static void __attribute__((destructor)) net_exit(void)
  *   if the mutex initialization failed.
  *
  * Allocates and initializes a wget_dns instance.
+ * \p dns may be NULL for the purpose of initializing the global structures.
  */
 int wget_dns_init(wget_dns **dns)
 {
+	dns_init();
+
+	if (!dns)
+		return WGET_E_SUCCESS;
+
 	wget_dns *_dns = wget_calloc(1, sizeof(wget_dns));
 
 	if (!_dns)
@@ -114,10 +121,16 @@ int wget_dns_init(wget_dns **dns)
  * \param[in/out] dns Pointer to wget_dns instance that will be freed and NULLified.
  *
  * Free the resources allocated by wget_dns_init().
+ * \p dns may be NULL for the purpose of freeing the global structures.
  */
 void wget_dns_free(wget_dns **dns)
 {
-	if (dns && *dns) {
+	if (!dns) {
+		dns_exit();
+		return;
+	}
+
+	if (*dns) {
 		wget_thread_mutex_destroy(&(*dns)->mutex);
 		xfree(*dns);
 	}
@@ -214,7 +227,15 @@ static int resolve(int family, int flags, const char *host, uint16_t port, struc
 {
 	struct addrinfo hints = {
 		.ai_family = family,
+#ifdef _WIN32
+		// It looks like on Windows 0 is not a valid option here.
+		// see https://learn.microsoft.com/en-us/windows/win32/api/ws2def/ns-ws2def-addrinfoa
+		// TODO: On Windows, do two calls to getaddrinfo (for TCP and UDP) and merge the results.
+		//       Alternatively, consider splitting caches by TCP and UDP addresses.
 		.ai_socktype = SOCK_STREAM,
+#else
+		.ai_socktype = 0,
+#endif
 		.ai_flags = AI_ADDRCONFIG | flags
 	};
 

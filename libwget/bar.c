@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -77,7 +77,7 @@ enum BAR_DECOR_SIZE {
 
 enum SCREEN_WIDTH {
 	DEFAULT_SCREEN_WIDTH = 70,
-	MINIMUM_SCREEN_WIDTH = 45,
+	MINIMUM_SCREEN_WIDTH = BAR_DECOR_COST,
 };
 
 enum bar_slot_status {
@@ -320,6 +320,9 @@ static void bar_update_slot(const wget_bar *bar, int slot)
 		int ratio;
 		size_t consumed, pad;
 
+		if (slotp->file_size == 0 && slotp->status == COMPLETE)
+			slotp->file_size = slotp->bytes_downloaded;
+
 		max = slotp->file_size;
 		cur = slotp->bytes_downloaded;
 
@@ -422,9 +425,12 @@ static void bar_update_winsize(wget_bar *bar, bool slots_changed)
 
 static void bar_update(wget_bar *bar)
 {
+	// if the window size has changed we have to redraw every slot
+	bool redraw = winsize_changed != 0;
+
 	bar_update_winsize(bar, false);
 	for (int i = 0; i < bar->nslots; i++) {
-		if (bar->slots[i].redraw || winsize_changed) {
+		if (bar->slots[i].redraw || redraw) {
 			bar_update_slot(bar, i);
 			bar->slots[i].redraw = 0;
 		}
@@ -520,6 +526,8 @@ void wget_bar_slot_begin(wget_bar *bar, int slot, const char *filename, int new_
 		slotp->numfiles++;
 	if (slotp->numfiles == 1) {
 		slotp->filename = wget_strdup(filename);
+		slotp->file_size = 0;
+		slotp->bytes_downloaded = 0;
 	} else {
 		slotp->filename = wget_aprintf("%d files", slotp->numfiles);
 	}
@@ -645,10 +653,22 @@ void wget_bar_print(wget_bar *bar, int slot, const char *display)
  */
 void wget_bar_vprintf(wget_bar *bar, int slot, const char *fmt, va_list args)
 {
-	char text[bar->max_width + 1];
+	char tmp[256], *text = tmp;
+	size_t textlen = bar->max_width + 1;
 
-	wget_vsnprintf(text, sizeof(text), fmt, args);
+	if (textlen > sizeof(tmp)) {
+		text = wget_malloc(textlen);
+		if (!text) {
+			text = tmp;
+			textlen = sizeof(tmp);
+		}
+	}
+
+	wget_vsnprintf(text, textlen, fmt, args);
 	wget_bar_print(bar, slot, text);
+
+	if (text != tmp)
+		xfree(text);
 }
 
 /**

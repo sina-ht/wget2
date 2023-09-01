@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2019-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -38,12 +38,25 @@
 #include <string.h>
 #include <errno.h>
 
+#ifdef _WIN32
+#  include <w32sock.h>
+#else
+#  define FD_TO_SOCKET(x) (x)
+#  define SOCKET_TO_FD(x) (x)
+#endif
+
+#ifndef DEBUG_WOLFSSL
 #include <wolfssl/options.h>
+#undef DEBUG_WOLFSSL
+#else
+#include <wolfssl/options.h>
+#endif
 #include <wolfssl/ssl.h>
 
 #include <wget.h>
 #include "private.h"
 #include "net.h"
+#include "filename.h"
 
 /**
  * \file
@@ -86,12 +99,14 @@ static struct config {
 		key_type;
 	bool
 		check_certificate : 1,
+		report_invalid_cert : 1,
 		check_hostname : 1,
 		print_info : 1,
 		ocsp : 1,
 		ocsp_stapling : 1;
 } config = {
 	.check_certificate = 1,
+	.report_invalid_cert = 1,
 	.check_hostname = 1,
 	.ocsp = 1,
 	.ocsp_stapling = 1,
@@ -100,6 +115,7 @@ static struct config {
 	.key_type = WGET_SSL_X509_FMT_PEM,
 	.secure_protocol = "AUTO",
 	.ca_directory = "system",
+	.ca_file = "system",
 #ifdef WITH_LIBNGHTTP2
 	.alpn = "h2,http/1.1",
 #endif
@@ -118,6 +134,8 @@ struct session_context {
 
 static WOLFSSL_CTX
 	*ssl_ctx;
+
+#define error_printf_check(...) if (config.report_invalid_cert) wget_error_printf(__VA_ARGS__)
 
 /**
  * \param[in] key An identifier for the config parameter (starting with `WGET_SSL_`) to set
@@ -231,6 +249,7 @@ void wget_ssl_set_config_object(int key, void *value)
  * These are the parameters that can be set (\p key can have any of these values):
  *
  *  - WGET_SSL_CHECK_CERTIFICATE: whether certificates should be verified (1) or not (0)
+ *  - WGET_SSL_REPORT_INVALID_CERT: whether to print (1) errors/warnings regarding certificate validation or not (0)
  *  - WGET_SSL_CHECK_HOSTNAME: whether or not to check if the certificate's subject field
  *  matches the peer's hostname. This check is done according to the rules in [RFC 6125](https://tools.ietf.org/html/rfc6125)
  *  and typically involves checking whether the hostname and the common name (CN) field of the subject match.
@@ -257,6 +276,7 @@ void wget_ssl_set_config_int(int key, int value)
 {
 	switch (key) {
 	case WGET_SSL_CHECK_CERTIFICATE: config.check_certificate = (char)value; break;
+	case WGET_SSL_REPORT_INVALID_CERT: config.report_invalid_cert = (char)value; break;
 	case WGET_SSL_CHECK_HOSTNAME: config.check_hostname = (char)value; break;
 	case WGET_SSL_CA_TYPE: config.ca_type = (char)value; break;
 	case WGET_SSL_CERT_TYPE: config.cert_type = (char)value; break;
@@ -293,7 +313,7 @@ static int verify_certificate_callback(gnutls_session_t session)
 	if (gnutls_certificate_verify_peers3(session, hostname, &status) != GNUTLS_E_SUCCESS) {
 //		if (wget_get_logger(WGET_LOGGER_DEBUG))
 //			print_info(session);
-		error_printf(_("%s: Certificate verification error\n"), tag);
+		error_printf_check(_("%s: Certificate verification error\n"), tag);
 		goto out;
 	}
 
@@ -321,7 +341,7 @@ static int verify_certificate_callback(gnutls_session_t session)
 		if (gnutls_certificate_verification_status_print(
 			status, gnutls_certificate_type_get(session), &out, 0) == GNUTLS_E_SUCCESS)
 		{
-			error_printf("%s: %s\n", tag, out.data); // no translation
+			error_printf_check("%s: %s\n", tag, out.data); // no translation
 			gnutls_free(out.data);
 		}
 
@@ -333,23 +353,23 @@ static int verify_certificate_callback(gnutls_session_t session)
 	// be easily extended to work with openpgp keys as well.
 	//
 	if (gnutls_certificate_type_get(session) != GNUTLS_CRT_X509) {
-		error_printf(_("%s: Certificate must be X.509\n"), tag);
+		error_printf_check(_("%s: Certificate must be X.509\n"), tag);
 		goto out;
 	}
 
 	if (gnutls_x509_crt_init(&cert) != GNUTLS_E_SUCCESS) {
-		error_printf(_("%s: Error initializing X.509 certificate\n"), tag);
+		error_printf_check(_("%s: Error initializing X.509 certificate\n"), tag);
 		goto out;
 	}
 	deinit_cert = 1;
 
 	if (!(cert_list = gnutls_certificate_get_peers(session, &cert_list_size))) {
-		error_printf(_("%s: No certificate was found!\n"), tag);
+		error_printf_check(_("%s: No certificate was found!\n"), tag);
 		goto out;
 	}
 
 	if ((err = gnutls_x509_crt_import(cert, &cert_list[0], GNUTLS_X509_FMT_DER)) != GNUTLS_E_SUCCESS) {
-		error_printf(_("%s: Failed to parse certificate: %s\n"), tag, gnutls_strerror (err));
+		error_printf_check(_("%s: Failed to parse certificate: %s\n"), tag, gnutls_strerror (err));
 		goto out;
 	}
 
@@ -369,9 +389,9 @@ static int verify_certificate_callback(gnutls_session_t session)
 				nvalid = 1;
 			}
 			else if (gnutls_ocsp_status_request_is_checked(session, GNUTLS_OCSP_SR_IS_AVAIL))
-				error_printf(_("WARNING: The certificate's (stapled) OCSP status is invalid\n"));
+				error_printf_check(_("WARNING: The certificate's (stapled) OCSP status is invalid\n"));
 			else if (!config.ocsp)
-				error_printf(_("WARNING: The certificate's (stapled) OCSP status has not been sent\n"));
+				error_printf_check(_("WARNING: The certificate's (stapled) OCSP status has not been sent\n"));
 		} else if (ctx->valid)
 			debug_printf("OCSP: Host '%s' is valid (from cache)\n", hostname);
 	}
@@ -381,7 +401,7 @@ static int verify_certificate_callback(gnutls_session_t session)
 		gnutls_x509_crt_init(&cert);
 
 		if ((err = gnutls_x509_crt_import(cert, &cert_list[it], GNUTLS_X509_FMT_DER)) != GNUTLS_E_SUCCESS) {
-			error_printf(_("%s: Failed to parse certificate[%u]: %s\n"), tag, it, gnutls_strerror (err));
+			error_printf_check(_("%s: Failed to parse certificate[%u]: %s\n"), tag, it, gnutls_strerror (err));
 			continue;
 		}
 
@@ -463,7 +483,7 @@ static int verify_certificate_callback(gnutls_session_t session)
 	}
 
 	if (!pinning_ok) {
-		error_printf(_("%s: Pubkey pinning mismatch!\n"), tag);
+		error_printf_check(_("%s: Pubkey pinning mismatch!\n"), tag);
 		ret = -1;
 	}
 
@@ -482,17 +502,28 @@ out:
 static int init;
 static wget_thread_mutex mutex;
 
-static void __attribute__ ((constructor)) tls_init(void)
-{
-	if (!mutex)
-		wget_thread_mutex_init(&mutex);
-}
-
-static void __attribute__ ((destructor)) tls_exit(void)
+static void tls_exit(void)
 {
 	if (mutex)
 		wget_thread_mutex_destroy(&mutex);
 }
+
+INITIALIZER(tls_init)
+{
+	if (!mutex) {
+		wget_thread_mutex_init(&mutex);
+#ifdef DEBUG_WOLFSSL
+		wolfSSL_Debugging_ON();
+#endif // DEBUG_WOLFSSL
+
+		// Initialize paths while in a thread-safe environment (mostly for _WIN32).
+		wget_ssl_default_cert_dir();
+		wget_ssl_default_ca_bundle_path();
+
+		atexit(tls_exit);
+	}
+}
+
 
 /*
 static void set_credentials(gnutls_certificate_credentials_t *credentials)
@@ -556,6 +587,11 @@ void wget_ssl_init(void)
 		int min_version = -1;
 		const char *ciphers = NULL;
 
+#ifdef DEBUG_WOLFSSL
+		if (!wget_logger_is_active(wget_get_logger(WGET_LOGGER_DEBUG)))
+			wolfSSL_Debugging_OFF();
+#endif // DEBUG_WOLFSSL
+
 		debug_printf("WolfSSL init\n");
 		wolfSSL_Init();
 
@@ -612,13 +648,21 @@ void wget_ssl_init(void)
 
 		if (config.check_certificate) {
 			if (!wget_strcmp(config.ca_directory, "system"))
-				config.ca_directory = "/etc/ssl/certs";
-
-			/* Load client certificates into WOLFSSL_CTX */
-			if (wolfSSL_CTX_load_verify_locations(ssl_ctx, config.ca_file, config.ca_directory) != SSL_SUCCESS) {
-				error_printf(_("Failed to load %s, please check the file.\n"), config.ca_directory);
+				config.ca_directory = wget_ssl_default_cert_dir();
+			if (config.ca_file && !wget_strcmp(config.ca_file, "system"))
+				config.ca_file = wget_ssl_default_ca_bundle_path();
+			const char* dir = config.ca_directory;
+			const char* file = config.ca_file;
+			if (dir && access(dir, F_OK))
+				dir = NULL;
+			else if (file && access(file, F_OK)) //yes else if, good to throw an error if neither are there, just don't want to do it if at least one exists
+				file = NULL;
+			// Load client certificates into WOLFSSL_CTX
+			if (wolfSSL_CTX_load_verify_locations(ssl_ctx, file, dir) != SSL_SUCCESS) {
+				error_printf(_("Failed to load CA pem: %s or cert dir: %s, ssl verification will likely fail.\n"), config.ca_file, config.ca_directory);
 				goto out;
 			}
+			wolfSSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
 		} else {
 			wolfSSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
 		}
@@ -756,16 +800,12 @@ static void ShowX509(WOLFSSL_X509 *x509, const char *hdr)
 
 	ret = wolfSSL_X509_get_serial_number(x509, serial, &sz);
 	if (ret == WOLFSSL_SUCCESS) {
-		int i;
-		int strLen;
-		char serialMsg[80];
-
-		/* testsuite has multiple threads writing to stdout, get output
-			message ready to write once */
-		strLen = sprintf(serialMsg, " serial number");
-		for (i = 0; i < sz; i++)
-			sprintf(serialMsg + strLen + (i * 3), ":%02x ", serial[i]);
-		debug_printf("%s\n", serialMsg);
+		char serialMsg[sizeof(serial) * 4 + 1];
+		// testsuite has multiple threads writing to stdout, get output
+		// message ready to write once
+		for (int i = 0; i < sz; i++)
+			sprintf(serialMsg + (i * 4), ":%02x ", serial[i]);
+		debug_printf(" serial number%s\n", serialMsg);
 	}
 
 	XFREE(subject, 0, DYNAMIC_TYPE_OPENSSL)
@@ -788,7 +828,8 @@ static void ShowX509(WOLFSSL_X509 *x509, const char *hdr)
 		bio = wolfSSL_BIO_new(wolfSSL_BIO_s_file());
 		if (bio) {
 			wolfSSL_BIO_set_fp(bio, stdout, BIO_NOCLOSE);
-			wolfSSL_X509_print(bio, x509);
+			if (wget_logger_is_active(wget_get_logger(WGET_LOGGER_DEBUG)))
+				wolfSSL_X509_print(bio, x509);
 			wolfSSL_BIO_free(bio);
 		}
 	}
@@ -888,7 +929,7 @@ int wget_ssl_open(wget_tcp *tcp)
 
 	tcp->ssl_session = session;
 //	gnutls_session_set_ptr(session, ctx);
-	wolfSSL_set_fd(session, sockfd);
+	wolfSSL_set_fd(session, FD_TO_SOCKET(sockfd));
 
 	/* make wolfSSL object nonblocking */
 	wolfSSL_set_using_nonblock(session, 1);
@@ -1069,7 +1110,7 @@ void wget_ssl_close(void **session)
  */
 ssize_t wget_ssl_read_timeout(void *session, char *buf, size_t count, int timeout)
 {
-	int sockfd = wolfSSL_get_fd(session);
+	int sockfd = SOCKET_TO_FD( wolfSSL_get_fd(session));
 	int rc;
 
 	while ((rc = wolfSSL_read(session, buf, (int) count)) < 0) {
@@ -1142,7 +1183,7 @@ ssize_t wget_ssl_read_timeout(void *session, char *buf, size_t count, int timeou
  */
 ssize_t wget_ssl_write_timeout(void *session, const char *buf, size_t count, int timeout)
 {
-	int sockfd = wolfSSL_get_fd(session);
+	int sockfd = SOCKET_TO_FD(wolfSSL_get_fd(session));
 	int rc;
 
 	while ((rc = wolfSSL_write(session, buf, (int) count)) < 0) {

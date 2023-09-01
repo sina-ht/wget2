@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2014 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -40,9 +40,14 @@
 #include <ctype.h>
 #include <time.h>
 #include <fnmatch.h>
-#include <regex.h>
 #include <sys/stat.h>
 #include <locale.h>
+
+// silence warnings in gnulib code
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvla"
+#include <regex.h>
+#pragma GCC diagnostic pop
 
 #ifdef _WIN32
 #include <windows.h> // GetFileAttributes()
@@ -284,10 +289,8 @@ static void program_init(void)
 	signal(SIGINT, nop);
 #else
 	// need to set some signals
-	struct sigaction sig_action;
-	memset(&sig_action, 0, sizeof(sig_action));
+	struct sigaction sig_action = { .sa_handler = SIG_IGN };
 
-	sig_action.sa_handler = SIG_IGN;
 	sigaction(SIGPIPE, &sig_action, NULL); // this forces socket error return
 	sig_action.sa_handler = nop;
 	sigaction(SIGTERM, &sig_action, NULL);
@@ -796,7 +799,7 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 	plugin_db_forward_url(iri, &plugin_verdict);
 
 	if (plugin_verdict.reject) {
-		debug_printf("not requesting '%s'. (Plugin Verdict)\n", url);
+		info_printf(_("not requesting '%s'. (Plugin Verdict)\n"), url);
 		plugin_db_forward_url_verdict_free(&plugin_verdict);
 		wget_iri_free(&iri);
 		return;
@@ -832,6 +835,27 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 			http_fallback = 1;
 	}
 
+	if (config.recursive) {
+		// only download content from given hosts
+		const char *reason = NULL;
+
+		if (!iri->host)
+			reason = _("missing ip/host/domain");
+		else if (job && strcmp(job->iri->host, iri->host)) {
+			if (!config.span_hosts && !in_host_pattern_list(config.domains, iri->host))
+				reason = _("no host-spanning requested");
+			else if (config.span_hosts && in_host_pattern_list(config.exclude_domains, iri->host))
+				reason = _("domain explicitly excluded");
+		}
+
+		if (reason) {
+			info_printf(_("URL '%s' not followed (%s)\n"), iri->uri, reason);
+			wget_iri_free(&iri);
+			plugin_db_forward_url_verdict_free(&plugin_verdict);
+			return;
+		}
+	}
+
 	wget_thread_mutex_lock(downloader_mutex);
 
 	if (!(blacklistp = blacklist_add(iri))) {
@@ -853,25 +877,6 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 		if (dirlen + len > oldlen)
 			blacklistp->local_filename = wget_realloc(blacklistp->local_filename, dirlen + len + 1);
 		memcpy(blacklistp->local_filename + dirlen, download_name, len + 1);
-	}
-
-	if (config.recursive) {
-		// only download content from given hosts
-		const char *reason = NULL;
-
-		if (!iri->host)
-			reason = _("missing ip/host/domain");
-		else if (job && strcmp(job->iri->host, iri->host)) {
-			if (!config.span_hosts && !in_host_pattern_list(config.domains, iri->host))
-				reason = _("no host-spanning requested");
-			else if (config.span_hosts && in_host_pattern_list(config.exclude_domains, iri->host))
-				reason = _("domain explicitly excluded");
-		}
-
-		if (reason) {
-			info_printf(_("URL '%s' not followed (%s)\n"), iri->uri, reason);
-			goto out;
-		}
 	}
 
 	if (config.recursive && !config.parent && !(flags & URL_FLG_REQUISITE)) {
@@ -1116,13 +1121,14 @@ static void convert_links(void)
 	conversion_t *conversion;
 	wget_buffer buf;
 	char sbuf[1024];
+	bool free_iri = false;
 
 	wget_buffer_init(&buf, sbuf, sizeof(sbuf));
 
 	// cycle through all documents where links have been found
 	wget_stringmap_iterator *iter = wget_stringmap_iterator_alloc(conversions);
 
-	for (int it = 0; wget_stringmap_iterator_next(iter, (void **) &conversion); it++) {
+	while (wget_stringmap_iterator_next(iter, (void **) &conversion)) {
 		const char *data, *data_ptr;
 		size_t data_length;
 
@@ -1147,6 +1153,7 @@ static void convert_links(void)
 				// buf.data now holds the absolute URL as a string
 				wget_iri *iri = wget_iri_parse(buf.data, conversion->encoding);
 				blacklist_entry *blacklist_entry;
+				free_iri = false;
 
 				if (!iri) {
 					info_printf(_("Cannot resolve URI '%s'\n"), buf.data);
@@ -1155,31 +1162,34 @@ static void convert_links(void)
 
 				if (!(blacklist_entry = blacklist_add(iri))) {
 					blacklist_entry = blacklist_get(iri);
-					wget_iri_free(&iri);
+					free_iri = true;
 				}
 
 				const char *filename = blacklist_entry->local_filename;
 
 				if (config.convert_links) {
 					convert_link_whole(filename, conversion, url, &buf);
-					if (blacklist_entry->iri->fragment) {
+					if (iri->fragment) {
 						wget_buffer_memcat(&buf, "#", 1);
-						wget_buffer_strcat(&buf, blacklist_entry->iri->fragment);
+						wget_buffer_strcat(&buf, iri->fragment);
 					}
 				} else if (config.convert_file_only)
 					convert_link_file_only(filename, url, &buf);
+
+				if (free_iri)
+					wget_iri_free(&iri);
 
 				if (buf.length != url->len || strncmp(buf.data, url->p, url->len)) {
 					// conversion takes place, write to disk
 					if (!fpout) {
 						if (config.backup_converted) {
-							char dstfile[strlen(conversion->filename) + 5 + 1];
-
-							wget_snprintf(dstfile, sizeof(dstfile), "%s.orig", conversion->filename);
+							char *dstfile = wget_aprintf("%s.orig", conversion->filename);
 
 							if (rename(conversion->filename, dstfile) == -1) {
 								wget_error_printf(_("Failed to rename %s to %s (%d)"), conversion->filename, dstfile, errno);
 							}
+
+							xfree(dstfile);
 						}
 						if (!(fpout = fopen(conversion->filename, "wb")))
 							wget_error_printf(_("Failed to write open %s (%d)"), conversion->filename, errno);
@@ -1221,7 +1231,7 @@ static void print_status(DOWNLOADER *downloader WGET_GCC_UNUSED, const char *fmt
 static void print_progress_report(long long start_time)
 {
 
-	if (config.progress) {
+	if (config.progress == PROGRESS_TYPE_BAR) {
 		char quota_buf[16];
 		char speed_buf[16];
 		char rs_type = (config.report_speed == WGET_REPORT_SPEED_BYTES) ? 'B' : 'b';
@@ -1245,6 +1255,16 @@ static void print_progress_report(long long start_time)
 				rs_type, stats.nredirects, queue_size(), stats.nerrors
 			);
 	}
+}
+
+static bool is_tty(void) {
+#ifdef _WIN32 // If the windows console doesn't support VT codes treat it as if it wasn't a tty.
+	DWORD mode;
+	if (! GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &mode) || (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0)
+		return false;
+#endif
+
+	return isatty(STDOUT_FILENO) == 1;
 }
 
 int main(int argc, const char **argv)
@@ -1357,25 +1377,28 @@ int main(int argc, const char **argv)
 	// threads.
 	if (!wget_thread_support()) {
 		config.max_threads = 1;
-		if (config.progress) {
-			config.progress = 0;
+		if (config.progress != PROGRESS_TYPE_NONE) {
+			config.progress = PROGRESS_TYPE_NONE;
 			wget_info_printf(_("Wget2 built without thread support. Disabling progress report\n"));
 		}
 	}
 
 	if (config.quiet) {
 		if (!config.force_progress) {
-			config.progress = 0;
+			config.progress = PROGRESS_TYPE_NONE;
 		}
 	}
 
-	if (config.progress && !isatty(STDOUT_FILENO) && !config.force_progress) {
-		config.progress = 0;
+	if (config.progress != PROGRESS_TYPE_NONE && !is_tty() && !config.force_progress) {
+		config.progress = PROGRESS_TYPE_NONE;
 	}
 
-	if (config.progress) {
+	if (config.progress == PROGRESS_TYPE_BAR) {
 		if (bar_init()) {
-			wget_logger_set_stream(wget_get_logger(WGET_LOGGER_INFO), NULL);
+			wget_logger *logger = wget_get_logger(WGET_LOGGER_INFO);
+			if (config.debug && wget_logger_is_active(logger))
+				wget_info_printf(_("INFO logger being disabled as --progress=bar enabled\n"));
+			wget_logger_set_stream(logger, NULL);
 			start_time = wget_get_timemillis();
 		}
 	}
@@ -1394,10 +1417,10 @@ int main(int argc, const char **argv)
 			downloaders[nthreads].id = nthreads;
 
 			// The actual number of nthreads is updated in the loop iteration
-			// counter ater the iteration. So we add one already here to
+			// counter after the iteration. So we add one already here to
 			// account for it. The second extra slot is for the stats data that
 			// is printed on the last line.
-			if (config.progress)
+			if (config.progress == PROGRESS_TYPE_BAR)
 				bar_update_slots(nthreads + 1 + 1);
 
 			// start worker threads (I call them 'downloaders')
@@ -1433,7 +1456,9 @@ int main(int argc, const char **argv)
 	}
 
 	print_progress_report(start_time);
-	if (!config.progress && (config.recursive || config.page_requisites || (config.input_file && quota != 0)) && quota) {
+	if (config.progress == PROGRESS_TYPE_NONE
+		&& (config.recursive || config.page_requisites || (config.input_file && quota != 0)) && quota)
+	{
 		info_printf(_("Downloaded: %d files, %s bytes, %d redirects, %d errors\n"),
 			stats.ndownloads, wget_human_readable(quota_buf, sizeof(quota_buf), quota), stats.nredirects, stats.nerrors);
 	}
@@ -1477,7 +1502,7 @@ int main(int argc, const char **argv)
 		blacklist_free();
 		hosts_free();
 		xfree(downloaders);
-		if (config.progress)
+		if (config.progress == PROGRESS_TYPE_BAR)
 			bar_deinit();
 		wget_vector_clear_nofree(parents);
 		wget_vector_free(&parents);
@@ -1693,7 +1718,7 @@ static int process_response_header(wget_http_response *resp)
 	}
 
 	// Wget1.x compatibility
-	if (resp->code/100 == 4 && resp->code != 416) {
+	if (resp->code / 100 == 4 && resp->code != 416) {
 		if (job->head_first)
 			set_exit_status(EXIT_STATUS_REMOTE);
 		else if (resp->code == 404 && !job->robotstxt) {
@@ -1714,6 +1739,9 @@ static int process_response_header(wget_http_response *resp)
 			set_exit_status(EXIT_STATUS_REMOTE);
 #endif
 		}
+	}
+	else if (resp->code >= 500) {
+		set_exit_status(EXIT_STATUS_REMOTE);
 	}
 
 	// Server doesn't support keep-alive or want us to close the connection.
@@ -1746,9 +1774,6 @@ static int process_response_header(wget_http_response *resp)
 		wget_hpkp_db_add(config.hpkp_db, &resp->hpkp);
 		hpkp_changed = 1;
 	}
-
-	if (resp->code == 302 && resp->links && resp->digests)
-		return 0; // 302 with Metalink information
 
 	if (resp->code == 401) { // Unauthorized
 		job->auth_failure_count++;
@@ -1801,7 +1826,25 @@ static int process_response_header(wget_http_response *resp)
 
 		wget_buffer_init(&uri_buf, uri_sbuf, sizeof(uri_sbuf));
 
-		wget_iri_relative_to_abs(iri, resp->location, (size_t) -1, &uri_buf);
+		const char *location = resp->location;
+
+		if (resp->links) {
+			// Download from the link with the highest priority.
+			wget_http_link *top_link = NULL;
+
+			for (int it = 0; it < wget_vector_size(resp->links); it++) {
+				wget_http_link *link = wget_vector_get(resp->links, it);
+				if (link->rel == link_rel_duplicate) {
+					if (!top_link || top_link->pri > link->pri) {
+						// just save the top priority link
+						top_link = link;
+						location = link->uri;
+					}
+				}
+			}
+		}
+
+		wget_iri_relative_to_abs(iri, location, (size_t) -1, &uri_buf);
 
 		if (uri_buf.length)
 			queue_url_from_remote(job, "utf-8", uri_buf.data, URL_FLG_REDIRECTION, NULL);
@@ -1956,20 +1999,20 @@ static void process_response_part(wget_http_response *resp)
 
 		if (all_done) {
 			// check integrity of complete file
-			if (config.progress)
+			if (config.progress == PROGRESS_TYPE_BAR)
 				bar_print(downloader->id, "Checksumming...");
 			else if (job->metalink)
 				print_status(downloader, "%s checking...\n", job->metalink->name);
 			else
 				print_status(downloader, "%s checking...\n", job->blacklist_entry->local_filename);
 			if (job_validate_file(job)) {
-				if (config.progress)
+				if (config.progress == PROGRESS_TYPE_BAR)
 					bar_print(downloader->id, "Checksum OK");
 				else
 					debug_printf("checksum ok\n");
 				job->done = 1; // we are done with this job, main state machine will remove it
 			} else {
-				if (config.progress)
+				if (config.progress == PROGRESS_TYPE_BAR)
 					bar_print(downloader->id, "Checksum FAILED");
 				else
 					debug_printf("checksum failed\n");
@@ -2015,34 +2058,17 @@ static void process_response(wget_http_response *resp)
 		// Found a Metalink answer (RFC 6249 Metalink/HTTP: Mirrors and Hashes).
 		// We try to find and download the .meta4 file (RFC 5854).
 		// If we can't find the .meta4, download from the link with the highest priority.
-
-		wget_http_link *top_link = NULL, *metalink = NULL;
-
 		for (int it = 0; it < wget_vector_size(resp->links); it++) {
 			wget_http_link *link = wget_vector_get(resp->links, it);
 			if (link->rel == link_rel_describedby) {
 				if (link->type && (!wget_strcasecmp_ascii(link->type, "application/metalink4+xml") ||
 					 !wget_strcasecmp_ascii(link->type, "application/metalink+xml")))
 				{
-					// found a link to a metalink4 description
-					metalink = link;
-					break;
+					// found a link to a metalink3 or metalink4 description, create a new job
+					queue_url_from_remote(job, "utf-8", link->uri, 0, NULL);
+					return;
 				}
-			} else if (link->rel == link_rel_duplicate) {
-				if (!top_link || top_link->pri > link->pri)
-					// just save the top priority link
-					top_link = link;
 			}
-		}
-
-		if (metalink) {
-			// found a link to a metalink3 or metalink4 description, create a new job
-			queue_url_from_remote(job, "utf-8", metalink->uri, 0, NULL);
-			return;
-		} else if (top_link) {
-			// no metalink4 description found, create a new job
-			queue_url_from_remote(job, "utf-8", top_link->uri, 0, NULL);
-			return;
 		}
 	}
 
@@ -2126,11 +2152,13 @@ static void process_response(wget_http_response *resp)
 			// Sitemaps are not relevant as page requisites
 			!config.page_requisites)
 	{
-		// add sitemaps to be downloaded (format https://www.sitemaps.org/protocol.html)
-		for (int it = 0, n = wget_robots_get_sitemap_count(job->host->robots); it < n; it++) {
-			const char *sitemap = wget_robots_get_sitemap(job->host->robots, it);
-			debug_printf("adding sitemap '%s'\n", sitemap);
-			queue_url_from_remote(job, "utf-8", sitemap, URL_FLG_SITEMAP, NULL); // see https://www.sitemaps.org/protocol.html#escaping
+		if (config.follow_sitemaps) {
+			// add sitemaps to be downloaded (format https://www.sitemaps.org/protocol.html)
+			for (int it = 0, n = wget_robots_get_sitemap_count(job->host->robots); it < n; it++) {
+				const char *sitemap = wget_robots_get_sitemap(job->host->robots, it);
+				debug_printf("adding sitemap '%s'\n", sitemap);
+				queue_url_from_remote(job, "utf-8", sitemap, URL_FLG_SITEMAP, NULL); // see https://www.sitemaps.org/protocol.html#escaping
+			}
 		}
 	} else if (resp->code == 200 || resp->code == 206) {
 		if (process_decision && recurse_decision) {
@@ -2524,6 +2552,7 @@ static int normalize_uri(const wget_iri *base, wget_string *url, const char *enc
 		return -1;
 	}
 
+	wget_xml_decode_entities_inline(urlpart);
 	wget_iri_unescape_url_inline(urlpart);
 	rc = wget_memiconv(encoding, urlpart, strlen(urlpart), "utf-8", &urlpart_encoded, &urlpart_encoded_length);
 	xfree(urlpart);
@@ -2863,37 +2892,40 @@ void sitemap_parse_text(JOB *job, const char *data, const char *encoding, const 
 
 static void add_urls(JOB *job, wget_vector *urls, const char *encoding, const wget_iri *base)
 {
-	const char *p;
-	size_t baselen = 0;
+	wget_buffer buf;
+	char sbuf[1024];
 
-	if (base) {
-		if ((p = strrchr(base->uri, '/')))
-			baselen = p - base->uri + 1; // + 1 to include /
-		else
-			baselen = strlen(base->uri);
-	}
+	wget_buffer_init(&buf, sbuf, sizeof(sbuf));
 
 	info_printf(_("found %d url(s) (base=%s)\n"), wget_vector_size(urls), base ? base->uri : NULL);
 
 	wget_thread_mutex_lock(known_urls_mutex);
+
 	for (int it = 0; it < wget_vector_size(urls); it++) {
 		wget_string *url = wget_vector_get(urls, it);
 
-		if (baselen && (url->len <= baselen || wget_strncasecmp(url->p, base->uri, baselen))) {
-			info_printf(_("URL '%.*s' not followed (not matching base)\n"), (int)url->len, url->p);
+		if (normalize_uri(base, url, encoding, &buf))
+			continue;
+
+		// info_printf("%.*s -> %s\n", (int) url->len, url->p, buf.data);
+		if (!base && !buf.length) {
+			info_printf(_("URL '%.*s' not followed (missing base URI)\n"), (int) url->len, url->p);
 			continue;
 		}
 
 		// Blacklist for URLs before they are processed
-		if (wget_hashmap_put(known_urls, (p = wget_strmemdup(url->p, url->len)), NULL)) {
+		if (wget_hashmap_put(known_urls, wget_strmemdup(buf.data, buf.length), NULL)) {
 			// the dup'ed url has already been freed when we come here
 			info_printf(_("URL '%.*s' not followed (already known)\n"), (int)url->len, url->p);
 			continue;
 		}
 
-		queue_url_from_remote(job, encoding, p, 0, NULL);
+		queue_url_from_remote(job, encoding, buf.data, 0, NULL);
 	}
+
 	wget_thread_mutex_unlock(known_urls_mutex);
+
+	wget_buffer_deinit(&buf);
 }
 
 void atom_parse(JOB *job, const char *data, const char *encoding, const wget_iri *base)
@@ -3115,7 +3147,7 @@ static void set_file_mtime(int fd, int64_t modified)
 	timespecs[1].tv_sec = tt;
 	timespecs[1].tv_nsec = 0;
 
-	if (futimens(fd, timespecs) == -1)
+	if (! isatty(fd) && futimens(fd, timespecs) == -1)
 		error_printf (_("Failed to set file date (%d)\n"), errno);
 }
 
@@ -3352,32 +3384,37 @@ static int WGET_GCC_NONNULL((1)) prepare_file(wget_http_response *resp, const ch
 		flag = O_EXCL;
 
 		if (config.backups) {
-			char src[fname_length + 1], dst[fname_length + 1];
+			size_t src_size = fname_length + 1, dst_size = fname_length + 1;
+			char *src = wget_malloc(src_size), *dst = wget_malloc(dst_size);
 
 			for (int it = config.backups; it > 0; it--) {
 				if (it > 1)
-					wget_snprintf(src, sizeof(src), "%s.%d", fname, it - 1);
+					wget_snprintf(src, src_size, "%s.%d", fname, it - 1);
 				else
-					wget_strscpy(src, fname, sizeof(src));
-				wget_snprintf(dst, sizeof(dst), "%s.%d", fname, it);
+					wget_strscpy(src, fname, src_size);
+				wget_snprintf(dst, dst_size, "%s.%d", fname, it);
 
 				if (rename(src, dst) == -1 && errno != ENOENT)
 					error_printf(_("Failed to rename %s to %s (errno=%d)\n"), src, dst, errno);
 			}
+
+			xfree(src);
+			xfree(dst);
 		}
 	}
 
 	// create the complete directory path
 	mkdir_path((char *) fname, true);
 
-	char unique[fname_length + 1];
+	size_t unique_size = fname_length + 1;
+	char *unique = wget_malloc(unique_size);
 	*unique = 0;
 
 	// Load partial content
 	if (partial_content) {
 		long long size = get_file_size(unique[0] ? unique : fname);
 		if (size >= 0) {
-			fd = open_unique(fname, O_RDONLY | O_BINARY, 0, multiple, unique, sizeof(unique));
+			fd = open_unique(fname, O_RDONLY | O_BINARY, 0, multiple, unique, unique_size);
 			if (fd >= 0) {
 				size_t rc;
 				if ((unsigned long long) size > max_partial_content)
@@ -3402,16 +3439,18 @@ static int WGET_GCC_NONNULL((1)) prepare_file(wget_http_response *resp, const ch
 		if (unlink(fname) < 0 && errno != ENOENT) {
 			error_printf(_("Failed to unlink '%s' (errno=%d)\n"), fname, errno);
 			set_exit_status(EXIT_STATUS_IO);
+			xfree(unique);
 			return -1;
 		}
 	}
 
 	fd = open_unique(fname, O_WRONLY | flag | O_CREAT | O_NONBLOCK | O_BINARY, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH,
-		multiple, unique, sizeof(unique));
+		multiple, unique, unique_size);
 	// debug_printf("1 fd=%d flag=%02x (%02x %02x %02x) errno=%d %s\n",fd,flag,O_EXCL,O_TRUNC,O_APPEND,errno,fname);
 
 	// Store the "actual" file name (with any extensions that were added present)
 	*actual_file_name = wget_strdup(unique[0] ? unique : fname);
+	xfree(unique);
 
 	if (fd >= 0) {
 		ssize_t rc;
@@ -3529,7 +3568,15 @@ static int get_header(wget_http_response *resp, void *context)
 		};
 		name = dest = name_allocated = get_local_filename(&iri);
 	} else {
-		name = dest = config.output_document ? config.output_document : ctx->job->blacklist_entry->local_filename;
+		if (!config.output_document) {
+			// The blacklist entry can be freed if it is updated by prepare_file and then name is pointed to unallocated memory.
+			// Instead, name should stay null here and we will read it from the blacklist entry, which may be updated later.
+			dest = ctx->job->blacklist_entry->local_filename;
+			name = NULL; // name is unset at this point
+		}
+		else
+			dest = name = config.output_document;
+
 	}
 
 	if (dest
@@ -3558,7 +3605,7 @@ static int get_header(wget_http_response *resp, void *context)
 //	info_printf("Opened %d\n", ctx->outfd);
 
 out:
-	if (config.progress) {
+	if (config.progress == PROGRESS_TYPE_BAR) {
 		const char *filename = NULL;
 
 		if (!name) {
@@ -3571,8 +3618,10 @@ out:
 		}
 
 		if (!wget_strcasecmp_ascii(resp->req->method, "HEAD")) {
-			bar_slot_begin(ctx->progress_slot, name, 0, resp->header->length);
-			bar_set_downloaded(ctx->progress_slot, resp->header->length);
+			if (resp->header) {
+				bar_slot_begin(ctx->progress_slot, name, 0, resp->header->length);
+				bar_set_downloaded(ctx->progress_slot, resp->header->length);
+			}
 		}
 		else if (config.continue_download && resp->code == 206) {
 			long long already_downloaded;
@@ -3667,7 +3716,7 @@ static int get_body(wget_http_response *resp, void *context, const char *data, s
 	if (ctx->max_memory == 0 || ctx->length < ctx->max_memory)
 		wget_buffer_memcat(ctx->body, data, length); // append new data to body
 
-	if (config.progress) {
+	if (config.progress == PROGRESS_TYPE_BAR) {
 		bar_set_downloaded(ctx->progress_slot, resp->cur_downloaded - resp->accounted_for);
 		resp->accounted_for = resp->cur_downloaded;
 	}
@@ -3978,7 +4027,7 @@ int http_send_request(const wget_iri *iri, const wget_iri *original_url, DOWNLOA
 				job->part->id, wget_vector_size(job->parts),
 				(long long)job->part->position, (long long)(job->part->position + job->part->length - 1),
 				job->metalink->name, iri->host);
-		else if (config.progress)
+		else if (config.progress == PROGRESS_TYPE_BAR)
 			bar_print(downloader->id, iri->uri);
 		else
 			print_status(downloader, "[%d] Downloading '%s' ...\n", downloader->id, iri->uri);
@@ -4013,7 +4062,9 @@ int http_send_request(const wget_iri *iri, const wget_iri *original_url, DOWNLOA
 	wget_http_request_set_body_cb(req, get_body, context);
 
 	// keep the received response header in 'resp->header'
-	wget_http_request_set_int(req, WGET_HTTP_RESPONSE_KEEPHEADER, config.save_headers || config.server_response || (config.progress && config.spider) || (config.chunk_size && config.progress));
+	wget_http_request_set_int(req, WGET_HTTP_RESPONSE_KEEPHEADER,
+		config.save_headers || config.server_response
+		|| (config.progress == PROGRESS_TYPE_BAR && (config.spider || config.chunk_size)));
 	wget_http_request_set_int(req, WGET_HTTP_RESPONSE_IGNORELENGTH, config.ignore_length);
 	return WGET_E_SUCCESS;
 }
@@ -4051,7 +4102,7 @@ wget_http_response *http_receive_response(wget_http_connection *conn)
 		context->outfd = -1;
 	}
 
-	if (config.progress)
+	if (config.progress == PROGRESS_TYPE_BAR)
 		bar_slot_deregister(context->progress_slot);
 
 	if (resp->length_inconsistent)

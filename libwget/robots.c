@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -99,7 +99,7 @@ int wget_robots_parse(wget_robots **_robots, const char *data, const char *clien
 		}
 		else if (collect == 1 && !wget_strncasecmp_ascii(data, "Disallow:", 9)) {
 			for (data += 9; *data == ' ' || *data == '\t'; data++);
-			if (*data == '\r' || *data == '\n' || !*data) {
+			if (*data == '\r' || *data == '\n' || *data == '#' || !*data) {
 				// all allowed
 				wget_vector_free(&robots->paths);
 				collect = 2;

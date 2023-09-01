@@ -1,10 +1,41 @@
 GNU Wget2 NEWS -- history of user-visible changes.
 
 Copyright (C) 2012-2015 Tim Ruehsen
-Copyright (C) 2015-2022 Free Software Foundation, Inc.
+Copyright (C) 2015-2023 Free Software Foundation, Inc.
 See the end for copying conditions.
 
 Please send GNU Wget2 bug reports to <bug-wget@gnu.org>.
+
+31.08.2023 Release v2.1.0
+  * New option --follow-sitemaps
+  * New option --dane (cert validation via DNS)
+  * Implement --check-certificate=quiet
+  * Support proxies on non-default ports
+  * Added CIDR support for no_proxy (IPv4 and IPv6)
+  * Improve recursive RSS/Atom processing
+  * Improve default cert/bundle paths for Windows
+  * Improve Windows and MSVC compatibility
+  * Use CONNECT for https_proxy
+  * Add decoding numeric XML entities
+  * Improve OpenSSL code
+  * Improve WolfSSL code
+  * Improve the progress bar
+  * New function wget_xml_decode_entities_inline()
+  * Support compilation of wget.h from C++
+  * Handle comments in robots.txt correctly
+  * Fix parsing HTMP/XML entities in URLs from HTML/XML
+  * Fix use-after-free when updating blacklist entries
+  * Don't try setting file timestamps on ttys
+  * Fix arguments parsing for --filter-urls
+  * Fix removing fragments when converting links
+  * Fix duplicate downloads for Link headers with rel=duplicate
+  * Fix segmentation fault (NULL dereference when no HTTP header has been received)
+  * Change arguments of wget_iri_compare to const
+  * Fix memory leak in wget_hashmap_clear()
+  * Extend network error messages with hostname and IP address
+  * Fix status code for 5xx errors
+  * Fix issue in wget_buffer_trim()
+  * Improve tests, documentation, building
 
 27.05.2022 Release v2.0.1
   * Fix escaping space in query part
@@ -254,7 +285,7 @@ Please send GNU Wget2 bug reports to <bug-wget@gnu.org>.
 ----------------------------------------------------------------------
 Copyright information:
 
-Copyright (C) 1997-2005 Free Software Foundation, Inc.
+Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
    Permission is granted to anyone to make or distribute verbatim
    copies of this document as received, in any medium, provided that

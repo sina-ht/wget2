@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -291,34 +291,6 @@ static char *iri_unescape_inline(char *src, int ctype)
 					continue;
 				}
 			}
-		} else if (*s == '&') {
-			// entities are case sensitive (RFC1866, 3.2.3)
-			if (!strncmp((char *) s + 1, "amp;", 4)) {
-				*d++ = '&';
-				s += 5;
-				ret = src;
-				continue;
-			} else if (!strncmp((char *) s + 1, "gt;", 3)) {
-				*d++ = '>';
-				s += 4;
-				ret = src;
-				continue;
-			} else if (!strncmp((char *) s + 1, "lt;", 3)) {
-				*d++ = '<';
-				s += 4;
-				ret = src;
-				continue;
-			} else if (!strncmp((char *) s + 1, "quot;", 5)) {
-				*d++ = '\"';
-				s += 6;
-				ret = src;
-				continue;
-			} else if (!strncmp((char *) s + 1, "apos;", 5)) {
-				*d++ = '\'';
-				s += 6;
-				ret = src;
-				continue;
-			}
 		} else if (*s == '#') {
 			uint32_t value = 0;
 
@@ -526,7 +498,7 @@ wget_iri *wget_iri_parse(const char *url, const char *encoding)
 
 	if (have_scheme) {
 		iri->msize = slen + 1;
-		iri->uri = memcpy(((char *)iri) + sizeof(wget_iri), url, iri->msize);
+		iri->uri = memcpy(iri + 1, url, iri->msize);
 		p = s = memcpy((char *)iri->uri + iri->msize, url, iri->msize);
 		s = strchr(s, ':'); // we know there is a :
 		*s++ = 0;
@@ -555,11 +527,10 @@ wget_iri *wget_iri_parse(const char *url, const char *encoding)
 		}
 	} else {
 		// add http:// scheme to url
-		iri->uri = memcpy(((char *)iri) + sizeof(wget_iri), "http://", extra);
-		memcpy(((char *)iri) + sizeof(wget_iri) + extra, url, slen + 1);
-		iri->msize = slen + 1 + extra;
-		s = memcpy((char *)iri->uri + iri->msize, "http://", extra);
-		memcpy((char *)iri->uri + iri->msize + extra, url, slen + 1);
+		iri->uri = memcpy(iri + 1, "http://", extra);
+		memcpy((char *)iri->uri + extra, url, slen + 1);
+		iri->msize = extra + slen + 1;
+		s = memcpy((char *)iri->uri + iri->msize, iri->uri, iri->msize);
 		s[extra - 3] = 0;
 		s += extra;
 
@@ -732,8 +703,7 @@ wget_iri *wget_iri_clone(const wget_iri *iri)
 		return NULL;
 
 	memcpy(clone, iri, sizeof(wget_iri));
-	clone->uri = memcpy(((char *)clone) + sizeof(wget_iri), iri->uri, slen + 1);
-	memcpy((char *)clone->uri + slen + 1, (char *)iri->uri + slen + 1, iri->msize);
+	clone->uri = memcpy(clone + 1, iri->uri, (slen + 1) + iri->msize);
 	clone->uri_allocated = 0;
 
 	clone->connection_part = wget_strdup(iri->connection_part);
@@ -904,7 +874,13 @@ const char *wget_iri_relative_to_abs(const wget_iri *base, const char *val, size
 
 	if (*val == '/') {
 		if (base) {
-			char path[len + 1];
+			char tmp[4096], *path = tmp;
+
+			if (len >= sizeof(tmp)) {
+				path = wget_malloc(len + 1);
+				if (!path)
+					return NULL;
+			}
 
 			// strlcpy or snprintf are ineffective here since they do strlen(val), which might be large
 			wget_strscpy(path, val, len + 1);
@@ -930,6 +906,9 @@ const char *wget_iri_relative_to_abs(const wget_iri *base, const char *val, size
 				wget_buffer_strcat(buf, path);
 				debug_printf("*2 %s\n", buf->data);
 			}
+
+			if (path != tmp)
+				xfree(path);
 		} else {
 			return NULL;
 		}
@@ -1021,7 +1000,7 @@ wget_iri *wget_iri_parse_base(const wget_iri *base, const char *url, const char 
  * This function uses wget_strcasecmp() to compare the various parts of the IRIs so a non-zero negative return value
  * indicates that \p iri1 is less than \p iri2, whereas a positive value indicates \p iri1 is greater than \p iri2.
  */
-int wget_iri_compare(wget_iri *iri1, wget_iri *iri2)
+int wget_iri_compare(const wget_iri *iri1, const wget_iri *iri2)
 {
 	int n;
 

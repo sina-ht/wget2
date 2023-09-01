@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2022 Free Software Foundation, Inc.
+# Copyright (C) 2015-2023 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -32,7 +32,11 @@ local-checks-to-skip =            \
   sc_prohibit_atoi_atof           \
   sc_prohibit_gnu_make_extensions \
   sc_prohibit_strcmp              \
-  sc_indent
+  sc_indent                       \
+  sc_error_message_uppercase      \
+  sc_readme_link_install          \
+  sc_readme_link_copying          \
+  sc_unportable_grep_q
 
 update-copyright-env = UPDATE_COPYRIGHT_FORCE=1 UPDATE_COPYRIGHT_USE_INTERVALS=1
 

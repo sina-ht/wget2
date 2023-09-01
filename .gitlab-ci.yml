@@ -4,11 +4,12 @@
 # name to allow expiration of old caches.
 
 stages:
+  - tarball
   - stage1-testing
   - stage2-tarball
 
 cache:
-  key: "$CI_JOB_NAME-ver4"
+  key: "$CI_JOB_NAME-wget2"
   paths:
     - cache/
 
@@ -40,6 +41,7 @@ variables:
   ALPINE_BUILD: buildenv-alpine
   ARCH_BUILD: buildenv-arch
   BASIC_BUILD: buildenv-basic
+  TARBALL_BUILD: buildenv-tarball
   GET_SOURCES_ATTEMPTS: "3"
   GIT_DEPTH: "5"
   CONFIGURE_BASE_FLAGS: --enable-assert --cache-file cache/config.cache
@@ -78,6 +80,7 @@ Full+VPATH/Debian:
     - ./bootstrap --skip-po && touch .manywarnings
     - mkdir vpath && cd vpath
     - ../configure $CONFIGURE_BASE_FLAGS --enable-manylibs --cache-file ../cache/config.cache
+    - make syntax-check
     - make -j$(nproc)
     - make -j$(nproc) distcheck
     - mv wget2-*.gz ..
@@ -208,7 +211,7 @@ Minimal/Debian:
     - sed -i 's/dist-lzip//g' configure.ac
     - ./bootstrap --skip-po && touch .manywarnings
     - ./configure $CONFIGURE_BASE_FLAGS --disable-doc
-        --disable-xattr --without-gnutls --without-libpsl --without-libnghttp2 --without-bzip2
+        --disable-xattr --with-ssl=none --without-libpsl --without-libnghttp2 --without-bzip2
         --without-gpgme --without-zlib --without-lzma --without-brotlidec --without-libidn2
         --without-libidn --without-libpcre2 --without-libpcre --without-plugin-support
     - make -j$(nproc) -C lib
@@ -265,7 +268,8 @@ Scan-Build/Debian:
     - ./bootstrap --skip-po && touch .manywarnings
     - CC=clang ./configure $CONFIGURE_BASE_FLAGS
     - make -C lib -j$(nproc)
-    - scan-build -v --use-cc=clang -enable-checker valist,nullability --status-bugs -o scan-build make -j$(nproc)
+    - scan-build -v --use-cc=clang --force-analyze-debug-code --show-description -analyzer-config stable-report-filename=true -enable-checker valist,nullability --status-bugs -o scan-build make -j$(nproc)
+    - scan-build -v --use-cc=clang --force-analyze-debug-code --show-description -analyzer-config stable-report-filename=true -enable-checker valist,nullability --status-bugs -o scan-build make -j$(nproc) check
   tags:
     - shared
     - linux
@@ -353,10 +357,12 @@ Simple/Fedora:
 Alpine:
   stage: stage1-testing
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$ALPINE_BUILD
+  variables:
+    GIT_STRATEGY: none
   script:
     - export CFLAGS="$CFLAGS_DEFAULT"
-    - ln -s /usr/bin/python3 /usr/bin/python
-    - ./bootstrap --skip-po
+    - tar xf wget2-*.gz
+    - cd wget2-*
     - ./configure $CONFIGURE_BASE_FLAGS
     - make -j$(nproc) check
   tags:
@@ -365,6 +371,9 @@ Alpine:
   except:
     - tags
     - coverity-scan@gnuwget/wget2
+  dependencies:
+    - Build-Tarball
+  needs: ["Build-Tarball"]
   artifacts:
     expire_in: 2 weeks
     when: on_failure
@@ -404,7 +413,7 @@ pages:
     - mv wget2-*.gz public/wget2-latest.tar.gz
 
 # Test suite coverage report
-    - coverage=$(grep -m 1 'headerCovTableEntry[a-zA-Z].*[0-9]*' lcov/index.html|sed 's/^.*>\([0-9]\+\.[0-9]\+\).*/\1/');
+    - coverage=$(grep -m 1 'headerCovTableEntry[a-zA-Z].*[0-9]*' lcov/index.html|sed 's/^.*>\([0-9]\+\.[0-9]\+\).*/\1/')
     - coverage=$(printf %.2f $coverage)
     - inum=$(echo $coverage|cut -d'.' -f1)
     - if [ -z "$inum" ]; then inum="0"; fi
@@ -419,7 +428,7 @@ pages:
 
 # Coverage report for all our fuzz corpora
     - make -j$(nproc) fuzz-coverage
-    - coverage=$(grep -m 1 'headerCovTableEntry[a-zA-Z].*[0-9]*' lcov/index.html|sed 's/^.*>\([0-9]\+\.[0-9]\+\).*/\1/');
+    - coverage=$(grep -m 1 'headerCovTableEntry[a-zA-Z].*[0-9]*' lcov/index.html|sed 's/^.*>\([0-9]\+\.[0-9]\+\).*/\1/')
     - coverage=$(printf %.2f $coverage)
     - inum=$(echo $coverage|cut -d'.' -f1)
     - if [ -z "$inum" ]; then inum="0"; fi
@@ -427,7 +436,6 @@ pages:
     - mv badge.svg public/fuzz-coverage.svg
     - rm -rf public/fuzz-coverage
     - mv lcov public/fuzz-coverage
-    - mv wget2.exe public/
   tags:
     - shared
     - linux
@@ -443,6 +451,7 @@ MinGW64:
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$MINGW_BUILD
   script:
     - ./bootstrap --skip-po
+    - - export CFLAGS="$CFLAGS_DEFAULT"
     - export CC="ccache $PREFIX-gcc"
     - export GCCLIB=$(dirname $(find /usr/lib/gcc/$PREFIX -name libgcc_s_seh-1.dll|grep posix))
     - export WINEPATH="$WINEPATH;/usr/$PREFIX/bin;/usr/$PREFIX/lib;$PWD/libwget/.libs;$GCCLIB"
@@ -474,7 +483,7 @@ MinGW64-static:
     - unset CC
     - ./bootstrap --skip-po
     - LDFLAGS="-Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive"
-      CFLAGS="$CFLAGS -DNGHTTP2_STATICLIB"
+      CFLAGS="$CFLAGS_DEFAULT -DNGHTTP2_STATICLIB"
       ./configure $CONFIGURE_BASE_FLAGS --build=x86_64-pc-linux-gnu --host=$PREFIX --disable-shared --enable-static --without-gpgme
     - make -j$(nproc)
     - mv src/wget2.exe .
@@ -553,7 +562,7 @@ Tarball:
 
 
 CommitCheck:
-  stage: stage1-testing
+  stage: tarball
   image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$BASIC_BUILD
   before_script:
     - /bin/true
@@ -565,6 +574,48 @@ CommitCheck:
   cache:
       paths:
       policy: push
+
+# Create the tarball for further testing.
+# Runs syntax-check, so no need to do this later on.
+Build-Tarball:
+  stage: tarball
+  image: $CI_REGISTRY/$BUILD_IMAGES_PROJECT:$TARBALL_BUILD
+  cache:
+    key: "$CI_JOB_NAME"
+    paths:
+      - cache/
+  script:
+    - rmdir gnulib && mv /gnulib . && git submodule update gnulib
+    - ./bootstrap
+    - mkdir vpath && cd vpath
+    - export CC=gcc
+    - export CFLAGS="-O0"
+    - ../configure --cache-file ../cache/config.cache
+      --with-ssl=none
+    - make -j$(nproc) syntax-check
+    - make -j$(nproc) -C docs
+    - make -j$(nproc) dist-gzip
+    - mv wget2-*.gz ..
+  tags:
+    - shared
+    - linux
+  except:
+    - coverity-scan@gnuwget/wget
+  dependencies:
+    - CommitCheck
+  artifacts:
+    expire_in: 2 weeks
+    when: on_failure
+    paths:
+      - ./*.log
+      - vpath/fuzz/*.log
+      - vpath/tests/*.log
+      - vpath/unit-tests/*.log
+  artifacts:
+    expire_in: 2 weeks
+    when: on_success
+    paths:
+      - wget2-*.gz
 
 
 Debian/HTTP2:

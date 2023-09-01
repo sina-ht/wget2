@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -289,7 +289,7 @@ int wget_thread_join(wget_thread *thread)
  */
 wget_thread_id wget_thread_self(void)
 {
-	return gl_thread_self();
+	return (wget_thread_id) gl_thread_self();
 }
 
 /**

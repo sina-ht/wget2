@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -39,6 +39,13 @@
 
 #define INCLUDED_DIRECTORY_PREFIX '+'
 #define EXCLUDED_DIRECTORY_PREFIX '-'
+
+typedef enum {
+	CHECK_CERTIFICATE_ENABLED,
+	CHECK_CERTIFICATE_DISABLED,
+	// certificate error/warning log is enabled in the other modes
+	CHECK_CERTIFICATE_LOG_DISABLED
+} check_certificate_mode;
 
 //types for --https-enforce
 typedef enum {
@@ -195,6 +202,8 @@ struct config {
 		default_https_port;
 	wget_report_speed
 		report_speed;
+	check_certificate_mode
+		check_certificate;
 	https_enforce_mode
 		https_enforce;
 	gpg_verify_mode
@@ -230,6 +239,7 @@ struct config {
 		https_only,
 		content_disposition,
 		page_requisites,
+		follow_sitemaps,
 		force_rss,
 		force_atom,
 		force_sitemap,
@@ -258,7 +268,6 @@ struct config {
 		cookies,
 		spider,
 		dns_caching,
-		check_certificate,
 		check_hostname,
 		span_hosts,
 		verbose,
@@ -286,7 +295,8 @@ struct config {
 		ocsp_nonce,
 		recursive,
 		tls_false_start,
-		tcp_fastopen;
+		tcp_fastopen,
+		dane;
 };
 
 extern struct config

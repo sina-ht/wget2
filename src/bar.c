@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014 Tim Ruehsen
- * Copyright (c) 2015-2022 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2023 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -45,7 +45,10 @@
 
 // Rate at which progress thread it updated. This is the amount of time (in ms)
 // for which the thread will sleep before waking up and redrawing the progress
-enum { BAR_THREAD_SLEEP_DURATION = 125 };
+enum {
+	BAR_THREAD_SLEEP_DURATION = 125,
+	BAR_THREAD_WINDOWS_CONSOLE_SIZE_CHECK_INTERVAL = 1000
+};
 
 static wget_bar
 	*bar;
@@ -54,16 +57,38 @@ static wget_thread
 static bool
 	terminate_thread;
 
+#ifdef _WIN32
+static void *bar_update_thread(void *p WGET_GCC_UNUSED)
+{
+	static int elapsed = 0;
+	int lastWidth = 0;
+	int curWidth = 0;
+
+	while (!terminate_thread) {
+		wget_bar_update(bar);
+		wget_millisleep(BAR_THREAD_SLEEP_DURATION);
+
+		elapsed += BAR_THREAD_SLEEP_DURATION;
+		if (elapsed >= BAR_THREAD_WINDOWS_CONSOLE_SIZE_CHECK_INTERVAL) {
+			if (! wget_get_screen_size(&curWidth, NULL) && curWidth != lastWidth)
+				wget_bar_screen_resized();
+			elapsed = 0;
+		}
+	}
+
+	return NULL;
+}
+#else // _WIN32
 static void *bar_update_thread(void *p WGET_GCC_UNUSED)
 {
 	while (!terminate_thread) {
 		wget_bar_update(bar);
-
 		wget_millisleep(BAR_THREAD_SLEEP_DURATION);
 	}
 
 	return NULL;
 }
+#endif // _WIN32
 
 static void error_write(const char *buf, size_t len)
 {
@@ -93,15 +118,17 @@ bool bar_init(void)
 
 nobar:
 	wget_error_printf(_("Cannot create progress bar thread. Disabling progress bar.\n"));
-	config.progress = 0;
+	config.progress = PROGRESS_TYPE_NONE;
 	return false;
 }
 
 void bar_deinit(void)
 {
-	terminate_thread = 1;
-	wget_thread_join(&progress_thread);
-	wget_bar_free(&bar);
+	if (bar) {
+		terminate_thread = 1;
+		wget_thread_join(&progress_thread);
+		wget_bar_free(&bar);
+	}
 }
 
 void bar_print(int slot, const char *s)
