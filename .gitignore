@@ -1,3 +1,4 @@
+/build-aux/
 # Ignore all executable files in these directories
 libwget/*
 !libwget/*.*
