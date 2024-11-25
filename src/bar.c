@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -29,24 +29,19 @@
 
 #include <stdio.h>
 #include <stdarg.h>
-#include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include <errno.h>
-#include <sys/time.h>
 
 #include <wget.h>
 
 #include "wget_main.h"
 #include "wget_options.h"
-#include "wget_log.h"
 #include "wget_bar.h"
 
 
 // Rate at which progress thread it updated. This is the amount of time (in ms)
 // for which the thread will sleep before waking up and redrawing the progress
 enum {
-	BAR_THREAD_SLEEP_DURATION = 125,
+	BAR_THREAD_SLEEP_DURATION = 1000,
 	BAR_THREAD_WINDOWS_CONSOLE_SIZE_CHECK_INTERVAL = 1000
 };
 
@@ -54,7 +49,7 @@ static wget_bar
 	*bar;
 static wget_thread
 	progress_thread;
-static bool
+static volatile bool
 	terminate_thread;
 
 #ifdef _WIN32
@@ -92,6 +87,14 @@ static void *bar_update_thread(void *p WGET_GCC_UNUSED)
 
 static void error_write(const char *buf, size_t len)
 {
+	// write 'above' the progress bar area, scrolls screen one line up, red text color
+	// CSI 31m:  Red text color
+	// CSI m: reset text color
+	wget_bar_write_line_ext(bar, buf, len, "\033[31m", "\033[m");
+}
+
+static void info_write(const char *buf, size_t len)
+{
 	// write 'above' the progress bar area, scrolls screen one line up
 	wget_bar_write_line(bar, buf, len);
 }
@@ -106,6 +109,7 @@ bool bar_init(void)
 
 		// set custom write function for wget_error_printf()
 		wget_logger_set_func(wget_get_logger(WGET_LOGGER_ERROR), error_write);
+		wget_logger_set_func(wget_get_logger(WGET_LOGGER_INFO), info_write);
 
 		terminate_thread = 0;
 		if (wget_thread_start(&progress_thread, bar_update_thread, NULL, 0)) {

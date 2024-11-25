@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -131,7 +131,7 @@ struct optionw {
 static const char version_text[] =
 "\n"
 "Copyright (C) 2012-2015 Tim Ruehsen\n"
-"Copyright (C) 2015-2021 Free Software Foundation, Inc.\n"
+"Copyright (C) 2015-2024 Free Software Foundation, Inc.\n"
 "\n"
 "License GPLv3+: GNU GPL version 3 or later\n"
 "<http://www.gnu.org/licenses/gpl.html>.\n"
@@ -798,13 +798,13 @@ static int WGET_GCC_PURE WGET_GCC_NONNULL((1)) parse_progress_type(option_t opt,
 
 	if (!wget_strcasecmp_ascii(val, "none"))
 		*((char *)opt->var) = PROGRESS_TYPE_NONE;
-	else if (!wget_strncasecmp_ascii(val, "bar", 3)) {
+	else if (!wget_strncasecmp_ascii(val, "bar", 3) && (val[3] == ':' || val[3] == 0)) {
 		*((char *)opt->var) = PROGRESS_TYPE_BAR;
 		// Silent Wget compatibility
-		if (!wget_strncasecmp_ascii(val+3, ":force", 6) || !wget_strncasecmp_ascii(val+3, ":noscroll:force", 15)) {
+		if (!wget_strncasecmp_ascii(val+4, "force", 5) || !wget_strncasecmp_ascii(val+4, "noscroll:force", 14)) {
 			config.force_progress = true;
 		}
-	} else if (!wget_strcasecmp_ascii(val, "dot")) {
+	} else if (!wget_strncasecmp_ascii(val, "dot", 3) && (val[3] == ':' || val[3] == 0)) {
 		// Wget compatibility, whether want to support 'dot' depends on user feedback.
 		info_printf(_("Progress type '%s' ignored. It is not implemented yet\n"), val);
 	} else {
@@ -818,26 +818,61 @@ static int WGET_GCC_PURE WGET_GCC_NONNULL((1)) parse_progress_type(option_t opt,
 // legacy option, needed to succeed test suite
 static int WGET_GCC_PURE WGET_GCC_NONNULL((1)) parse_restrict_names(option_t opt, const char *val, WGET_GCC_UNUSED const char invert)
 {
-	if (!val || !*val || !wget_strcasecmp_ascii(val, "none"))
-		*((int *)opt->var) = WGET_RESTRICT_NAMES_NONE;
-	else if (!wget_strcasecmp_ascii(val, "unix"))
-		*((int *)opt->var) = WGET_RESTRICT_NAMES_UNIX;
-	else if (!wget_strcasecmp_ascii(val, "windows"))
-		*((int *)opt->var) = WGET_RESTRICT_NAMES_WINDOWS;
-	else if (!wget_strcasecmp_ascii(val, "nocontrol"))
-		*((int *)opt->var) = WGET_RESTRICT_NAMES_NOCONTROL;
-	else if (!wget_strcasecmp_ascii(val, "ascii"))
-		*((int *)opt->var) = WGET_RESTRICT_NAMES_ASCII;
-	else if (!wget_strcasecmp_ascii(val, "uppercase"))
-		*((int *)opt->var) = WGET_RESTRICT_NAMES_UPPERCASE;
-	else if (!wget_strcasecmp_ascii(val, "lowercase"))
-		*((int *)opt->var) = WGET_RESTRICT_NAMES_LOWERCASE;
-	else {
-		error_printf(_("Unknown restrict-file-name type '%s'\n"), val);
-		return -1;
+	int flags = WGET_RESTRICT_NAMES_NONE;
+
+	if (!val || !*val) {
+		error_printf(_("Missing restrict-file-name type\n"));
+		goto error;
 	}
 
+	// Reset restrictions to default
+	if (!wget_strcasecmp_ascii(val, "none")) {
+		*((int *)opt->var) = WGET_RESTRICT_NAMES_NONE;
+		return 0;
+	}
+
+	const char *s, *p;
+	for (s = p = val; *p; s = p + 1) {
+		if ((p = strchrnul(s, ',')) == s)
+			continue;
+
+		size_t len = p - s;
+
+		if (!wget_strncasecmp_ascii(s, "unix", len))
+			flags |= WGET_RESTRICT_NAMES_UNIX;
+		else if (!wget_strncasecmp_ascii(s, "windows", len))
+			flags |= WGET_RESTRICT_NAMES_WINDOWS;
+		else if (!wget_strncasecmp_ascii(s, "nocontrol", len))
+			flags |= WGET_RESTRICT_NAMES_NOCONTROL;
+		else if (!wget_strncasecmp_ascii(s, "ascii", len))
+			flags |= WGET_RESTRICT_NAMES_ASCII;
+		else if (!wget_strncasecmp_ascii(s, "uppercase", len))
+			flags |= WGET_RESTRICT_NAMES_UPPERCASE;
+		else if (!wget_strncasecmp_ascii(s, "lowercase", len))
+			flags |= WGET_RESTRICT_NAMES_LOWERCASE;
+		else {
+			error_printf(_("Unknown restrict-file-name type '%s'\n"), val);
+			goto error;
+		}
+	}
+
+	if ((flags & WGET_RESTRICT_NAMES_UNIX) && (flags & WGET_RESTRICT_NAMES_WINDOWS)) {
+		error_printf(_("Restrict file names to either 'unix' or 'windows'\n"));
+		goto error;
+	}
+
+	if ((flags & WGET_RESTRICT_NAMES_UPPERCASE) && (flags & WGET_RESTRICT_NAMES_LOWERCASE)) {
+		error_printf(_("Restrict file names to either 'uppercase' or 'lowercase'\n"));
+		goto error;
+	}
+
+	*((int *)opt->var) = flags;
+
 	return 0;
+
+error:
+	error_printf(_("    use [none]|[unix|windows],[lowercase|uppercase],[nocontrol][,ascii].\n"));
+	return -1;
 }
 
 // Wget compatibility: support -nv, -nc, -nd, -nH and -np
@@ -1109,13 +1144,14 @@ static int parse_compression(option_t opt, const char *val, const char invert)
 
 		for (int it = 0; it < wget_vector_size(v); it++) {
 			int not_built = 0;
-			wget_content_encoding type = wget_content_encoding_by_name(wget_vector_get(v, it));
+			const char *name = wget_vector_get(v, it);
+			wget_content_encoding type = wget_content_encoding_by_name(name);
 
 			if (type == wget_content_encoding_unknown) {
-				wget_error_printf(_("Compression type %s not supported\n"), wget_content_encoding_to_name(type));
+				wget_error_printf(_("Compression type '%s' not supported\n"), name);
 				return -1;
 			} else if (methods_bits & (1 << type)) {
-				wget_error_printf(_("Duplicate type %s"), wget_content_encoding_to_name(type));
+				wget_error_printf(_("Duplicate type '%s'"), name);
 				return -1;
 			}
 
@@ -1235,8 +1271,8 @@ struct config config = {
 	.max_redirect = 20,
 	.max_threads = 5,
 	.dns_caching = 1,
-	.tcp_fastopen = 1,
-	.user_agent = PACKAGE_NAME"/"PACKAGE_VERSION,
+	// we use 'Wget' here for compatibility, see https://github.com/rockdaboot/wget2/issues/314
+	.user_agent = "Wget/"PACKAGE_VERSION,
 	.verbose = 1,
 	.check_certificate= CHECK_CERTIFICATE_ENABLED,
 	.check_hostname=1,
@@ -1266,7 +1302,16 @@ struct config config = {
 	.http2 = 1,
 	.http2_request_window = 30,
 #endif
-	.ocsp = 1,
+	// OCSP validation of the server certificate implies privacy issues:
+	//   - The OCSP request tells the CA which web service the client tries to reach.
+	//   - The OCSP requests are sent via unencrypted HTTP, so every "listener in the middle" can see which web service
+	//     the client tries to connect.
+	// Additionally, the OCSP requests slow down operation and may cause unexpected network traffic, which may trigger
+	// security alarms unnecessarily.
+	// Due to these issues we explicitly disable OCSP by default.
+	//
+	// The upside of enabling OCSP mostly is a "real-time" recognition of certificate revocations.
+	.ocsp = 0,
 	.ocsp_date = 1,
 	.ocsp_stapling = 1,
 	.ocsp_nonce = 1,
@@ -2583,8 +2628,6 @@ static int WGET_GCC_NONNULL((1)) set_long_option(const char *name, const char *v
 		return -1;
 	}
 
-	debug_printf("name=%s value=%s invert=%d\n", opt->long_name, value, invert);
-
 	if (value_present) {
 		// "option=*"
 		if (invert) {
@@ -3095,7 +3138,7 @@ static int preload_dns_cache(const char *fname)
 	}
 
 	while (fgets(buf, sizeof(buf), fp)) {
-		if (sscanf(buf, "%63[0-9.:] %255[a-zA-Z0-9.-]", ip, name) != 2)
+		if (sscanf(buf, "%63s %255s", ip, name) != 2)
 			continue;
 
 		wget_strtolower(name);
@@ -3214,11 +3257,19 @@ static void stats_callback_dns(wget_dns *_dns, wget_dns_stats_data *stats, void 
 	FILE *fp = (FILE *) ctx;
 
 	if (config.stats_dns_args->format == WGET_STATS_FORMAT_HUMAN) {
-		wget_fprintf(fp, "  %4lld %s:%hu (%s)\n",
-			stats->dns_secs,
-			stats->hostname ? stats->hostname : "-",
-			stats->port,
-			stats->ip ? stats->ip : "-");
+		if (wget_ip_is_family(stats->hostname, WGET_NET_FAMILY_IPV6)) {
+			wget_fprintf(fp, "  %4lld [%s]:%hu (%s)\n",
+				stats->dns_secs,
+				stats->hostname ? stats->hostname : "-",
+				stats->port,
+				stats->ip ? stats->ip : "-");
+		} else {
+			wget_fprintf(fp, "  %4lld %s:%hu (%s)\n",
+				stats->dns_secs,
+				stats->hostname ? stats->hostname : "-",
+				stats->port,
+				stats->ip ? stats->ip : "-");
+		}
 	} else {
 		wget_fprintf(fp, "%s,%s,%hu,%lld\n",
 			stats->hostname,
@@ -3437,11 +3488,11 @@ int init(int argc, const char **argv)
 		config.hostname = xgethostname();
 	}
 
-	// truncate output document
+	// truncate output document but not if -c is used
 	if (config.output_document && strcmp(config.output_document, "-") && !config.dont_write) {
 		if (config.unlink) {
 			unlink(config.output_document);
-		} else {
+		} else if (!config.continue_download) {
 			int fd = open(config.output_document, O_WRONLY | O_TRUNC | O_BINARY);
 
 			if (fd != -1)

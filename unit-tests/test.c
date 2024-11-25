@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #include <c-ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #include <wget.h>
 #include "../libwget/private.h"
@@ -540,7 +541,8 @@ static void test_iri_parse(void)
 		const char
 			*userinfo,
 			*password,
-			*host;
+			*host,
+			*safe_uri;
 		uint16_t
 			port;
 		const char
@@ -548,39 +550,48 @@ static void test_iri_parse(void)
 			*query,
 			*fragment;
 	} test_data[] = {
-		{ "1.2.3.4", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "1.2.3.4", 80, NULL, NULL, NULL},
-		{ "1.2.3.4:987", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "1.2.3.4", 987, NULL, NULL, NULL},
-		{ "//example.com/thepath", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "thepath", NULL, NULL},
+		{ "1.2.3.4", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "1.2.3.4", "http://1.2.3.4", 80, NULL, NULL, NULL},
+		{ "1.2.3.4:987", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "1.2.3.4", "http://1.2.3.4:987", 987, NULL, NULL, NULL},
+		{ "[2a02:2e0:3fe:1001:302::]", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "2a02:2e0:3fe:1001:302::", "http://[2a02:2e0:3fe:1001:302::]", 80, NULL, NULL, NULL},
+		{ "[2a02:2e0:3fe:1001:302::]:987", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "2a02:2e0:3fe:1001:302::", "http://[2a02:2e0:3fe:1001:302::]:987", 987, NULL, NULL, NULL},
+		{ "//example.com/thepath", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http:////example.com/thepath", 80, "thepath", NULL, NULL},
 		// { "///thepath", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, NULL, 0, "thepath", NULL, NULL},
-		{ "example.com", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, NULL, NULL},
-		{ "example.com:555", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 555, NULL, NULL, NULL},
-		{ "http://example.com", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, NULL, NULL},
-		{ "http://example.com:", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, NULL, NULL},
-		{ "http://example.com:/", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "", NULL, NULL},
-		{ "http://example.com:80/", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "", NULL, NULL},
-		{ "https://example.com", NULL, WGET_IRI_SCHEME_HTTPS, NULL, NULL, "example.com", 443, NULL, NULL, NULL},
-		{ "https://example.com:443", NULL, WGET_IRI_SCHEME_HTTPS, NULL, NULL, "example.com", 443, NULL, NULL, NULL},
-		{ "https://example.com:444", NULL, WGET_IRI_SCHEME_HTTPS, NULL, NULL, "example.com", 444, NULL, NULL, NULL},
-		{ "http://example.com:80", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, NULL, NULL},
-		{ "http://example.com:81", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 81, NULL, NULL, NULL},
-		{ "http://example.com/index.html", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "index.html", NULL, NULL},
-		{ "http://example.com/index.html?query#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "index.html", "query", "frag"},
-		{ "http://example.com/index.html?query&param#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "index.html", "query&param", "frag"},
-		{ "http://example.com/index.html?query&par%26am%61x=1#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "index.html", "query&par%26am%61x=1", "frag"},
-		{ "http://example.com/index.html?#", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, "index.html", "", ""},
+		{ "example.com", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com", 80, NULL, NULL, NULL},
+		{ "example.com:555", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com:555", 555, NULL, NULL, NULL},
+		{ "http://example.com", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com", 80, NULL, NULL, NULL},
+		{ "http://example.com:", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com:", 80, NULL, NULL, NULL},
+		{ "http://example.com:/", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com:/", 80, "", NULL, NULL},
+		{ "http://example.com:80/", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com:80/", 80, "", NULL, NULL},
+		{ "https://example.com", NULL, WGET_IRI_SCHEME_HTTPS, NULL, NULL, "example.com", "https://example.com", 443, NULL, NULL, NULL},
+		{ "https://example.com:443", NULL, WGET_IRI_SCHEME_HTTPS, NULL, NULL, "example.com", "https://example.com:443", 443, NULL, NULL, NULL},
+		{ "https://example.com:444", NULL, WGET_IRI_SCHEME_HTTPS, NULL, NULL, "example.com", "https://example.com:444", 444, NULL, NULL, NULL},
+		{ "http://example.com:80", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com:80", 80, NULL, NULL, NULL},
+		{ "http://example.com:81", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com:81", 81, NULL, NULL, NULL},
+		{ "http://example.com/index.html", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com/index.html", 80, "index.html", NULL, NULL},
+		{ "http://example.com/index.html?query#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com/index.html?query#frag", 80, "index.html", "query", "frag"},
+		{ "http://example.com/index.html?query&param#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com/index.html?query&param#frag", 80, "index.html", "query&param", "frag"},
+		{ "http://example.com/index.html?query&par%26am%61x=1#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com/index.html?query&par%26am%61x=1#frag", 80, "index.html", "query&par%26am%61x=1", "frag"},
+		{ "http://example.com/index.html?#", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com/index.html?#", 80, "index.html", "", ""},
 #if defined WITH_LIBIDN || defined WITH_LIBIDN2
-		{ "碼標準萬國碼.com", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "xn--9cs565brid46mda086o.com", 80, NULL, NULL, NULL},
+		{ "碼標準萬國碼.com", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "xn--9cs565brid46mda086o.com", "http://碼標準萬國碼.com", 80, NULL, NULL, NULL},
 #endif
 		//		{ "ftp://cnn.example.com&story=breaking_news@10.0.0.1/top_story.htm", NULL,"ftp",NULL,NULL,"cnn.example.com",0,NULL,"story=breaking_news@10.0.0.1/top_story.htm",NULL }
 //		{ "ftp://cnn.example.com?story=breaking_news@10.0.0.1/top_story.htm", NULL, "ftp", NULL, NULL, "cnn.example.com", 0, NULL, "story=breaking_news@10.0.0.1/top_story.htm", NULL},
 //		{ "site;sub:.html", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "site", 0, ";sub:.html", NULL, NULL},
 //		{ "mailto:info@example.com", NULL, "mailto", "info", NULL, "example.com", 0, NULL, NULL, NULL},
-		{ "http://example.com?query#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, "query", "frag"},
-		{ "http://example.com#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, NULL, "frag"},
-		{ "http://example.com?#", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, "", ""},
-		{ "http://example+.com/pa+th?qu+ery#fr+ag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example+.com", 80, "pa+th", "qu ery", "fr+ag"},
-		{ "http://example.com#frag?x", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", 80, NULL, NULL, "frag?x"},
-		{ "http://user:pw@example.com", NULL, WGET_IRI_SCHEME_HTTP, "user", "pw", "example.com", 80, NULL, NULL, NULL},
+		{ "http://example.com?query#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com?query#frag", 80, NULL, "query", "frag"},
+		{ "http://example.com#frag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com#frag", 80, NULL, NULL, "frag"},
+		{ "http://example.com?#", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com?#", 80, NULL, "", ""},
+		{ "http://example+.com/pa+th?qu+ery#fr+ag", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example+.com", "http://example+.com/pa+th?qu+ery#fr+ag", 80, "pa+th", "qu ery", "fr+ag"},
+		{ "http://example.com#frag?x", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com#frag?x", 80, NULL, NULL, "frag?x"},
+		{ "http://user:pw@example.com", NULL, WGET_IRI_SCHEME_HTTP, "user", "pw", "example.com", "http://example.com", 80, NULL, NULL, NULL},
+		{ "http://:@example.com", NULL, WGET_IRI_SCHEME_HTTP, "", "", "example.com", "http://example.com", 80, NULL, NULL, NULL},
+		{ "http://user:@example.com", NULL, WGET_IRI_SCHEME_HTTP, "user", "", "example.com", "http://example.com", 80, NULL, NULL, NULL},
+		{ "http://user@example.com", NULL, WGET_IRI_SCHEME_HTTP, "user", NULL, "example.com", "http://example.com", 80, NULL, NULL, NULL},
+		{ "http://:pw@example.com", NULL, WGET_IRI_SCHEME_HTTP, "", "pw", "example.com", "http://example.com", 80, NULL, NULL, NULL},
+		{ "http://user:pw@example@.com", NULL, WGET_IRI_SCHEME_HTTP, "user", "pw", "example@.com", "http://example@.com", 80, NULL, NULL, NULL},
+		{ "http://user:pw@example.com/index.html?query&par%26am%61x=1#frag", NULL, WGET_IRI_SCHEME_HTTP, "user", "pw", "example.com", "http://example.com/index.html?query&par%26am%61x=1#frag", 80, "index.html", "query&par%26am%61x=1", "frag"},
+		{ "http://example.com//path//file", NULL, WGET_IRI_SCHEME_HTTP, NULL, NULL, "example.com", "http://example.com//path//file", 80, "path/file", NULL, NULL},
 	};
 	unsigned it;
 
@@ -593,6 +604,7 @@ static void test_iri_parse(void)
 			|| wget_strcmp(iri->userinfo, t->userinfo)
 			|| wget_strcmp(iri->password, t->password)
 			|| wget_strcmp(iri->host, t->host)
+			|| wget_strcmp(iri->safe_uri, t->safe_uri)
 			|| iri->port != t->port
 			|| wget_strcmp(iri->path, t->path)
 			|| wget_strcmp(iri->query, t->query)
@@ -604,7 +616,9 @@ static void test_iri_parse(void)
 			printf("  display %s (expected %s)\n", iri->display, t->display);
 			printf("  scheme %s (expected %s)\n", wget_iri_scheme_get_name(iri->scheme), wget_iri_scheme_get_name(t->scheme));
 			printf("  user %s (expected %s)\n", iri->userinfo, t->userinfo);
+			printf("  password %s (expected %s)\n", iri->password, t->password);
 			printf("  host %s (expected %s)\n", iri->host, t->host);
+			printf("  safe uri %s (expected %s)\n", iri->safe_uri, t->safe_uri);
 			printf("  port %hu (expected %hu)\n", iri->port, t->port);
 			printf("  path %s (expected %s)\n", iri->path, t->path);
 			printf("  query %s (expected %s)\n", iri->query, t->query);
@@ -2280,6 +2294,20 @@ static void test_robots(void)
 			{ "http://www.example.com/sitemap.xml", NULL }
 		},
 		{
+			"Allow wget2, bar but deny foo /cgi-bin and deny all /",
+			"User-agent: foo\n"
+			"User-agent: wget2\n"
+			"Disallow: /cgi-bin/\n"
+			"Sitemap: \n"
+			"User-agent: bar\n"
+			"User-agent: wget2\n"
+			"Disallow: \n"
+			"User-agent: *\n"
+			"Disallow: /",
+			{ NULL },
+			{ NULL }
+		},
+		{
 			"Deny all /cgi-bin",
 			"User-agent: *\n"
 			"Disallow: /cgi-bin/ # comment\n",
@@ -2308,12 +2336,21 @@ static void test_robots(void)
 			{ NULL }
 		},
 		{
-			"Allow all but deny wget2 /",
+			"Deny all but allow wget2",
 			"User-agent: *\n"
 			"Disallow: /\n"
 			"User-agent: wget2\n"
 			"Disallow: \n",
-			{ "/", NULL },
+			{ NULL },
+			{ NULL }
+		},
+		{
+			"Deny all and deny wget2 /cgi-bin/",
+			"User-agent: *\n"
+			"Disallow: /\n"
+			"User-agent: wget2\n"
+			"Disallow: /cgi-bin/",
+			{ "/cgi-bin/", NULL },
 			{ NULL }
 		},
 		{
@@ -2331,6 +2368,22 @@ static void test_robots(void)
 			"Sitemap: http://www.example.com/sitemap.xml",
 			{ "/cgi-bin/", NULL },
 			{ "http://www.example.com/sitemap.xml", NULL }
+		},
+		{
+			"Allow all but deny wget2 /cgi-bin, /tmp + 2 sitemaps",
+			" User-agent : *\n"
+			" Disallow : \n"
+			" User-agent : wget2\n"
+			" User-agent : foo\n"
+			" Disallow : /cgi-bin/#This is a comment\n"
+			" Sitemap : http://www.example1.com/sitemap.xml\n"
+			" Sitemap : \n"
+			" Sitemap : http://www.example2.com/sitemap.xml#Another comment\n"
+			" User-agent : bar\n"
+			" User-agent : wget2\n"
+			" Disallow : /tmp/",
+			{ "/cgi-bin/", "/tmp/", NULL },
+			{ "http://www.example1.com/sitemap.xml", "http://www.example2.com/sitemap.xml", NULL }
 		},
 		{
 			"Deny all /cgi-bin + 2 sitemaps",
@@ -2390,7 +2443,7 @@ static void test_robots(void)
 			info_printf("'%s': paths mismatch: expected %d, got %d\n",
 				t->name, count, wget_robots_get_path_count(robots));
 			failed++;
-			continue;
+			goto next;
 		}
 
 		count = 0;
@@ -2400,7 +2453,7 @@ static void test_robots(void)
 			info_printf("'%s': sitemap # mismatch: expected %d, got %d\n",
 				t->name, count, wget_robots_get_sitemap_count(robots));
 			failed++;
-			continue;
+			goto next;
 		}
 
 		for (unsigned it2 = 0; it2 < countof(test_data[it].path) && t->path[it2]; it2++) {
@@ -2433,6 +2486,7 @@ static void test_robots(void)
 			}
 		}
 
+next:
 		wget_robots_free(&robots);
 	}
 }
@@ -2527,6 +2581,36 @@ static void test_match_no_proxy(void)
 			failed++;
 			info_printf("Failed [%u]: wget_http_match_no_proxy(\"%s\",\"%s\") -> %d (expected %d)\n",
 				it, t->no_proxy, t->hostip, n, t->result);
+		}
+	}
+}
+
+static void test_http_parse_full_date(void) {
+	static const struct test_data {
+		const char *
+				date;
+		uint64_t
+				result;
+	} test_data[] = {
+		{"Sun, 25 May 2003 16:55:12 GMT", 1053881712},
+		{"Wed, 09 Jun 2021 10:18:14 GMT", 1623233894}, // RFC 822 / 1123
+		{"Wednesday, 09-Jun-21 10:18:14", 1623233894}, // RFC 850 / 1036 or Netscape
+		{"Wed, 09-Jun-21 10:18:14", 1623233894}, // RFC 850 / 1036 or Netscape
+		{"Wed Jun 09 10:18:14 2021", 1623233894}, // ANSI C's asctime()
+		{"1 Mar 2027 09:23:12 GMT", 1803892992}, // non-standard
+		{"Sun Nov 26 2023 21:24:47", 1701033887}, // non-standard
+	};
+
+	for (unsigned it = 0; it < countof(test_data); it++) {
+		const struct test_data *t = &test_data[it];
+		uint64_t ts = wget_http_parse_full_date(t->date);
+
+		if (ts == t->result) {
+			ok++;
+		} else {
+			failed++;
+			info_printf("Failed [%u]: wget_http_parse_full_date(\"%s\") -> %"PRIu64" (expected %"PRIu64")\n",
+						it, t->date, ts, t->result);
 		}
 	}
 }
@@ -2687,6 +2771,7 @@ int main(int argc, const char **argv)
 	test_set_proxy();
 	test_parse_response_header();
 	test_parse_header_line();
+	test_http_parse_full_date();
 
 	selftest_options() ? failed++ : ok++;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -74,8 +74,14 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
 }
 void freeaddrinfo(struct addrinfo *res)
 {
+	struct addrinfo *ai, *cur;
 	if (fuzzing) {
-		wget_free(res);
+		ai = res;
+		while (ai) {
+			cur = ai;
+			ai = ai->ai_next;
+			wget_free(cur);
+		}
 		return;
 	}
 

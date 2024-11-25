@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2019-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -108,7 +108,7 @@ static struct config {
 	.check_certificate = 1,
 	.report_invalid_cert = 1,
 	.check_hostname = 1,
-	.ocsp = 1,
+	.ocsp = 0,
 	.ocsp_stapling = 1,
 	.ca_type = WGET_SSL_X509_FMT_PEM,
 	.cert_type = WGET_SSL_X509_FMT_PEM,
@@ -646,25 +646,55 @@ void wget_ssl_init(void)
 			if (!wolfSSL_CTX_set_cipher_list(ssl_ctx, ciphers))
 				error_printf(_("WolfSSL: Failed to set ciphers '%s'\n"), ciphers);
 
+		wolfSSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
+
 		if (config.check_certificate) {
-			if (!wget_strcmp(config.ca_directory, "system"))
-				config.ca_directory = wget_ssl_default_cert_dir();
-			if (config.ca_file && !wget_strcmp(config.ca_file, "system"))
-				config.ca_file = wget_ssl_default_ca_bundle_path();
-			const char* dir = config.ca_directory;
-			const char* file = config.ca_file;
+			wolfSSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+			bool system_certs_loaded = false;
+
+#ifdef WOLFSSL_SYS_CA_CERTS
+			if (!wget_strcmp(config.ca_directory, "system") || !wget_strcmp(config.ca_file, "system")) {
+				if (wolfSSL_CTX_load_system_CA_certs(ssl_ctx) != WOLFSSL_SUCCESS) {
+					error_printf(_("Failed to load system certs\n"));
+				} else {
+					system_certs_loaded = true;
+					debug_printf("System certificates loaded\n");
+				}
+			}
+#endif
+
+			const char *dir = config.ca_directory;
+			const char *file = config.ca_file;
+			debug_printf("Certificates %s %s\n", dir, file);
+
+			if (dir && !system_certs_loaded && !wget_strcmp(dir, "system")) {
+				dir = wget_ssl_default_cert_dir();
+			}
+			if (file && !system_certs_loaded && !wget_strcmp(file, "system")) {
+				file = wget_ssl_default_ca_bundle_path();
+			}
+
 			if (dir && access(dir, F_OK))
 				dir = NULL;
-			else if (file && access(file, F_OK)) //yes else if, good to throw an error if neither are there, just don't want to do it if at least one exists
+			if (file && access(file, F_OK))
 				file = NULL;
-			// Load client certificates into WOLFSSL_CTX
-			if (wolfSSL_CTX_load_verify_locations(ssl_ctx, file, dir) != SSL_SUCCESS) {
-				error_printf(_("Failed to load CA pem: %s or cert dir: %s, ssl verification will likely fail.\n"), config.ca_file, config.ca_directory);
+
+			if (dir == NULL && file == NULL) {
+				if (!system_certs_loaded)
+					error_printf(_("Skipped loading CA certs. SSL verification will likely fail.\n"));
 				goto out;
 			}
-			wolfSSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-		} else {
-			wolfSSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
+
+			// Load client certificates into WOLFSSL_CTX
+			if (wolfSSL_CTX_load_verify_locations(ssl_ctx, file, dir) != SSL_SUCCESS) {
+				error_printf(_("Failed to load CA pem: %s or cert dir: %s, SSL verification will likely fail.\n"), file, dir);
+				goto out;
+			} else {
+				if (dir)
+					debug_printf("Certificates loaded from %s\n", dir);
+				if (file)
+					debug_printf("Certificates loaded from %s\n", file);
+			}
 		}
 
 /*		if (config.crl_file) {
@@ -678,7 +708,6 @@ void wget_ssl_init(void)
 			wolfSSL_X509_STORE_set_flags(store, WOLFSSL_CRL_CHECK | WOLFSSL_CRL_CHECKALL);
 		}
 */
-		debug_printf("Certificates loaded\n");
 
 out:
 		init++;
@@ -808,8 +837,8 @@ static void ShowX509(WOLFSSL_X509 *x509, const char *hdr)
 		debug_printf(" serial number%s\n", serialMsg);
 	}
 
-	XFREE(subject, 0, DYNAMIC_TYPE_OPENSSL)
-	XFREE(issuer, 0, DYNAMIC_TYPE_OPENSSL)
+	XFREE(subject, 0, DYNAMIC_TYPE_OPENSSL);
+	XFREE(issuer, 0, DYNAMIC_TYPE_OPENSSL);
 
 	{
 		WOLFSSL_BIO* bio;

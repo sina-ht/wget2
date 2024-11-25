@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -74,6 +74,13 @@ int main(void)
 				"Content-Type: text/plain",
 			}
 		},
+		{
+			.name = "/redirect.html",
+			.code = "302 Found",
+			.headers = {
+				"Location: http://localhost:{{port}}/index.html",
+			}
+		}
 	};
 
 	// functions won't come back if an error occurs
@@ -98,6 +105,17 @@ int main(void)
 		WGET_TEST_REQUEST_URL, "index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 8,
 		0);
+
+	urls[0].expected_method = "HEAD";
+	wget_test(
+		WGET_TEST_OPTIONS, "--spider",
+		WGET_TEST_REQUEST_URL, "redirect.html",
+		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
+			{	NULL } },
+		WGET_TEST_EXPECTED_ERROR_CODE, 0,
+		0
+	);
+
 
 	exit(EXIT_SUCCESS);
 }

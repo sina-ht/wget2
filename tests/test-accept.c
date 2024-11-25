@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -342,8 +342,7 @@ int main(void)
 #endif
 
 	// tests with -N --no-if-modified-since
-	int n_urls = countof(urls);
-	for (int i = 0; i < n_urls; i++) {
+	for (unsigned i = 0; i < countof(urls); i++) {
 		urls[i].headers[1] = "Last-Modified: Sat, 09 Oct 2004 08:30:00 GMT";
 	}
 	// --accept using just suffixes

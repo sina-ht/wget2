@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -72,8 +72,8 @@ void plugin_db_list(wget_vector *names_out);
 // On errors, it returns -1 and sets error. Otherwise it returns 0.
 int plugin_db_forward_option(const char *plugin_option, dl_error_t *e);
 
-// Returns 1 if any of the previous options forwarded was 'help'.
-int plugin_db_help_forwarded(void);
+// Returns whether any of the previous options forwarded was 'help'.
+bool plugin_db_help_forwarded(void);
 
 // Shows help from all loaded plugins
 void plugin_db_show_help(void);

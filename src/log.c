@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget.
  *
@@ -226,7 +226,7 @@ void log_init(void)
 
 	// set info logging
 	wget_logger_set_func(wget_get_logger(WGET_LOGGER_INFO),
-		config.verbose && !config.quiet ? (fileno(stdout) == fileno(stderr) ? write_info_stderr : write_info_stdout) : NULL);
+		config.verbose && !config.quiet ? ((fileno(stdout) == fileno(stderr) || !wget_strcmp(config.output_document, "-")) ? write_info_stderr : write_info_stdout) : NULL);
 //	wget_logger_set_stream(wget_get_logger(WGET_LOGGER_INFO), config.verbose && !config.quiet ? stdout : NULL);
 #endif
 }

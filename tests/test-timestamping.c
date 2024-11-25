@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2019-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -65,14 +65,13 @@ int main(void)
 		},
 	};
 
-	int n_urls = countof(urls);
 	// functions won't come back if an error occurs
 	wget_test_start_server(
-		WGET_TEST_RESPONSE_URLS, &urls, n_urls,
+		WGET_TEST_RESPONSE_URLS, &urls, countof(urls),
 		WGET_TEST_FEATURE_MHD,
 		0);
 
-	for (int i = 0; i < n_urls; i++)
+	for (unsigned i = 0; i < countof(urls); i++)
 		urls[i].headers[1] = "Last-Modified: Sat, 09 Oct 2004 08:30:00 GMT";
 
 	// test-N--no-content-disposition-trivial

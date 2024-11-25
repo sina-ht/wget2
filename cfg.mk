@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2023 Free Software Foundation, Inc.
+# Copyright (C) 2015-2024 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -53,11 +53,16 @@ exclude_file_name_regexp--sc_require_config_h = examples/.*\.c|fuzz/main\.c$$
 exclude_file_name_regexp--sc_require_config_h_first = examples/.*\.c|fuzz/main\.c$$
 # do not remove, takes care for dependency subdirs (e.g. when using contrib/mingw script)
 exclude_file_name_regexp--sc_copyright_check = .*gnulib/.*\.c$$
+# do not complain about Dockerfiles
+exclude_file_name_regexp--sc_two_space_separator_in_usage = contrib/Dockerfile.*
 
 # The assignment_template is copies as-is into an email. Don't add any headers
 # there. The m4/* files are copied from autoconf-archive and don't follow the
 # same copyright convention
 exclude_file_name_regexp--update-copyright = ^(contrib/assignment_template\.txt|m4/(ax_ac_append_to_file|ax_ac_print_to_file|ax_add_am_macro_static|ax_am_macros_static|ax_check_gnu_make|ax_code_coverage|ax_file_escapes).m4|contrib/make-coverage-badge)$$
+
+# We don't care for trailing spaces in announcements.
+exclude_file_name_regexp--sc_trailing_blank = docs/announce.*\.txt$$
 
 update-version-year:
 	$(AM_V_at)$(SED) -i "s/(C) 2015-.... Free Software Foundation/(C) 2015-`date +%Y` Free Software Foundation/g" src/options.c

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include <wget.h>
 #include "private.h"
@@ -95,6 +96,7 @@ static void urls_to_absolute(wget_vector *urls, wget_iri *base)
 
 		for (int it = 0; it < wget_vector_size(urls); it++) {
 			wget_css_parsed_url *url = wget_vector_get(urls, it);
+			assert(url != NULL);
 
 			if (wget_iri_relative_to_abs(base, url->url, url->len, &buf))
 				url->abs_url = wget_strmemdup(buf.data, buf.length);

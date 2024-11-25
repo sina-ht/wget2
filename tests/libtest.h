@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2014 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -76,7 +76,7 @@ extern "C" {
 #define WGET_TEST_POST_HANDSHAKE_AUTH 3002
 
 // for OCSP testing
-#define WGET_TEST_OCSP_RESP_FILE 3003
+#define WGET_TEST_OCSP_RESP_FILES 3003
 
 typedef enum {
 	INTERRUPT_RESPONSE_DISABLED = 0,

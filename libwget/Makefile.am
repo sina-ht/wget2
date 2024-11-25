@@ -4,10 +4,33 @@ AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(CODE_COVERAGE_CFLAGS) $(MANYWARNIN
 LIBS =
 
 libwget_libadd = ../lib/libgnu.la $(CODE_COVERAGE_LIBS) \
- $(GETADDRINFO_LIB) $(GETHOSTNAME_LIB) $(HOSTENT_LIB) $(INET_NTOP_LIB) $(INET_PTON_LIB) \
- $(LIBMULTITHREAD) $(LIBSOCKET) $(LIBTHREAD) $(LIB_CLOCK_GETTIME) $(LIB_CRYPTO) $(LIB_GETLOGIN) \
- $(LIB_HARD_LOCALE) $(LIB_MBRTOWC) $(LIB_NANOSLEEP) $(LIB_POLL) $(LIB_POSIX_SPAWN) $(LIB_PTHREAD_SIGMASK) \
- $(LIB_SELECT) $(LIB_SETLOCALE) $(LIB_SETLOCALE_NULL) $(LTLIBICONV) $(LTLIBINTL) $(SERVENT_LIB) @INTL_MACOSX_LIBS@ \
+ $(CLOCK_TIME_LIB) \
+ $(GETADDRINFO_LIB) \
+ $(GETHOSTNAME_LIB) \
+ $(GETLOGIN_LIB) \
+ $(GETRANDOM_LIB) \
+ $(HARD_LOCALE_LIB) \
+ $(HOSTENT_LIB) \
+ $(INET_NTOP_LIB) \
+ $(INET_PTON_LIB) \
+ $(LIBMULTITHREAD) \
+ $(LIBSOCKET) \
+ $(LIBTHREAD) \
+ $(LIB_CRYPTO) \
+ $(LTLIBC32CONV) \
+ $(LTLIBICONV) \
+ $(LTLIBINTL) \
+ $(LTLIBUNISTRING) \
+ $(MBRTOWC_LIB) \
+ $(NANOSLEEP_LIB) \
+ $(POLL_LIB) \
+ $(POSIX_SPAWN_LIB) \
+ $(PTHREAD_SIGMASK_LIB) \
+ $(SELECT_LIB) \
+ $(SERVENT_LIB) \
+ $(SETLOCALE_LIB) \
+ $(SETLOCALE_NULL_LIB) \
+ @INTL_MACOSX_LIBS@ \
  $(ALL_LIBS)
 
 lib_LTLIBRARIES = libwget.la
@@ -18,6 +41,10 @@ libwget_la_SOURCES = \
  http_parse.c  init.c ip.c iri.c list.c log.c logger.c logger.h mem.c metalink.c net.c net.h netrc.c ocsp.c pipe.c \
  plugin.c printf.c random.c robots.c rss_url.c sitemap_url.c stringmap.c strlcpy.c \
  strscpy.c thread.c tls_session.c utils.c vector.c xalloc.c xml.c private.h http_highlevel.c error.c dns.c
+
+if WITH_LIBNGHTTP2
+  libwget_la_SOURCES += http2.c
+endif
 
 if WITH_GNUTLS
   libwget_la_SOURCES += ssl_gnutls.c ssl.c
@@ -127,7 +154,7 @@ libwget_hpkp_db_la_LDFLAGS = $(libwget_la_LDFLAGS)
 lib_LTLIBRARIES += libwget_hsts.la
 libwget_hsts_la_SOURCES = hsts.c
 libwget_hsts_la_CPPFLAGS = $(libwget_la_CPPFLAGS)
-libwget_hsts_la_LIBADD = libwget_io.la libwget_thread.la libwget_common.la libwget_alloc.la $(libwget_libadd)
+libwget_hsts_la_LIBADD = libwget_ip.la libwget_io.la libwget_thread.la libwget_common.la libwget_alloc.la $(libwget_libadd)
 libwget_hsts_la_LDFLAGS = $(libwget_la_LDFLAGS)
 
 ######## libwget ocsp ########
@@ -162,7 +189,7 @@ libwget_logger_la_LDFLAGS = $(libwget_la_LDFLAGS)
 lib_LTLIBRARIES += libwget_dnscache.la
 libwget_dnscache_la_SOURCES = dns_cache.c
 libwget_dnscache_la_CPPFLAGS = $(libwget_la_CPPFLAGS)
-libwget_dnscache_la_LIBADD = libwget_thread.la libwget_common.la libwget_alloc.la $(libwget_libadd)
+libwget_dnscache_la_LIBADD = libwget_ip.la libwget_thread.la libwget_common.la libwget_alloc.la $(libwget_libadd)
 libwget_dnscache_la_LDFLAGS = $(libwget_la_LDFLAGS)
 
 ######## libwget dns ########

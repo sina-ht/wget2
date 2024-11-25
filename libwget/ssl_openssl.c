@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -102,7 +102,7 @@ static struct config
 	.check_certificate = 1,
 	.check_hostname = 1,
 #ifdef WITH_OCSP
-	.ocsp = 1,
+	.ocsp = 0,
 	.ocsp_stapling = 1,
 #endif
 	.ca_type = WGET_SSL_X509_FMT_PEM,
@@ -129,7 +129,10 @@ static void tls_exit(void)
 {
 	if (mutex) {
 		wget_thread_mutex_destroy(&mutex);
+#if !defined LIBRESSL_VERSION_NUMBER
+		// LibreSSL 3.8.1 doesn't know this function (latest version as of 30.09.2023).
 		CRYPTO_free_ex_index(CRYPTO_EX_INDEX_APP, ssl_userdata_idx);
+#endif
 	}
 }
 
@@ -759,6 +762,7 @@ static OCSP_REQUEST *send_ocsp_request(const char *uri,
 		WGET_HTTP_HEADER_ADD, "Content-Type", "application/ocsp-request",
 		WGET_HTTP_MAX_REDIRECTIONS, 5,
 		WGET_HTTP_BODY, ocspreq_bytes, ocspreq_bytes_len,
+		WGET_HTTP_DEBUG_SKIP_BODY,
 		0);
 
 	OPENSSL_free(ocspreq_bytes);
@@ -1021,9 +1025,7 @@ static int verify_ocsp(const char *ocsp_uri,
 	certid = OCSP_cert_to_id(EVP_sha1(), subject_cert, issuer_cert);
 
 	/* Send OCSP request to server, via HTTP */
-	if (!(ocspreq = send_ocsp_request(ocsp_uri,
-			certid,
-			&resp)))
+	if (!(ocspreq = send_ocsp_request(ocsp_uri, certid, &resp)) || !resp || !resp->body)
 		return -1;
 
 	/* Check server's OCSP response */
@@ -1787,7 +1789,7 @@ static int ssl_transfer(int want,
 		void *buf, int count)
 {
 	SSL *ssl;
-	int fd, retval, error, ops = want;
+	int fd;
 
 	if (count == 0)
 		return 0;
@@ -1799,7 +1801,9 @@ static int ssl_transfer(int want,
 	if (timeout < -1)
 		timeout = -1;
 
-	do {
+	for (int ops = want;;) {
+		int retval;
+
 		if (timeout) {
 			/* Wait until file descriptor becomes ready */
 			retval = wget_ready_2_transfer(fd, timeout, ops);
@@ -1815,23 +1819,25 @@ static int ssl_transfer(int want,
 		else
 			retval = SSL_write(ssl, buf, count);
 
-		if (retval < 0) {
-			error = SSL_get_error(ssl, retval);
+		if (retval > 0)
+			return retval;
 
-			if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
-				/* Socket not ready - let's try again (unless timeout was zero) */
-				ops = WGET_IO_WRITABLE | WGET_IO_READABLE;
+		// The OpenSSL docs consider <= 0 an error.
+		int error = SSL_get_error(ssl, retval);
+		if (error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE) {
+			/* Socket not ready - let's try again (unless timeout was zero) */
+			ops = WGET_IO_WRITABLE | WGET_IO_READABLE;
 
-				if (timeout == 0)
-					return 0;
-			} else {
-				/* Not exactly a handshake error, but this is the closest one to signal TLS layer errors */
-				return WGET_E_HANDSHAKE;
-			}
+			if (timeout == 0)
+				return 0;
+		} else {
+			/* Not exactly a handshake error, but this is the closest one to signal TLS layer errors */
+			return WGET_E_HANDSHAKE;
 		}
-	} while (retval < 0);
+	}
 
-	return retval;
+	// The execution can never get here.
+	return WGET_E_UNKNOWN;
 }
 
 /**

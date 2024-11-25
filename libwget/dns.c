@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2019-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -222,35 +222,65 @@ static struct addrinfo *sort_preferred(struct addrinfo *addrinfo, int preferred_
 	}
 }
 
+static int getaddrinfo_merging(const char *host, const char *s_port, struct addrinfo *hints, struct addrinfo **out_addr)
+{
+	if (!*out_addr)
+		return getaddrinfo(host, s_port, hints, out_addr);
+
+	// Get to the tail of the list
+	struct addrinfo *ai_tail = *out_addr;
+	while (ai_tail->ai_next)
+		ai_tail = ai_tail->ai_next;
+
+	return getaddrinfo(host, s_port, hints, &ai_tail->ai_next);
+}
+
 // we can't provide a portable way of respecting a DNS timeout
 static int resolve(int family, int flags, const char *host, uint16_t port, struct addrinfo **out_addr)
 {
 	struct addrinfo hints = {
 		.ai_family = family,
-#ifdef _WIN32
-		// It looks like on Windows 0 is not a valid option here.
-		// see https://learn.microsoft.com/en-us/windows/win32/api/ws2def/ns-ws2def-addrinfoa
-		// TODO: On Windows, do two calls to getaddrinfo (for TCP and UDP) and merge the results.
-		//       Alternatively, consider splitting caches by TCP and UDP addresses.
-		.ai_socktype = SOCK_STREAM,
-#else
 		.ai_socktype = 0,
-#endif
 		.ai_flags = AI_ADDRCONFIG | flags
 	};
+	char s_port[NI_MAXSERV];
+
+	*out_addr = NULL;
 
 	if (port) {
-		char s_port[NI_MAXSERV];
-
 		hints.ai_flags |= AI_NUMERICSERV;
 
 		wget_snprintf(s_port, sizeof(s_port), "%hu", port);
-		debug_printf("resolving %s:%s...\n", host ? host : "", s_port);
-		return getaddrinfo(host, s_port, &hints, out_addr);
+		if (host) {
+			if (family == AF_INET6)
+				debug_printf("resolving [%s]:%s...\n", host, s_port);
+			else
+				debug_printf("resolving %s:%s...\n", host, s_port);
+		} else
+			debug_printf("resolving :%s...\n", s_port);
 	} else {
 		debug_printf("resolving %s...\n", host);
-		return getaddrinfo(host, NULL, &hints, out_addr);
 	}
+
+	int ret;
+
+	/*
+	 * .ai_socktype = 0, which would give us all the available socket types,
+	 * is not a valid option on Windows. Hence, we call getaddrinfo() twice with SOCK_STREAM
+	 * and SOCK_DGRAM, and merge the two lists.
+	 * See: https://learn.microsoft.com/en-us/windows/win32/api/ws2def/ns-ws2def-addrinfoa
+	 */
+	hints.ai_socktype = SOCK_STREAM;
+	if ((ret = getaddrinfo_merging(host, port ? s_port : NULL, &hints, out_addr)) != 0)
+		return ret;
+
+	hints.ai_socktype = SOCK_DGRAM;
+	if ((ret = getaddrinfo_merging(host, port ? s_port : NULL, &hints, out_addr)) != 0) {
+		if (*out_addr)
+			freeaddrinfo(*out_addr);
+	}
+
+	return ret;
 }
 
 /**
@@ -279,7 +309,10 @@ int wget_dns_cache_ip(wget_dns *dns, const char *ip, const char *name, uint16_t 
 		return WGET_E_INVALID;
 
 	if ((rc = resolve(family, AI_NUMERICHOST, ip, port, &ai)) != 0) {
-		error_printf(_("Failed to resolve '%s:%d': %s\n"), ip, port, gai_strerror(rc));
+		if (family == AF_INET6)
+			error_printf(_("Failed to resolve '[%s]:%d': %s\n"), ip, port, gai_strerror(rc));
+		else
+			error_printf(_("Failed to resolve '%s:%d': %s\n"), ip, port, gai_strerror(rc));
 		return WGET_E_UNKNOWN;
 	}
 
@@ -391,9 +424,12 @@ struct addrinfo *wget_dns_resolve(wget_dns *dns, const char *host, uint16_t port
 	/* Finally, print the address list to the debug pipe if enabled */
 	if (wget_logger_is_active(wget_get_logger(WGET_LOGGER_DEBUG))) {
 		for (struct addrinfo *ai = addrinfo; ai; ai = ai->ai_next) {
-			if ((rc = getnameinfo(ai->ai_addr, ai->ai_addrlen, adr, sizeof(adr), sport, sizeof(sport), NI_NUMERICHOST | NI_NUMERICSERV)) == 0)
-				debug_printf("has %s:%s\n", adr, sport);
-			else
+			if ((rc = getnameinfo(ai->ai_addr, ai->ai_addrlen, adr, sizeof(adr), sport, sizeof(sport), NI_NUMERICHOST | NI_NUMERICSERV)) == 0) {
+				if (ai->ai_family == AF_INET6)
+					debug_printf("has [%s]:%s\n", adr, sport);
+				else
+					debug_printf("has %s:%s\n", adr, sport);
+			} else
 				debug_printf("has ??? (%s)\n", gai_strerror(rc));
 		}
 	}

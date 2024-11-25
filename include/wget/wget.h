@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012-2015 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -250,6 +250,7 @@ WGET_BEGIN_DECLS
 #define WGET_HTTP_BODY_SAVEAS           2018
 #define WGET_HTTP_USER_DATA             2019
 #define WGET_HTTP_RESPONSE_IGNORELENGTH 2020
+#define WGET_HTTP_DEBUG_SKIP_BODY       2021
 
 // definition of error conditions
 typedef enum {
@@ -1191,6 +1192,12 @@ struct wget_iri_st {
 	 */
 	const char *
 		uri;
+
+	/**
+	 * Pointer to the URI which does not contain credentials.
+	*/
+	const char *
+		safe_uri;
 	/**
 	 * Display part, if present.
 	 */
@@ -2280,6 +2287,8 @@ WGETAPI int
 	wget_http_match_no_proxy(const wget_vector *no_proxies, const char *host);
 WGETAPI void
 	wget_http_abort_connection(wget_http_connection *conn);
+WGETAPI bool
+	wget_http_connection_receive_only(wget_http_connection *conn);
 
 WGETAPI void
 	wget_http_free_param(wget_http_header_param *param);
@@ -2531,6 +2540,8 @@ WGETAPI void
 	wget_bar_screen_resized(void);
 WGETAPI void
 	wget_bar_write_line(wget_bar *bar, const char *buf, size_t len) WGET_GCC_NONNULL_ALL;
+WGETAPI void
+	wget_bar_write_line_ext(wget_bar *bar, const char *buf, size_t len, const char *pre, const char *post) WGET_GCC_NONNULL_ALL;
 WGETAPI void
 	wget_bar_set_speed_type(wget_report_speed type);
 

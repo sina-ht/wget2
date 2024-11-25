@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -221,6 +221,8 @@ char *wget_cookie_create_request_header(wget_cookie_db *cookie_db, const wget_ir
 
 	for (it = 0; it < wget_vector_size(cookie_db->cookies); it++) {
 		wget_cookie *cookie = wget_vector_get(cookie_db->cookies, it);
+		if (!cookie)
+			continue;
 
 		if (cookie->host_only && strcmp(cookie->domain, iri->host)) {
 			debug_printf("cookie host match failed (%s,%s)\n", cookie->domain, iri->host);
@@ -262,6 +264,8 @@ char *wget_cookie_create_request_header(wget_cookie_db *cookie_db, const wget_ir
 	// now create cookie header value
 	for (it = 0; it < wget_vector_size(cookies); it++) {
 		wget_cookie *cookie = wget_vector_get(cookies, it);
+		if (!cookie)
+			continue;
 
 		if (!init) {
 			wget_buffer_init(&buf, NULL, 128);
@@ -337,19 +341,18 @@ void wget_cookie_set_keep_session_cookies(wget_cookie_db *cookie_db, bool keep)
 static int cookie_db_load(wget_cookie_db *cookie_db, FILE *fp)
 {
 	wget_cookie cookie;
-	int ncookies = 0;
 	char *buf = NULL, *linep, *p;
 	size_t bufsize = 0;
 	ssize_t buflen;
 	int64_t now = time(NULL);
-
-	wget_cookie_init(&cookie);
 
 	while ((buflen = wget_getline(&buf, &bufsize, fp)) >= 0) {
 		linep = buf;
 
 		while (isspace(*linep)) linep++; // ignore leading whitespace
 		if (!*linep) continue; // skip empty lines
+
+		wget_cookie_init(&cookie);
 
 		if (*linep == '#') {
 			if (strncmp(linep, "#HttpOnly_", 10))
@@ -362,7 +365,7 @@ static int cookie_db_load(wget_cookie_db *cookie_db, FILE *fp)
 		}
 
 		// strip off \r\n
-		while (buflen > 0 && (buf[buflen] == '\n' || buf[buflen] == '\r'))
+		while (buflen > 0 && (buf[buflen-1] == '\n' || buf[buflen-1] == '\r'))
 			buf[--buflen] = 0;
 
 		// parse domain
@@ -416,8 +419,10 @@ static int cookie_db_load(wget_cookie_db *cookie_db, FILE *fp)
 		cookie.value = wget_strmemdup(p, linep - p);
 
 		if (wget_cookie_normalize(NULL, &cookie) == 0 && wget_cookie_check_psl(cookie_db, &cookie) == 0) {
-			ncookies++;
-			wget_cookie_store_cookie(cookie_db, wget_memdup(&cookie, sizeof(cookie))); // takes ownership of cookie
+			// The following wget_memdup copies pointers to allocated memory to take ownership of the cookie contents.
+			// Thus it needs to be accomplished by wget_cookie_init(&cookie), which is done
+			// near the top of the loop.
+			wget_cookie_store_cookie(cookie_db, wget_memdup(&cookie, sizeof(cookie)));
 		} else
 			wget_cookie_deinit(&cookie);
 	}
@@ -428,7 +433,7 @@ static int cookie_db_load(wget_cookie_db *cookie_db, FILE *fp)
 		return -1;
 	}
 
-	return ncookies;
+	return 0;
 }
 
 int wget_cookie_db_load(wget_cookie_db *cookie_db, const char *fname)
@@ -458,6 +463,8 @@ static int cookie_db_save(wget_cookie_db *cookie_db, FILE *fp)
 
 		for (it = 0; it < wget_vector_size(cookie_db->cookies); it++) {
 			wget_cookie *cookie = wget_vector_get(cookie_db->cookies, it);
+			if (!cookie)
+				continue;
 
 			if (cookie->persistent) {
 				if (cookie->expires <= now)

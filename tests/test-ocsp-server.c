@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -40,25 +40,25 @@ int main(void)
 		WGET_TEST_FEATURE_OCSP,
 		0);
 
+#ifndef WITH_WOLFSSL
 	// Test ocsp with 'verified' response
 	wget_test(
 		WGET_TEST_OPTIONS, "--ca-certificate=" SRCDIR "/certs/ocsp/x509-root-cert.pem --no-ocsp-file --no-ocsp-date --no-ocsp-nonce --ocsp --ocsp-server http://localhost:{{ocspport}}",
 		WGET_TEST_REQUEST_URL, "https://localhost:{{sslport}}/index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_OCSP_RESP_FILE, SRCDIR "/certs/ocsp/ocsp_resp_ok.der",
+		WGET_TEST_OCSP_RESP_FILES, "", SRCDIR "/certs/ocsp/ocsp_resp_ok.der", NULL,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{urls[0].name + 1, urls[0].body},
 			{	NULL} },
 		0);
 
-#ifndef WITH_WOLFSSL
 	// Test ocsp with 'revoked' response
 	// Todo: Let WolfSSL code check the revocation.
 	wget_test(
 		WGET_TEST_OPTIONS, "--ca-certificate=" SRCDIR "/certs/ocsp/x509-root-cert.pem --no-ocsp-file --no-ocsp-date --no-ocsp-nonce --ocsp --ocsp-server http://localhost:{{ocspport}}",
 		WGET_TEST_REQUEST_URL, "https://localhost:{{sslport}}/index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 5,
-		WGET_TEST_OCSP_RESP_FILE, SRCDIR "/certs/ocsp/ocsp_resp_revoked.der",
+		WGET_TEST_OCSP_RESP_FILES, "", SRCDIR "/certs/ocsp/ocsp_resp_revoked.der", NULL,
 		0);
 #endif
 
@@ -67,22 +67,24 @@ int main(void)
 		WGET_TEST_OPTIONS, "--ca-certificate=" SRCDIR "/certs/ocsp/x509-root-cert.pem --no-ocsp-file --no-ocsp-date --no-ocsp-nonce --ocsp --ocsp-server http://localhost:{{ocspport}} --no-check-certificate",
 		WGET_TEST_REQUEST_URL, "https://localhost:{{sslport}}/index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_OCSP_RESP_FILE, SRCDIR "/certs/ocsp/ocsp_resp_revoked.der",
+		WGET_TEST_OCSP_RESP_FILES, "", SRCDIR "/certs/ocsp/ocsp_resp_revoked.der", NULL,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{urls[0].name + 1, urls[0].body},
 			{	NULL} },
 		0);
 
+#ifndef WITH_WOLFSSL
 	// Test ocsp without specifying responder URL
 	wget_test(
 		WGET_TEST_OPTIONS, "--ca-certificate=" SRCDIR "/certs/ocsp/x509-root-cert.pem --no-ocsp-file --no-ocsp-date --no-ocsp-nonce --ocsp",
 		WGET_TEST_REQUEST_URL, "https://localhost:{{sslport}}/index.html",
 		WGET_TEST_EXPECTED_ERROR_CODE, 0,
-		WGET_TEST_OCSP_RESP_FILE, SRCDIR "/certs/ocsp/ocsp_resp_ok.der",
+		WGET_TEST_OCSP_RESP_FILES, "", SRCDIR "/certs/ocsp/ocsp_resp_ok.der", NULL,
 		WGET_TEST_EXPECTED_FILES, &(wget_test_file_t []) {
 			{urls[0].name + 1, urls[0].body},
 			{	NULL} },
 		0);
+#endif
 
 	exit(EXIT_SUCCESS);
 }

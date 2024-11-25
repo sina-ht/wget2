@@ -1,10 +1,41 @@
 GNU Wget2 NEWS -- history of user-visible changes.
 
 Copyright (C) 2012-2015 Tim Ruehsen
-Copyright (C) 2015-2023 Free Software Foundation, Inc.
+Copyright (C) 2015-2024 Free Software Foundation, Inc.
 See the end for copying conditions.
 
 Please send GNU Wget2 bug reports to <bug-wget@gnu.org>.
+
+24.11.2024 Release v2.2.0
+  * Don't truncate file when -c and -O are combined
+  * Don't log URI userinfo to logs
+  * Fix downloading multiple files via HTTP/2
+  * Fix redirections with --no-parent
+  * Support connecting with HTTP/1.0 proxies
+  * Ignore 1xx HTTP responses for HTTP/1.1
+  * Fix status 8 for failed redirection of robots.txt
+  * Fix ignoring connect timeout (regression)
+  * Disable TCP Fast Open by default
+  * Fix --dns-cache-preload for IPv6
+  * Accept --progress=dot:... for backwards compatibility
+  * Disable explicit OCSP requests by default
+  * Fix segfault when OCSP response is missing
+  * Fix OCSP verification of first intermediate certificate
+  * Allow option --no-tcp-fastopen to work on Linux kernels >= 4.11
+  * Limit cases where methods are redirected to GET
+  * Fix possible deadlock when combining --no-clobber and --no-parent
+  * Fix xattr reading of user.mime_type
+  * Fix --no-parent for denormalized paths
+  * Fix robots.txt parser
+  * Several improvements to the WolfSSL code
+  * Fix IPv6 address representation
+  * Fix --restrict-file-names to be backwards compatible with wget 1.x
+  * Add fetchmail compatibility for user/password in .netrc
+  * Improve suport for non-standard cookie timestamps
+  * Add libproxy support
+  * Add instruction on how to cross-build wget2.exe via docker
+  * Don't request preferred mime type for single file downloads
+  * Slightly improved compatibility with LibreSSL
 
 31.08.2023 Release v2.1.0
   * New option --follow-sitemaps
@@ -23,7 +54,7 @@ Please send GNU Wget2 bug reports to <bug-wget@gnu.org>.
   * New function wget_xml_decode_entities_inline()
   * Support compilation of wget.h from C++
   * Handle comments in robots.txt correctly
-  * Fix parsing HTMP/XML entities in URLs from HTML/XML
+  * Fix parsing HTML/XML entities in URLs from HTML/XML
   * Fix use-after-free when updating blacklist entries
   * Don't try setting file timestamps on ttys
   * Fix arguments parsing for --filter-urls
@@ -285,7 +316,7 @@ Please send GNU Wget2 bug reports to <bug-wget@gnu.org>.
 ----------------------------------------------------------------------
 Copyright information:
 
-Copyright (C) 2015-2023 Free Software Foundation, Inc.
+Copyright (C) 2015-2024 Free Software Foundation, Inc.
 
    Permission is granted to anyone to make or distribute verbatim
    copies of this document as received, in any medium, provided that

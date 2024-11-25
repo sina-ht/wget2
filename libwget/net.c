@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -574,7 +574,7 @@ wget_tcp *wget_tcp_init(void)
  *
  * If \p _tcp is NULL, the SNI field will be cleared.
  *
- * Does not free the internal DNS cache, so that other connections can re-use it.
+ * Does not free the internal DNS cache, so that other connections can reuse it.
  * Call wget_dns_cache_free() if you want to free it.
  */
 void wget_tcp_deinit(wget_tcp **_tcp)
@@ -640,10 +640,19 @@ static void set_socket_options(const wget_tcp *tcp, int fd)
 #endif
 
 #ifdef TCP_FASTOPEN_LINUX_411
-	on = 1;
-	if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, (void *)&on, sizeof(on)) == -1)
-		debug_printf("Failed to set socket option TCP_FASTOPEN_CONNECT\n");
+	if (tcp->tcp_fastopen) {
+		on = 1;
+		if (setsockopt(fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT, (void *)&on, sizeof(on)) == -1)
+			debug_printf("Failed to set socket option TCP_FASTOPEN_CONNECT\n");
+	}
 #endif
+
+	// Synchronous socket connection timeout
+	if (tcp->connect_timeout > 0) {
+		struct timeval tv = { .tv_sec = tcp->connect_timeout/1000, .tv_usec = tcp->connect_timeout % 1000 * 1000 };
+		if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1)
+			error_printf(_("Failed to set socket option SO_SNDTIMEO\n"));
+	}
 }
 
 /**
@@ -671,9 +680,12 @@ static void debug_addr(const char *caption, const struct sockaddr *ai_addr, sock
 			 adr, sizeof(adr),
 			 s_port, sizeof(s_port),
 			 NI_NUMERICHOST | NI_NUMERICSERV);
-	if (rc == 0)
-		debug_printf("%s %s:%s...\n", caption, adr, s_port);
-	else
+	if (rc == 0) {
+		if (ai_addr->sa_family == AF_INET6)
+			debug_printf("%s [%s]:%s...\n", caption, adr, s_port);
+		else
+			debug_printf("%s %s:%s...\n", caption, adr, s_port);
+	} else
 		debug_printf("%s ???:%s (%s)...\n", caption, s_port, gai_strerror(rc));
 }
 
@@ -751,6 +763,10 @@ int wget_tcp_connect(wget_tcp *tcp, const char *host, uint16_t port)
 	tcp->addrinfo = wget_dns_resolve(tcp->dns, host, port, tcp->family, tcp->preferred_family);
 	tcp->remote_port = port;
 
+	if (!tcp->addrinfo) {
+		return WGET_E_CONNECT;
+	}
+
 	for (ai = tcp->addrinfo; ai; ai = ai->ai_next) {
 		// Skip non-TCP sockets
 		if (ai->ai_socktype != SOCK_STREAM)
@@ -760,63 +776,67 @@ int wget_tcp_connect(wget_tcp *tcp, const char *host, uint16_t port)
 			debug_addr("trying", ai->ai_addr, ai->ai_addrlen);
 
 		int sockfd;
-		if ((sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) != -1) {
-			_set_async(sockfd);
-			set_socket_options(tcp, sockfd);
-
-			if (tcp->bind_addrinfo) {
-				if (debug)
-					debug_addr("binding to",
-						   tcp->bind_addrinfo->ai_addr, tcp->bind_addrinfo->ai_addrlen);
-
-				if (bind(sockfd, tcp->bind_addrinfo->ai_addr, tcp->bind_addrinfo->ai_addrlen) != 0) {
-					print_error_host(_("Failed to bind"), host);
-					close(sockfd);
-
-					return WGET_E_UNKNOWN;
-				}
-			}
-
-			rc = tcp_connect(tcp, ai, sockfd);
-			if (rc < 0
-				&& errno != EAGAIN
-				&& errno != EINPROGRESS
-			) {
-				print_error_host(_("Failed to connect"), host);
-				ret = WGET_E_CONNECT;
-				close(sockfd);
-			} else {
-				tcp->sockfd = sockfd;
-				if (tcp->ssl) {
-					if ((ret = wget_ssl_open(tcp))) {
-						if (ret == WGET_E_CERTIFICATE) {
-							wget_tcp_close(tcp);
-							break; /* stop here - the server cert couldn't be validated */
-						}
-
-						/* do not free tcp->addrinfo when calling wget_tcp_close() */
-						struct addrinfo *ai_tmp = tcp->addrinfo;
-
-						tcp->addrinfo = NULL;
-						wget_tcp_close(tcp);
-						tcp->addrinfo = ai_tmp;
-
-						continue;
-					}
-				}
-
-				if (getnameinfo(ai->ai_addr, ai->ai_addrlen,
-						adr, sizeof(adr), s_port, sizeof(s_port), NI_NUMERICHOST | NI_NUMERICSERV) == 0)
-					tcp->ip = wget_strdup(adr);
-				else
-					tcp->ip = NULL;
-
-				tcp->host = wget_strdup(host);
-
-				return WGET_E_SUCCESS;
-			}
-		} else
+		if ((sockfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) {
 			print_error_host(_("Failed to create socket"), host);
+			ret = WGET_E_UNKNOWN;
+			continue;
+		}
+
+		set_socket_options(tcp, sockfd);
+
+		if (tcp->bind_addrinfo) {
+			if (debug)
+				debug_addr("binding to",
+						tcp->bind_addrinfo->ai_addr, tcp->bind_addrinfo->ai_addrlen);
+
+			if (bind(sockfd, tcp->bind_addrinfo->ai_addr, tcp->bind_addrinfo->ai_addrlen) != 0) {
+				print_error_host(_("Failed to bind"), host);
+				close(sockfd);
+
+				return WGET_E_UNKNOWN;
+			}
+		}
+
+		rc = tcp_connect(tcp, ai, sockfd);
+		if (rc < 0
+			&& errno != EAGAIN
+			&& errno != EINPROGRESS
+		) {
+			print_error_host(_("Failed to connect"), host);
+			ret = WGET_E_CONNECT;
+			close(sockfd);
+		} else {
+			tcp->sockfd = sockfd;
+			if (tcp->ssl) {
+				if ((ret = wget_ssl_open(tcp))) {
+					if (ret == WGET_E_CERTIFICATE) {
+						wget_tcp_close(tcp);
+						break; /* stop here - the server cert couldn't be validated */
+					}
+
+					/* do not free tcp->addrinfo when calling wget_tcp_close() */
+					struct addrinfo *ai_tmp = tcp->addrinfo;
+
+					tcp->addrinfo = NULL;
+					wget_tcp_close(tcp);
+					tcp->addrinfo = ai_tmp;
+
+					continue;
+				}
+			}
+
+			if (getnameinfo(ai->ai_addr, ai->ai_addrlen,
+					adr, sizeof(adr), s_port, sizeof(s_port), NI_NUMERICHOST | NI_NUMERICSERV) == 0)
+				tcp->ip = wget_strdup(adr);
+			else
+				tcp->ip = NULL;
+
+			tcp->host = wget_strdup(host);
+
+			_set_async(sockfd);
+
+			return WGET_E_SUCCESS;
+		}
 	}
 
 	return ret;

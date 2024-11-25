@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2017-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -54,7 +54,8 @@ struct wget_http_connection_st {
 	bool
 		print_response_headers : 1,
 		abort_indicator : 1,
-		proxied : 1;
+		proxied : 1,
+		goaway : 1;
 };
 
 /* HTTP/1.0 status codes from RFC1945 */
@@ -81,5 +82,18 @@ struct wget_http_connection_st {
 #define HTTP_STATUS_FORBIDDEN             403
 #define HTTP_STATUS_NOT_FOUND             404
 #define HTTP_STATUS_RANGE_NOT_SATISFIABLE 416
+
+int http_connection_is_aborted(wget_http_connection *conn);
+
+void http_fix_broken_server_encoding(wget_http_response *resp);
+
+int http_get_body_cb(void *context, const char *data, size_t length);
+int http_decompress_error_handler_cb(wget_decompressor *dc, int err);
+
+int wget_http2_open(wget_http_connection *conn);
+void wget_http2_close(wget_http_connection **conn);
+int wget_http2_send_request(wget_http_connection *conn, wget_http_request *req);
+wget_http_response *wget_http2_get_response_cb(wget_http_connection *conn,
+					       wget_server_stats_callback *server_stats_callback);
 
 #endif /* LIBWGET_HTTP_H */

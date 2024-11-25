@@ -730,11 +730,17 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `--tcp-fastopen`
 
-  Enable support for TCP Fast Open (TFO) (default: on).
+  Enable support for TCP Fast Open (TFO) (default: off).
 
   TFO reduces connection latency by 1 RT on "hot" connections (2nd+ connection to the same host in a certain amount of time).
 
   Currently this works on recent Linux and OSX kernels, on HTTP and HTTPS.
+
+  The main reasons why TFO is disabled by default are
+    - possible user tracking issues
+    - possible issues with middle boxes that do not support TFO
+
+  This article gives has more details about TFO than fits here: https://candrews.integralblue.com/2019/03/the-sad-story-of-tcp-fast-open/
 
 ### `--dns-cache-preload=file`
 
@@ -743,7 +749,7 @@ Go to background immediately after startup. If no output file is specified via t
   The format of `file` is like `/etc/hosts`: IP-address whitespace Name
 
   This allows to save domain name lookup time, which is a bottleneck in some use cases.
-  Also, the use of HOSTALIASES (which is not portable) can be mimiced by this option.
+  Also, the use of HOSTALIASES (which is not portable) can be mimicked by this option.
 
 ### `--dns-cache`
 
@@ -1569,7 +1575,7 @@ Go to background immediately after startup. If no output file is specified via t
 
 ### `--ocsp`
 
-  Enable OCSP server access to check the possible revocation the HTTPS server certificate(s) (default: on).
+  Enable OCSP server access to check the possible revocation the HTTPS server certificate(s) (default: off).
 
   This procedure is pretty slow (connect to server, HTTP request, response) and thus we support
   OSCP stapling (server sends OCSP response within TLS handshake) and persistent OCSP caching.
@@ -2065,7 +2071,7 @@ that in case of a collision, the user's wget2rc _overrides_ the global wget2rc.
 
   Copyright (C) 2012-2015 Tim Rühsen
 
-  Copyright (C) 2015-2023 Free Software Foundation, Inc.
+  Copyright (C) 2015-2024 Free Software Foundation, Inc.
 
   Permission is granted to copy, distribute and/or modify this document under the terms of the GNU Free Documentation
   License, Version 1.3 or any later version published by the Free Software Foundation; with no Invariant Sections, with

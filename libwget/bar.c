@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -103,15 +103,14 @@ typedef struct {
 		speed_buf[BAR_SPEED_SIZE],
 		human_size[BAR_DOWNBYTES_SIZE];
 	uint64_t
-		file_size,
 		time_ring[SPEED_RING_SIZE],
 		bytes_ring[SPEED_RING_SIZE],
+		file_size,
 		bytes_downloaded;
 	int
 		ring_pos,
 		ring_used,
-		tick,
-		numfiles;
+		tick;
 	enum bar_slot_status
 		status;
 	bool
@@ -225,7 +224,7 @@ bar_set_progress(const wget_bar *bar, int slot)
 		slotp->progress[cols - 1] = '>';
 		if (cols < bar->max_width)
 			memset(slotp->progress + cols, ' ', bar->max_width - cols);
-	} else {
+	} else if (bar->max_width > 3) {
 		int ind = slotp->tick % (bar->max_width * 2 - 6);
 		int pre_space;
 
@@ -236,6 +235,8 @@ bar_set_progress(const wget_bar *bar, int slot)
 
 		memset(slotp->progress, ' ', bar->max_width);
 		memcpy(slotp->progress + pre_space, "<=>", 3);
+	} else {
+		memset(slotp->progress, ' ', bar->max_width);
 	}
 
 	slotp->progress[bar->max_width] = 0;
@@ -327,6 +328,12 @@ static void bar_update_slot(const wget_bar *bar, int slot)
 		cur = slotp->bytes_downloaded;
 
 		ratio = max ? (int) ((100 * cur) / max) : 0;
+		if (ratio > 100) {
+			// TODO: wget2 uses a single bar per worker thread. With HTTP/2,
+			// there can be multiple files being downloaded, but 'max' contains
+			// only the size of a (random) single file.
+			ratio = 100;
+		}
 
 		wget_human_readable(slotp->human_size, sizeof(slotp->human_size), cur);
 
@@ -510,7 +517,7 @@ void wget_bar_set_slots(wget_bar *bar, int nslots)
  * \param[in] bar Pointer to a wget_bar object
  * \param[in] slot The slot number to use
  * \param[in] filename The file name to display in the given \p slot
- * \param[in] new_file if this is the start of a download of the body of a new file
+ * \param[in] new_file if this is the start of a download of the body of a new file (unused)
  * \param[in] file_size The file size that would be 100%
  *
  * Initialize the given \p slot of the \p bar object with it's (file) name to display
@@ -518,28 +525,23 @@ void wget_bar_set_slots(wget_bar *bar, int nslots)
  */
 void wget_bar_slot_begin(wget_bar *bar, int slot, const char *filename, int new_file, ssize_t file_size)
 {
+	(void) new_file;
 	wget_thread_mutex_lock(bar->mutex);
 	bar_slot *slotp = &bar->slots[slot];
 
 	xfree(slotp->filename);
-	if (new_file)
-		slotp->numfiles++;
-	if (slotp->numfiles == 1) {
-		slotp->filename = wget_strdup(filename);
-		slotp->file_size = 0;
-		slotp->bytes_downloaded = 0;
-	} else {
-		slotp->filename = wget_aprintf("%d files", slotp->numfiles);
-	}
-	slotp->tick = 0;
-	slotp->file_size += file_size;
-	slotp->status = DOWNLOADING;
-	slotp->redraw = 1;
-	slotp->ring_pos = 0;
-	slotp->ring_used = 0;
+	slotp->filename = wget_strdup(filename);
 
 	memset(&slotp->time_ring, 0, sizeof(slotp->time_ring));
 	memset(&slotp->bytes_ring, 0, sizeof(slotp->bytes_ring));
+
+	slotp->file_size = file_size;
+	slotp->bytes_downloaded = 0;
+	slotp->ring_pos = 0;
+	slotp->ring_used = 0;
+	slotp->tick = 0;
+	slotp->status = DOWNLOADING;
+	slotp->redraw = 1;
 
 	wget_thread_mutex_unlock(bar->mutex);
 }
@@ -710,6 +712,23 @@ void wget_bar_screen_resized(void)
  */
 void wget_bar_write_line(wget_bar *bar, const char *buf, size_t len)
 {
+	wget_bar_write_line_ext(bar, buf, len, "", "");
+}
+
+/**
+ *
+ * \param[in] bar Pointer to \p wget_bar
+ * @param buf Pointer to buffer to be displayed
+ * @param len Number of bytes to be displayed
+ *
+ * Write 'above' the progress bar area, scrolls screen one line up
+ * if needed. Currently used by Wget2 to display error messages in
+ * color red.
+ *
+ * This function needs a redesign to be useful for general purposes.
+ */
+void wget_bar_write_line_ext(wget_bar *bar, const char *buf, size_t len, const char *pre, const char *post)
+{
 	wget_thread_mutex_lock(bar->mutex);
 	// ESC 7:    Save cursor
 	// CSI <n>S: Scroll up whole screen
@@ -717,9 +736,9 @@ void wget_bar_write_line(wget_bar *bar, const char *buf, size_t len)
 	// CSI <n>G: Cursor horizontal absolute
 	// CSI 0J:   Clear from cursor to end of screen
 	// CSI 31m:  Red text color
-	wget_fprintf(stdout, "\0337\033[1S\033[%dA\033[1G\033[0J\033[31m", bar->nslots + 1);
+	wget_fprintf(stdout, "\0337\033[1S\033[%dA\033[1G\033[0J%s", bar->nslots + 1, pre);
 	fwrite(buf, 1, len, stdout);
-	fputs("\033[m", stdout); // reset text color
+	fputs(post, stdout); // reset text color
 	restore_cursor_position();
 
 	bar_update(bar);

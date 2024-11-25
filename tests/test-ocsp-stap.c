@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -40,6 +40,7 @@ int main(void)
 		WGET_TEST_FEATURE_OCSP_STAPLING,
 		0);
 
+#ifndef WITH_WOLFSSL
 	// Test ocsp with 'verified' response
 	wget_test(
 		WGET_TEST_OPTIONS, "--ca-certificate=" SRCDIR "/certs/ocsp/x509-root-cert.pem --ocsp-stapling --no-ocsp-date",
@@ -49,6 +50,7 @@ int main(void)
 			{urls[0].name + 1, urls[0].body},
 			{	NULL} },
 		0);
+#endif
 
 	exit(EXIT_SUCCESS);
 }

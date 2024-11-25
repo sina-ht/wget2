@@ -2,10 +2,33 @@ DEFS = @DEFS@ \
  -DSRCDIR=\"$(abs_srcdir)\" -DBUILDDIR=\"$(abs_builddir)\" -DEXEEXT=\"$(EXEEXT)\"
 
 MYLIBS = \
- $(GETADDRINFO_LIB) $(GETHOSTNAME_LIB) $(HOSTENT_LIB) $(INET_NTOP_LIB) $(INET_PTON_LIB) \
- $(LIBMULTITHREAD) $(LIBSOCKET) $(LIBTHREAD) $(LIB_CLOCK_GETTIME) $(LIB_CRYPTO) $(LIB_GETLOGIN) \
- $(LIB_HARD_LOCALE) $(LIB_MBRTOWC) $(LIB_NANOSLEEP) $(LIB_POLL) $(LIB_POSIX_SPAWN) $(LIB_PTHREAD_SIGMASK) \
- $(LIB_SELECT) $(LIB_SETLOCALE) $(LIB_SETLOCALE_NULL) $(LTLIBICONV) $(LTLIBINTL) $(SERVENT_LIB) @INTL_MACOSX_LIBS@ \
+ $(CLOCK_TIME_LIB) \
+ $(GETADDRINFO_LIB) \
+ $(GETHOSTNAME_LIB) \
+ $(GETLOGIN_LIB) \
+ $(GETRANDOM_LIB) \
+ $(HARD_LOCALE_LIB) \
+ $(HOSTENT_LIB) \
+ $(INET_NTOP_LIB) \
+ $(INET_PTON_LIB) \
+ $(LIBMULTITHREAD) \
+ $(LIBSOCKET) \
+ $(LIBTHREAD) \
+ $(LIB_CRYPTO) \
+ $(LTLIBC32CONV) \
+ $(LTLIBICONV) \
+ $(LTLIBINTL) \
+ $(LTLIBUNISTRING) \
+ $(MBRTOWC_LIB) \
+ $(NANOSLEEP_LIB) \
+ $(POLL_LIB) \
+ $(POSIX_SPAWN_LIB) \
+ $(PTHREAD_SIGMASK_LIB) \
+ $(SELECT_LIB) \
+ $(SERVENT_LIB) \
+ $(SETLOCALE_LIB) \
+ $(SETLOCALE_NULL_LIB) \
+ @INTL_MACOSX_LIBS@ \
  $(LIBS) $(CODE_COVERAGE_LIBS)
 
 AM_CFLAGS = $(WERROR_CFLAGS) $(WARN_CFLAGS) $(TEST_CFLAGS) $(CODE_COVERAGE_CFLAGS) -DMALLOC_RETURNS_NONNULL
@@ -63,7 +86,7 @@ libtest_la_CPPFLAGS = -I$(srcdir) -I$(top_srcdir)/include/wget -I$(top_builddir)
  -DWGETVER_FILE=\"$(top_builddir)/include/wget/wgetver.h\"
 libtest_la_LIBADD = ../src/libtest-utils.la ../lib/libgnu.la ../libwget/libwget.la $(MYLIBS)
 
-EXTRA_DIST = certs gpg
+EXTRA_DIST = certs gpg valgrind-suppressions clang-asan-suppressions
 
 clean-local:
 	rm -rf $(srcdir)/.test_*

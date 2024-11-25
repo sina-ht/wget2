@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2018-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -211,8 +211,7 @@ int main(void)
 		0);
 
 	// tests with -N --no-if-modified-since
-	int n_urls = countof(urls);
-	for (int i = 0; i < n_urls; i++) {
+	for (unsigned i = 0; i < countof(urls); i++) {
 		urls[i].headers[1] = "Last-Modified: Sat, 09 Oct 2004 08:30:00 GMT";
 	}
 	wget_test(

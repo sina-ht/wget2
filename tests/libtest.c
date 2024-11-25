@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013-2014 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of Wget
  *
@@ -90,9 +90,11 @@ static int
 	keep_tmpfiles,
 	clean_directory,
 	reject_http_connection,
-	reject_https_connection;
+	reject_https_connection,
+	ocsp_response_pos;
 static wget_vector
-	*request_urls;
+	*request_urls,
+	*ocsp_responses;
 static wget_test_url_t
 	*urls;
 static size_t
@@ -121,12 +123,12 @@ static struct MHD_Daemon
 static gnutls_pcert_st *pcrt;
 static gnutls_privkey_t *privkey;
 
-static struct ocsp_resp_t {
+typedef struct {
 	char
 		*data;
 	size_t
 		size;
-} *ocsp_resp;
+} ocsp_resp_t;
 #endif
 
 #ifdef WITH_GNUTLS_OCSP
@@ -243,7 +245,7 @@ static ssize_t _callback (void *cls, uint64_t pos, char *buf, size_t buf_size)
 		(struct ResponseContentCallbackParam *)cls;
 
 	if (pos >= param->response_size)
-		return (ssize_t) MHD_CONTENT_READER_END_OF_STREAM;
+		return MHD_CONTENT_READER_END_OF_STREAM;
 
 	// divide data into two chunks
 	buf_size = (param->response_size / 2) + 1;
@@ -264,7 +266,7 @@ static ssize_t _callback_interruptable (void *cls, uint64_t pos, char *buf, size
 		(struct ResponseContentCallbackParam *)cls;
 
 	if (pos >= param->response_size)
-		return (ssize_t) MHD_CONTENT_READER_END_OF_STREAM;
+		return MHD_CONTENT_READER_END_OF_STREAM;
 
 	if (buf_size <= (param->response_size - pos)) {
 		size_to_copy = buf_size;
@@ -274,7 +276,7 @@ static ssize_t _callback_interruptable (void *cls, uint64_t pos, char *buf, size
 
 	if (param->interrupt_response_mode != INTERRUPT_RESPONSE_DISABLED) {
 		if (pos >= param->interrupt_response_after_nbytes) {
-			return (ssize_t) MHD_CONTENT_READER_END_WITH_ERROR;
+			return MHD_CONTENT_READER_END_WITH_ERROR;
 		}
 
 		if (size_to_copy > (param->interrupt_response_after_nbytes - pos)) {
@@ -311,14 +313,14 @@ static enum MHD_Result _ocsp_ahc(
 	} else if (!first && upload_data == NULL) {
 		int ret = 0;
 
-		if (ocsp_resp->data) {
+		ocsp_resp_t *ocsp_resp = wget_vector_get(ocsp_responses, ocsp_response_pos++);
+
+		if (ocsp_resp) {
 			struct MHD_Response *response = MHD_create_response_from_buffer (ocsp_resp->size, ocsp_resp->data, MHD_RESPMEM_MUST_COPY);
 
 			ret = MHD_queue_response (connection, MHD_HTTP_OK, response);
 
 			MHD_destroy_response (response);
-
-			wget_xfree(ocsp_resp->data);
 		}
 
 		return ret;
@@ -414,7 +416,7 @@ static enum MHD_Result _answer_to_connection(
 	// get query string
 	query.params = wget_buffer_alloc(1024);
 	query.it = 0;
-	MHD_get_connection_values(connection, MHD_GET_ARGUMENT_KIND, (MHD_KeyValueIterator)_print_query_string, &query);
+	MHD_get_connection_values(connection, MHD_GET_ARGUMENT_KIND, _print_query_string, &query);
 
 	// get if-modified-since header
 	modified_val = MHD_lookup_connection_value(connection, MHD_HEADER_KIND,
@@ -426,7 +428,7 @@ static enum MHD_Result _answer_to_connection(
 	// get header range
 	wget_buffer *header_range = wget_buffer_alloc(1024);
 	if (!strcmp(method, "GET"))
-		MHD_get_connection_values(connection, MHD_HEADER_KIND, (MHD_KeyValueIterator)_print_header_range, header_range);
+		MHD_get_connection_values(connection, MHD_HEADER_KIND, _print_header_range, header_range);
 
 	from_bytes = to_bytes = 0;
 	if (*header_range->data) {
@@ -715,11 +717,6 @@ static void _http_server_stop(void)
 
 #ifdef WITH_GNUTLS_OCSP
 	gnutls_global_deinit();
-
-	if(ocsp_resp)
-		wget_free(ocsp_resp->data);
-
-	wget_xfree(ocsp_resp);
 #endif
 }
 
@@ -744,8 +741,8 @@ static int _http_server_start(int SERVER_MODE)
 		static char rnd[8] = "realrnd"; // fixed 'random' value
 
 		httpdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY,
-			port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
-			(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
+			port_num, _check_to_accept,
+			(void *) (ptrdiff_t) SERVER_MODE, _answer_to_connection, NULL,
 			MHD_OPTION_DIGEST_AUTH_RANDOM, sizeof(rnd), rnd,
 			MHD_OPTION_NONCE_NC_SIZE, 300,
 #if MHD_VERSION >= 0x00095400
@@ -777,8 +774,8 @@ static int _http_server_start(int SERVER_MODE)
 						| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
 #endif
 					,
-					port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
-					(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
+					port_num, _check_to_accept,
+					(void *) (ptrdiff_t) SERVER_MODE, _answer_to_connection, NULL,
 					MHD_OPTION_HTTPS_MEM_KEY, key_pem,
 					MHD_OPTION_HTTPS_MEM_CERT, cert_pem,
 #if MHD_VERSION >= 0x00095400
@@ -831,8 +828,8 @@ static int _http_server_start(int SERVER_MODE)
 					| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
 #endif
 				,
-				port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
-				(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
+				port_num, _check_to_accept,
+				(void *) (ptrdiff_t) SERVER_MODE, _answer_to_connection, NULL,
 				MHD_OPTION_HTTPS_CERT_CALLBACK, _ocsp_cert_callback,
 #if MHD_VERSION >= 0x00095400
 				MHD_OPTION_STRICT_FOR_CLIENT, 1,
@@ -881,7 +878,7 @@ static int _http_server_start(int SERVER_MODE)
 		static char rnd[8] = "realrnd"; // fixed 'random' value
 
 		ocspdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY,
-			port_num, NULL, NULL, (MHD_AccessHandlerCallback)_ocsp_ahc, NULL,
+			port_num, NULL, NULL, _ocsp_ahc, NULL,
 			MHD_OPTION_DIGEST_AUTH_RANDOM, sizeof(rnd), rnd,
 			MHD_OPTION_NONCE_NC_SIZE, 300,
 #if MHD_VERSION >= 0x00095400
@@ -892,8 +889,6 @@ static int _http_server_start(int SERVER_MODE)
 #endif
 			MHD_OPTION_CONNECTION_MEMORY_LIMIT, (size_t) 1*1024*1024,
 			MHD_OPTION_END);
-
-		ocsp_resp = wget_malloc(sizeof(struct ocsp_resp_t));
 #endif
 
 		if (!ocspdaemon)
@@ -946,8 +941,8 @@ static int _http_server_start(int SERVER_MODE)
 		httpsdaemon = MHD_start_daemon(MHD_USE_SELECT_INTERNALLY | MHD_USE_TLS
 				| MHD_USE_POST_HANDSHAKE_AUTH_SUPPORT
 			,
-			port_num, (MHD_AcceptPolicyCallback)_check_to_accept,
-			(void *) (ptrdiff_t) SERVER_MODE, (MHD_AccessHandlerCallback)_answer_to_connection, NULL,
+			port_num, _check_to_accept,
+			(void *) (ptrdiff_t) SERVER_MODE, _answer_to_connection, NULL,
 			MHD_OPTION_HTTPS_CERT_CALLBACK2, _ocsp_stap_cert_callback,
 #if MHD_VERSION >= 0x00095400
 				MHD_OPTION_STRICT_FOR_CLIENT, 1,
@@ -1121,6 +1116,7 @@ void wget_test_stop_server(void)
 {
 //	wget_vector_free(&response_headers);
 	wget_vector_free(&request_urls);
+	wget_vector_free(&ocsp_responses);
 
 	for (wget_test_url_t *url = urls; url < urls + nurls; url++) {
 		if (url->body_original) {
@@ -1535,9 +1531,6 @@ void wget_test(int first_key, ...)
 		const char
 			*request_url,
 			*options = "",
-#ifdef WITH_GNUTLS_OCSP
-			*ocsp_resp_file = NULL,
-#endif
 			*executable = global_executable;
 		const wget_test_file_t
 			*expected_files = NULL,
@@ -1579,6 +1572,10 @@ void wget_test(int first_key, ...)
 		if (!request_urls) {
 			request_urls = wget_vector_create(8, NULL);
 			wget_vector_set_destructor(request_urls, NULL);
+		}
+
+		if (!ocsp_responses) {
+			ocsp_responses = wget_vector_create(2, NULL);
 		}
 
 		va_start (args, first_key);
@@ -1633,9 +1630,24 @@ void wget_test(int first_key, ...)
 #endif
 				}
 				break;
-			case WGET_TEST_OCSP_RESP_FILE:
+			case WGET_TEST_OCSP_RESP_FILES:
 #ifdef WITH_GNUTLS_OCSP
-				ocsp_resp_file = va_arg(args, const char *);
+			{
+				const char *ocsp_resp_file = NULL;
+				while ((ocsp_resp_file = va_arg(args, const char *))) {
+					if (ocspdaemon) {
+						ocsp_resp_t ocsp_resp = { .data = NULL, .size = 0 };
+						if (*ocsp_resp_file) {
+							ocsp_resp.data = wget_read_file(ocsp_resp_file, &ocsp_resp.size);
+							if (ocsp_resp.data == NULL) {
+								wget_error_printf_exit("Couldn't read the response from '%s'.\n", ocsp_resp_file);
+							}
+						}
+						wget_vector_add_memdup(ocsp_responses, &ocsp_resp, sizeof(ocsp_resp));
+					}
+				}
+				ocsp_response_pos = 0;
+			}
 #endif
 				break;
 			default:
@@ -1649,19 +1661,6 @@ void wget_test(int first_key, ...)
 			wget_buffer_printf(cmd, "../%s", tmpdir);
 			_empty_directory(cmd->data);
 		}
-
-#ifdef WITH_GNUTLS_OCSP
-		if (ocspdaemon) {
-			if (ocsp_resp_file) {
-				ocsp_resp->data = wget_read_file(ocsp_resp_file, &(ocsp_resp->size));
-				if (ocsp_resp->data == NULL) {
-					wget_error_printf_exit("Couldn't read the response.\n");
-				}
-			} else {
-				wget_error_printf_exit("Need value for option WGET_TEST_OCSP_RESP_FILE.\n");
-			}
-		}
-#endif
 
 		// create files
 		if (existing_files) {
@@ -1835,6 +1834,11 @@ void wget_test(int first_key, ...)
 			wget_free(post_handshake_auth);
 #endif
 
+		for (int i = 0; i < wget_vector_size(ocsp_responses); i++) {
+			ocsp_resp_t *r = wget_vector_get(ocsp_responses, i);
+			wget_xfree(r->data);
+		}
+		wget_vector_clear(ocsp_responses);
 		wget_vector_clear(request_urls);
 		wget_buffer_free(&cmd);
 

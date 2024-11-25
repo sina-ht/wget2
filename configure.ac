@@ -1,5 +1,5 @@
 dnl Template file for GNU Autoconf
-dnl Copyright (C) 2015-2023 Free Software Foundation, Inc.
+dnl Copyright (C) 2015-2024 Free Software Foundation, Inc.
 
 dnl This program is free software; you can redistribute it and/or modify
 dnl it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@ CFLAGS=$CFLAGS
 LDFLAGS=$LDFLAGS
 
 AC_PREREQ([2.69])
-AC_INIT([wget2],[2.1.0],[bug-wget@gnu.org],[wget2],[https://savannah.gnu.org/projects/wget])
+AC_INIT([wget2],[2.2.0],[bug-wget@gnu.org],[wget2],[https://savannah.gnu.org/projects/wget])
 
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -77,8 +77,8 @@ LT_INIT([dlopen])
 # 4. If any interfaces have been added, removed, or changed since the last update, increment current, and set revision to 0.
 # 5. If any interfaces have been added since the last public release, then increment age.
 # 6. If any existing interfaces have been removed or changed since the last public release, then set age to 0.
-AC_SUBST([LIBWGET_SO_VERSION], [2:0:0])
-AC_SUBST([LIBWGET_VERSION], [2.1.0])
+AC_SUBST([LIBWGET_SO_VERSION], [3:0:0])
+AC_SUBST([LIBWGET_VERSION], [2.2.0])
 
 #
 # Generate version defines for include file
@@ -136,6 +136,13 @@ if test -n "$WARN_CFLAGS"; then
     nw="$nw -Wc90-c99-compat" # gcc-12, we use C99
     nw="$nw -Wlong-long" # gcc-12, we use C99
     nw="$nw -Wstrict-flex-arrays" # gcc-13 warns about it
+    nw="$nw -Wuseless-cast" # gcc-14 warns about it (pretty useless for portable code)
+    nw="$nw -Wc99-c11-compat" # comes with latest gnulib (01.11.2024) generated config.h and gcc 14.2.0
+    nw="$nw -Wc11-c23-compat" # comes with latest gnulib (01.11.2024) generated config.h and gcc 14.2.0
+    nw="$nw -Wc11-c2x-compat" # comes with latest gnulib (01.11.2024) generated config.h and gcc 14.2.0
+    nw="$nw -Wpedantic" # comes with latest gnulib (01.11.2024) generated config.h and gcc 14.2.0
+    nw="$nw -Wundef" # comes with latest gnulib (01.11.2024) generated config.h and gcc 14.2.0
+
     if test "$cross_compiling" = yes; then
       nw="$nw -Wformat"
     fi
@@ -288,33 +295,48 @@ if test "$gl_cc_sanitize_ubsan" = yes; then
   gl_WARN_ADD([-fsanitize=null])
   gl_WARN_ADD([-fsanitize=enum])
   gl_WARN_ADD([-fsanitize=bounds-strict])
+  gl_WARN_ADD([-fsanitize=float-divide-by-zero])
 
   # additional clang options, from OSS-Fuzz (20.12.2019)
-  gl_WARN_ADD([-fsanitize=integer])
-  gl_WARN_ADD([-fsanitize=array-bounds])
-  gl_WARN_ADD([-fsanitize=builtin])
-  gl_WARN_ADD([-fsanitize=float-divide-by-zero])
-  gl_WARN_ADD([-fsanitize=function])
-  gl_WARN_ADD([-fsanitize=integer-divide-by-zero])
-  gl_WARN_ADD([-fsanitize=object-size])
-  gl_WARN_ADD([-fsanitize=return])
-  gl_WARN_ADD([-fsanitize=returns-nonnull-attribute])
-  gl_WARN_ADD([-fsanitize=shift])
-  gl_WARN_ADD([-fsanitize=signed-integer-overflow])
-  gl_WARN_ADD([-fsanitize=unsigned-integer-overflow])
-  gl_WARN_ADD([-fsanitize=unreachable])
-  gl_WARN_ADD([-fsanitize=vla-bound])
-  gl_WARN_ADD([-fsanitize=vptr])
+  if test "$CCNAME" = "clang"; then
+    gl_WARN_ADD([-fsanitize=integer])
+    gl_WARN_ADD([-fsanitize=array-bounds])
+    gl_WARN_ADD([-fsanitize=builtin])
+    gl_WARN_ADD([-fsanitize=float-divide-by-zero])
+    gl_WARN_ADD([-fsanitize=function])
+    gl_WARN_ADD([-fsanitize=integer-divide-by-zero])
+    gl_WARN_ADD([-fsanitize=object-size])
+    gl_WARN_ADD([-fsanitize=return])
+    gl_WARN_ADD([-fsanitize=returns-nonnull-attribute])
+    gl_WARN_ADD([-fsanitize=shift])
+    gl_WARN_ADD([-fsanitize=signed-integer-overflow])
+    gl_WARN_ADD([-fsanitize=unsigned-integer-overflow])
+    gl_WARN_ADD([-fsanitize=unreachable])
+    gl_WARN_ADD([-fsanitize=vla-bound])
+    gl_WARN_ADD([-fsanitize=vptr])
+    gl_WARN_ADD([-fsanitize=unsigned-integer-overflow])
+    gl_WARN_ADD([-fsanitize=implicit-conversion])
+    gl_WARN_ADD([-fsanitize=local-bounds])
+    gl_WARN_ADD([-fsanitize=nullability])
+  fi
+
+  if test "$CCNAME" = "gcc"; then
+    gl_WARN_ADD([-fsanitize=float-cast-overflow])
+  fi
 fi
 
 if test "$gl_cc_sanitize_asan" = yes; then
   gl_WARN_ADD([-fsanitize=address])
   gl_WARN_ADD([-fsanitize=leak])
-  gl_WARN_ADD([-fsanitize=nonnull-attribute])
   gl_WARN_ADD([-fno-omit-frame-pointer])
+  gl_WARN_ADD([-fno-optimize-sibling-calls])
 
   # additional clang option
   gl_WARN_ADD([-fsanitize-address-use-after-scope])
+
+  if test "$CCNAME" = "gcc"; then
+    gl_WARN_ADD([-fsanitize=pointer-subtract])
+  fi
 fi
 
 if test "$gl_cc_sanitize_ubsan" = yes || test "$gl_cc_sanitize_asan" = yes; then
@@ -333,6 +355,7 @@ if test "$gl_cc_sanitize_msan" = yes; then
   fi
 
   gl_WARN_ADD([-fno-omit-frame-pointer])
+  gl_WARN_ADD([-fno-optimize-sibling-calls])
   gl_WARN_ADD([-fPIE])
 fi
 
@@ -413,13 +436,13 @@ if test "$enable_doc" = yes; then
     DOCS_INFO="yes"
     LIBWGET_DOCS_INFO="yes (found:"
     if test -n "$DOXYGEN"; then
-      LIBWGET_DOCS_INFO="$LIBWGET_DOCS_INFO Doxygen)"
+      LIBWGET_DOCS_INFO="$LIBWGET_DOCS_INFO $DOXYGEN)"
     else
       LIBWGET_DOCS_INFO="no"
     fi
     WGET2_DOCS_INFO="yes (found:"
     if test -n "$PANDOC"; then
-      WGET2_DOCS_INFO="$WGET2_DOCS_INFO Pandoc)"
+      WGET2_DOCS_INFO="$WGET2_DOCS_INFO $PANDOC)"
     else
       WGET2_DOCS_INFO="no"
     fi
@@ -979,6 +1002,21 @@ AS_IF([test "$with_libmicrohttpd" != "no"], [
 
 AM_CONDITIONAL([WITH_MICROHTTPD], [test "$with_libmicrohttpd" = "yes"])
 
+
+# libproxy support
+with_libproxy=no
+AC_ARG_ENABLE(libproxy,
+  [  --enable-libproxy       libproxy support for system wide proxy configuration])
+AS_IF([test "${enable_libproxy}" = "yes"], [
+  with_libproxy=yes
+  PKG_CHECK_MODULES([LIBPROXY], [libproxy-1.0], [
+    LIBS="$LIBPROXY_LIBS $LIBS"
+    CFLAGS="$LIBPROXY_CFLAGS $CFLAGS"
+    AC_DEFINE([HAVE_LIBPROXY], [1], [Define if using libproxy.])
+  ])
+])
+
+
 # Check for plugin support
 AC_CANONICAL_HOST
 case "$host_os" in
@@ -1085,4 +1123,5 @@ AC_MSG_NOTICE([Summary of build options:
   Microhttpd support: $with_libmicrohttpd (CFLAGS: ${TEST_CFLAGS}. LIBS: ${TEST_LIBS})
   Fuzzing build:      $enable_fuzzing, $LIB_FUZZING_ENGINE
   GPGME:              $with_gpgme
+  libproxy:           $with_libproxy
 ])

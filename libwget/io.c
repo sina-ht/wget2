@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2012 Tim Ruehsen
- * Copyright (c) 2015-2023 Free Software Foundation, Inc.
+ * Copyright (c) 2015-2024 Free Software Foundation, Inc.
  *
  * This file is part of libwget.
  *
@@ -68,8 +68,8 @@ static ssize_t getline_internal(
 		return WGET_E_INVALID;
 
 	if (!*buf || !*bufsize) {
-		// first call
-		if (!(p = wget_malloc(10240)))
+		// first call (clear memory to not confuse valgrind)
+		if (!(p = wget_calloc(10240, 1)))
 			return WGET_E_MEMORY;
 		*buf = p;
 		*bufsize = 10240;
@@ -392,7 +392,7 @@ char *wget_read_file(const char *fname, size_t *size)
  * performing no further actions.
  */
 int wget_update_file(const char *fname,
-	wget_update_load_fn *load_func, wget_update_load_fn *save_func, void *context)
+	wget_update_load_fn *load_func, wget_update_save_fn *save_func, void *context)
 {
 	FILE *fp = NULL;
 	const char *tmpdir;
