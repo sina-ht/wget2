@@ -596,7 +596,12 @@ void wget_ssl_init(void)
 		wolfSSL_Init();
 
 		if (!wget_strcasecmp_ascii(config.secure_protocol, "SSLv2")) {
+#ifdef HAVE_SSLV2_CLIENT_METHOD
 			method = SSLv2_client_method();
+#else
+			method = wolfSSLv23_client_method();
+			min_version = WOLFSSL_SSLV3; // SSLv2 is no longer supported, use SSLv3 as minimum
+#endif
 		} else if (!wget_strcasecmp_ascii(config.secure_protocol, "SSLv3")) {
 			method = wolfSSLv23_client_method();
 			min_version = WOLFSSL_SSLV3;
@@ -819,8 +824,8 @@ static void ShowX509(WOLFSSL_X509 *x509, const char *hdr)
 		return;
 	}
 
-	issuer = wolfSSL_X509_NAME_oneline(wolfSSL_X509_get_issuer_name(x509), 0, 0);
-	subject = wolfSSL_X509_NAME_oneline(wolfSSL_X509_get_subject_name(x509), 0, 0);
+	issuer = wolfSSL_X509_NAME_oneline(wolfSSL_X509_get_issuer_name(x509), NULL, 0);
+	subject = wolfSSL_X509_NAME_oneline(wolfSSL_X509_get_subject_name(x509), NULL, 0);
 
 	debug_printf("%s issuer : %s subject: %s", hdr, issuer, subject);
 

@@ -959,7 +959,7 @@ static void print_verification_status(gnutls_session_t session, const char *tag,
 static int verify_certificate_callback(gnutls_session_t session)
 {
 	unsigned int status, deinit_cert = 0, deinit_issuer = 0;
-	const gnutls_datum_t *cert_list = 0;
+	const gnutls_datum_t *cert_list = NULL;
 	unsigned int cert_list_size;
 	int ret = -1, err, ocsp_ok = 0, pinning_ok = 0;
 	gnutls_x509_crt_t cert = NULL, issuer = NULL;
@@ -1592,7 +1592,7 @@ static ssize_t ssl_writev(gnutls_transport_ptr_t *p, const giovec_t *iov, int io
 				debug_printf("Fallback from TCP Fast Open... TFO is disabled at system level\n");
 				tcp->tcp_fastopen = 0;
 				ret = connect(tcp->sockfd, tcp->connect_addrinfo->ai_addr, tcp->connect_addrinfo->ai_addrlen);
-				if (errno == ENOTCONN || errno == EINPROGRESS)
+				if (ret < 0 && (errno == ENOTCONN || errno == EINPROGRESS))
 					errno = EAGAIN;
 			}
 		}

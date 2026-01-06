@@ -25,7 +25,7 @@ CFLAGS=$CFLAGS
 LDFLAGS=$LDFLAGS
 
 AC_PREREQ([2.69])
-AC_INIT([wget2],[2.2.0],[bug-wget@gnu.org],[wget2],[https://savannah.gnu.org/projects/wget])
+AC_INIT([wget2],[2.2.1],[bug-wget@gnu.org],[wget2],[https://savannah.gnu.org/projects/wget])
 
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -77,8 +77,8 @@ LT_INIT([dlopen])
 # 4. If any interfaces have been added, removed, or changed since the last update, increment current, and set revision to 0.
 # 5. If any interfaces have been added since the last public release, then increment age.
 # 6. If any existing interfaces have been removed or changed since the last public release, then set age to 0.
-AC_SUBST([LIBWGET_SO_VERSION], [3:0:0])
-AC_SUBST([LIBWGET_VERSION], [2.2.0])
+AC_SUBST([LIBWGET_SO_VERSION], [4:0:0])
+AC_SUBST([LIBWGET_VERSION], [2.2.1])
 
 #
 # Generate version defines for include file
@@ -235,6 +235,7 @@ if test -n "$WARN_CFLAGS"; then
     GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-gnu-zero-variadic-macro-arguments -Wno-conditional-uninitialized"
     GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-comma -Wno-assign-enum -Wno-unreachable-code -Wno-error"
     GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-missing-field-initializers -Wno-used-but-marked-unused"
+    GNULIB_WARN_CFLAGS="$GNULIB_WARN_CFLAGS -Wno-implicit-void-ptr-cast -Wno-c++-keyword -Wno-pre-c11-compat -Wno-extra-semi-stmt"
 
     # remove all flags from GNULIB_WARN_FLAGS that are already in CFLAGS
     # wget_WORD_REMOVE([GNULIB_WARN_CFLAGS], [$GNULIB_WARN_CFLAGS], [$CFLAGS])
@@ -290,6 +291,7 @@ fi
 
 if test "$gl_cc_sanitize_ubsan" = yes; then
   gl_WARN_ADD([-fsanitize=undefined])
+  gl_WARN_ADD([-fno-sanitize=function]) # Disabled: too many false positives with function pointer casts
   gl_WARN_ADD([-fsanitize=bool])
   gl_WARN_ADD([-fsanitize=alignment])
   gl_WARN_ADD([-fsanitize=null])
@@ -303,7 +305,6 @@ if test "$gl_cc_sanitize_ubsan" = yes; then
     gl_WARN_ADD([-fsanitize=array-bounds])
     gl_WARN_ADD([-fsanitize=builtin])
     gl_WARN_ADD([-fsanitize=float-divide-by-zero])
-    gl_WARN_ADD([-fsanitize=function])
     gl_WARN_ADD([-fsanitize=integer-divide-by-zero])
     gl_WARN_ADD([-fsanitize=object-size])
     gl_WARN_ADD([-fsanitize=return])
@@ -410,14 +411,14 @@ test "${ENABLE_XATTR}" = "yes" && AC_DEFINE([ENABLE_XATTR], 1,
 #
 # Gettext
 #
-m4_ifdef([AM_GNU_GETTEXT], [
+m4_ifdef([AM_GNU_GET][TEXT], [
   AM_GNU_GETTEXT([external],[need-ngettext])
   AC_CONFIG_FILES([po/Makefile.in])
   have_po=yes
 ], [
   have_po=no
 ])
-m4_ifdef([AM_GNU_GETTEXT_VERSION], [
+m4_ifdef([AM_GNU_GET][TEXT_VERSION], [
 #do not indent here
 AM_GNU_GETTEXT_VERSION([0.21])
 ])
@@ -529,6 +530,7 @@ AC_ARG_WITH(ssl, AS_HELP_STRING([--with-ssl], [Use SSL/TLS with specified librar
 AS_IF([test "$with_ssl" = "gnutls" || test "$with_ssl" = "yes"], [
   PKG_CHECK_MODULES([GNUTLS], [gnutls], [
     with_gnutls=yes
+    with_gnutls_in_testsuite=yes
     LIBS="$GNUTLS_LIBS $LIBS"
     CFLAGS="$GNUTLS_CFLAGS $CFLAGS"
     AC_DEFINE([WITH_GNUTLS], [1], [Use GnuTLS])
@@ -604,6 +606,7 @@ AS_IF([test "$with_ssl" = "wolfssl" || (test "$with_ssl" = "yes" && test "$with_
   AS_IF([test "$with_wolfssl" = "yes"], [
     with_libwolfcrypt=yes
     AC_DEFINE([WITH_LIBWOLFCRYPT], [1], [Use wolfcrypt])
+    AC_CHECK_FUNCS([SSLv2_client_method])
   ])
 ])
 
@@ -982,6 +985,7 @@ AS_IF([test "$with_libmicrohttpd" != "no"], [
     PKG_CHECK_MODULES([GNUTLS], [gnutls], [
       TEST_LIBS="$TEST_LIBS $GNUTLS_LIBS"
       TEST_CFLAGS="$TEST_CFLAGS $GNUTLS_CFLAGS"
+      with_gnutls_in_testsuite=yes
       AC_DEFINE([WITH_GNUTLS_IN_TESTSUITE], [1], [GnuTLS is available for test suite.])
       AC_CHECK_HEADERS([gnutls/ocsp.h],
         [AC_DEFINE([WITH_GNUTLS_OCSP], [1], [GnuTLS OCSP is supported for test suite.])],
@@ -990,7 +994,7 @@ AS_IF([test "$with_libmicrohttpd" != "no"], [
       old_LIBS=$LIBS
       old_CFLAGS=$CFLAGS
       AC_SEARCH_LIBS(gnutls_global_init, gnutls,
-        [AC_DEFINE([WITH_GNUTLS_IN_TESTSUITE], [1], [GnuTLS is available for test suite.])],
+        [with_gnutls_in_testsuite=yes; AC_DEFINE([WITH_GNUTLS_IN_TESTSUITE], [1], [GnuTLS is available for test suite.])],
         [AC_MSG_WARN(*** GnuTLS is not available. Some tests will not run.)])
       TEST_LIBS=$LIBS
       TEST_CFLAGS=$CFLAGS
@@ -1001,6 +1005,7 @@ AS_IF([test "$with_libmicrohttpd" != "no"], [
 ])
 
 AM_CONDITIONAL([WITH_MICROHTTPD], [test "$with_libmicrohttpd" = "yes"])
+AM_CONDITIONAL([WITH_GNUTLS_IN_TESTSUITE], [test "$with_gnutls_in_testsuite" = "yes"])
 
 
 # libproxy support

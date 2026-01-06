@@ -56,8 +56,9 @@ void mkdir_path(const char *_fname, bool is_file)
 
 		if (rc) {
 			struct stat st;
+			int err = errno;
 
-			if (errno == EEXIST && stat(fname, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG) {
+			if (err == EEXIST && stat(fname, &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG) {
 				// we have a file in the way... move it away and retry
 				int renamed = 0;
 
@@ -85,8 +86,8 @@ void mkdir_path(const char *_fname, bool is_file)
 					}
 				} else
 					error_printf(_("Failed to rename '%s' (errno=%d)\n"), fname, errno);
-			} else if (errno != EEXIST) {
-				error_printf(_("Failed to make directory '%s' (errno=%d)\n"), fname, errno);
+			} else if (err != EEXIST) {
+				error_printf(_("Failed to make directory '%s' (errno=%d)\n"), fname, err);
 				*p2 = '/'; // restore path separator
 				break;
 			}
@@ -151,7 +152,7 @@ char *wget_restrict_file_name(const char *fname, char *esc, int mode)
 	bool ascii = mode & WGET_RESTRICT_NAMES_ASCII;
 
 	for (dst = esc, s = fname; *s; s++) {
-		char c = *s;
+		signed char c = *s;
 
 		if (lowercase && c >= 'A' && c <= 'Z') { // isupper() also returns true for chars > 0x7f, the test is not EBCDIC compatible ;-)
 			c |= 0x20;

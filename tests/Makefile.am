@@ -44,7 +44,7 @@ WGET_TESTS = test-wget-1$(EXEEXT) test-c-r$(EXEEXT) test-restrict-ascii$(EXEEXT)
  test-np$(EXEEXT) test-spider-r$(EXEEXT) test-meta-robots$(EXEEXT) test-idn-robots$(EXEEXT) test-idn-meta$(EXEEXT)\
  test-idn-cmd$(EXEEXT) test-iri$(EXEEXT) test-iri-percent$(EXEEXT) test-iri-list$(EXEEXT) test-iri-forced-remote$(EXEEXT)\
  test-auth-basic$(EXEEXT) test-parse-rss$(EXEEXT) test-page-requisites$(EXEEXT) test-p-nc$(EXEEXT)\
- test-accept$(EXEEXT) test-k$(EXEEXT) test-follow-tags$(EXEEXT) test-directory-clash$(EXEEXT) test-redirection$(EXEEXT)\
+ test-accept$(EXEEXT) test-k$(EXEEXT) test-k-percent-encoding$(EXEEXT) test-follow-tags$(EXEEXT) test-directory-clash$(EXEEXT) test-redirection$(EXEEXT) test-link-location$(EXEEXT)\
  test-base$(EXEEXT) test-metalink$(EXEEXT) test-robots$(EXEEXT) test-robots-off$(EXEEXT) test-parse-css$(EXEEXT) test-bad-chunk$(EXEEXT)\
  test-iri-subdir$(EXEEXT) test-chunked$(EXEEXT) test-cut-dirs$(EXEEXT) test-cut-get-vars$(EXEEXT) test-parse-html-css$(EXEEXT)\
  test-auth-digest$(EXEEXT) test-stats-dns$(EXEEXT) test-stats-tls$(EXEEXT) test-stats-site$(EXEEXT) test-stats-ocsp$(EXEEXT)\
@@ -55,7 +55,9 @@ WGET_TESTS = test-wget-1$(EXEEXT) test-c-r$(EXEEXT) test-restrict-ascii$(EXEEXT)
  test-limit-rate$(EXEEXT) test-interrupt-response$(EXEEXT) test-post-handshake-auth$(EXEEXT) test-unlink$(EXEEXT)\
  test-ocsp-server$(EXEEXT) test-ocsp-stap$(EXEEXT) test-limit-rate-http2$(EXEEXT) test-timestamping$(EXEEXT)\
  test-cookies$(EXEEXT) test-E-k$(EXEEXT) test-ignore-length$(EXEEXT) test-convert-file-only$(EXEEXT)\
- test-download-attr$(EXEEXT) test-directory-prefix$(EXEEXT) test-level$(EXEEXT)
+ test-download-attr$(EXEEXT) test-directory-prefix$(EXEEXT) test-level$(EXEEXT)\
+ test-http2-multiplexing$(EXEEXT) test-http2-stream-errors$(EXEEXT)\
+ test-http2-connection-errors$(EXEEXT) test-http2-settings$(EXEEXT)
 #test-post-file$(EXEEXT) test-cookies-http_state$(EXEEXT)
 
 if WITH_GPGME

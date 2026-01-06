@@ -218,7 +218,7 @@ static void atomic_increment_int(int *p)
 // we have to modify and check the quota in one (protected) step.
 static long long quota_modify_read(size_t nbytes)
 {
-	return fetch_and_add_longlong(&quota, (long long)nbytes);
+	return fetch_and_add_longlong(&quota, (long long) nbytes);
 }
 
 static void nop(int sig)
@@ -430,23 +430,23 @@ static int in_directory_pattern_list(const wget_vector *v, const char *fname)
 	return default_exclude;
 }
 
-static int in_pattern_list(const wget_vector *v, const char *url)
+static bool in_pattern_list(const wget_vector *v, const char *url)
 {
 	for (int it = 0; it < wget_vector_size(v); it++) {
 		const char *pattern = wget_vector_get(v, it);
 
 		if (strpbrk(pattern, "*?[]")) {
 			if (!fnmatch(pattern, url, config.ignore_case ? FNM_CASEFOLD : 0))
-				return 1;
+				return true;
 		} else if (config.ignore_case) {
 			if (wget_match_tail_nocase(url, pattern))
-				return 1;
+				return true;
 		} else if (wget_match_tail(url, pattern)) {
-			return 1;
+			return true;
 		}
 	}
 
-	return 0;
+	return false;
 }
 
 static int in_host_pattern_list(const wget_vector *v, const char *hostname)
@@ -855,19 +855,17 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 
 	if (flags & URL_FLG_REDIRECTION) { // redirect
 		if (job && job->redirection_level >= config.max_redirect) {
-			debug_printf("not requesting '%s'. (Max Redirections exceeded)\n", iri->safe_uri);
+			info_printf(_("URL '%s' not followed (max redirections exceeded)\n"), iri->safe_uri);
 			wget_iri_free(&iri);
 			return;
 		}
 	}
 
-	wget_info_printf(_("Adding URL: %s\n"), iri->safe_uri);
-
 	// Allow plugins to intercept URL
 	plugin_db_forward_url(iri, &plugin_verdict);
 
 	if (plugin_verdict.reject) {
-		info_printf(_("not requesting '%s'. (Plugin Verdict)\n"), iri->safe_uri);
+		info_printf(_("URL '%s' no followed (plugin verdict)\n"), iri->safe_uri);
 		plugin_db_forward_url_verdict_free(&plugin_verdict);
 		wget_iri_free(&iri);
 		return;
@@ -969,7 +967,7 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 		}
 
 		if (!config.clobber && blacklistp->local_filename && access(blacklistp->local_filename, F_OK) == 0) {
-			info_printf(_("URL '%s' not requested (file already exists)\n"), iri->safe_uri);
+			info_printf(_("URL '%s' not followed (file already exists)\n"), iri->safe_uri);
 			wget_thread_mutex_unlock(downloader_mutex);
 			if (config.recursive && (!config.level || !job || (job && job->level < config.level + config.page_requisites))) {
 				parse_localfile(job, blacklistp->local_filename, encoding, NULL, iri);
@@ -984,7 +982,7 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 		// a new host entry has been created
 		if (config.recursive) {
 			if (!config.clobber && blacklistp->local_filename && access(blacklistp->local_filename, F_OK) == 0) {
-				debug_printf("not requesting '%s' (File already exists)\n", iri->safe_uri);
+				info_printf(_("URL '%s' not followed (file already exists)\n"), iri->safe_uri);
 			} else {
 				// create a special job for downloading robots.txt (before anything else)
 				host_add_robotstxt_job(host, iri, encoding, http_fallback);
@@ -1012,22 +1010,24 @@ static void queue_url_from_remote(JOB *job, const char *encoding, const char *ur
 		if ((config.accept_patterns && !in_pattern_list(config.accept_patterns, iri->uri))
 			|| (config.accept_regex && !regex_match(iri->uri, config.accept_regex)))
 		{
-			debug_printf("not requesting '%s'. (doesn't match accept pattern)\n", iri->safe_uri);
+			info_printf(_("URL '%s' not followed (doesn't match accept pattern)\n"), iri->safe_uri);
 			goto out;
 		}
 
 		if ((config.reject_patterns && in_pattern_list(config.reject_patterns, iri->uri))
 			|| (config.reject_regex && regex_match(iri->uri, config.reject_regex)))
 		{
-			debug_printf("not requesting '%s'. (matches reject pattern)\n", iri->safe_uri);
+			info_printf(_("URL '%s' not followed (matches reject pattern)\n"), iri->safe_uri);
 			goto out;
 		}
 
 		if (config.exclude_directories && in_directory_pattern_list(config.exclude_directories, iri->path)) {
-			debug_printf("not requesting '%s' (path excluded)\n", iri->safe_uri);
+			info_printf(_("URL '%s' not followed (path excluded)\n"), iri->safe_uri);
 			goto out;
 		}
 	}
+
+	info_printf(_("Enqueue %s\n"), iri->safe_uri);
 
 	new_job = job_init(&job_buf, blacklistp, http_fallback);
 
@@ -1205,56 +1205,69 @@ static void convert_links(void)
 			if (url->len >= 1 && *url->p == '#') // ignore e.g. href='#'
 				continue;
 
-			if (wget_iri_relative_to_abs(conversion->base, url->p, url->len, &buf)) {
-				// buf.data now holds the absolute URL as a string
-				wget_iri *iri = wget_iri_parse(buf.data, conversion->encoding);
-				blacklist_entry *blacklist_entry;
-				free_iri = false;
+			// Preprocess URL the same way as in normalize_uri() to ensure consistent
+			// URL encoding between initial download and link conversion.
+			// This fixes the bug where URLs with %2C (comma) and %7C (pipe) in query
+			// strings fail to match during blacklist lookup.
+			char *urlpart = wget_strmemdup(url->p, url->len);
+			wget_xml_decode_entities_inline(urlpart);
+			wget_iri_unescape_url_inline(urlpart);
 
-				if (!iri) {
-					info_printf(_("Cannot resolve URI '%s'\n"), buf.data);
-					continue;
+			if (!wget_iri_relative_to_abs(conversion->base, urlpart, strlen(urlpart), &buf)) {
+				xfree(urlpart);
+				continue;
+			}
+
+			xfree(urlpart);
+
+			// buf.data now holds the absolute URL as a string
+			wget_iri *iri = wget_iri_parse(buf.data, conversion->encoding);
+			blacklist_entry *blacklist_entry;
+			free_iri = false;
+
+			if (!iri) {
+				info_printf(_("Cannot resolve URI '%s'\n"), buf.data);
+				continue;
+			}
+
+			if (!(blacklist_entry = blacklist_add(iri))) {
+				blacklist_entry = blacklist_get(iri);
+				free_iri = true;
+			}
+
+			const char *filename = blacklist_entry->local_filename;
+
+			if (config.convert_links) {
+				convert_link_whole(filename, conversion, url, &buf);
+				if (iri->fragment) {
+					wget_buffer_memcat(&buf, "#", 1);
+					wget_buffer_strcat(&buf, iri->fragment);
 				}
+			} else if (config.convert_file_only)
+				convert_link_file_only(filename, url, &buf);
 
-				if (!(blacklist_entry = blacklist_add(iri))) {
-					blacklist_entry = blacklist_get(iri);
-					free_iri = true;
-				}
+			if (free_iri)
+				wget_iri_free(&iri);
 
-				const char *filename = blacklist_entry->local_filename;
+			if (buf.length != url->len || strncmp(buf.data, url->p, url->len)) {
+				// conversion takes place, write to disk
+				if (!fpout) {
+					if (config.backup_converted) {
+						char *dstfile = wget_aprintf("%s.orig", conversion->filename);
 
-				if (config.convert_links) {
-					convert_link_whole(filename, conversion, url, &buf);
-					if (iri->fragment) {
-						wget_buffer_memcat(&buf, "#", 1);
-						wget_buffer_strcat(&buf, iri->fragment);
-					}
-				} else if (config.convert_file_only)
-					convert_link_file_only(filename, url, &buf);
-
-				if (free_iri)
-					wget_iri_free(&iri);
-
-				if (buf.length != url->len || strncmp(buf.data, url->p, url->len)) {
-					// conversion takes place, write to disk
-					if (!fpout) {
-						if (config.backup_converted) {
-							char *dstfile = wget_aprintf("%s.orig", conversion->filename);
-
-							if (rename(conversion->filename, dstfile) == -1) {
-								wget_error_printf(_("Failed to rename %s to %s (%d)"), conversion->filename, dstfile, errno);
-							}
-
-							xfree(dstfile);
+						if (rename(conversion->filename, dstfile) == -1) {
+							wget_error_printf(_("Failed to rename %s to %s (%d)"), conversion->filename, dstfile, errno);
 						}
-						if (!(fpout = fopen(conversion->filename, "wb")))
-							wget_error_printf(_("Failed to write open %s (%d)"), conversion->filename, errno);
+
+						xfree(dstfile);
 					}
-					if (fpout) {
-						fwrite(data_ptr, 1, url->p - data_ptr, fpout);
-						fwrite(buf.data, 1, buf.length, fpout);
-						data_ptr = url->p + url->len;
-					}
+					if (!(fpout = fopen(conversion->filename, "wb")))
+						wget_error_printf(_("Failed to write open %s (%d)"), conversion->filename, errno);
+				}
+				if (fpout) {
+					fwrite(data_ptr, 1, url->p - data_ptr, fpout);
+					fwrite(buf.data, 1, buf.length, fpout);
+					data_ptr = url->p + url->len;
 				}
 			}
 		}
@@ -1395,7 +1408,7 @@ int main(int argc, const char **argv)
 			int fd;
 			ssize_t len;
 			size_t bufsize = 0;
-			char *url, *buf = 0;
+			char *url, *buf = NULL;
 
 			// read URLs from input file
 			if ((fd = open(config.input_file, O_RDONLY|O_BINARY)) >= 0) {
@@ -1625,7 +1638,7 @@ void *input_thread(void *p WGET_GCC_UNUSED)
 	// wake up main thread to take control (e.g. checking if we are done)
 	wget_thread_cond_signal(main_cond);
 
-	input_tid = 0;
+	input_tid = NULL;
 	return NULL;
 }
 
@@ -1808,6 +1821,8 @@ static int process_response_header(wget_http_response *resp)
 #else
 			set_exit_status(EXIT_STATUS_REMOTE);
 #endif
+		} else if (resp->code == 403) {
+			set_exit_status(EXIT_STATUS_REMOTE);
 		}
 	}
 	else if (resp->code >= 500) {
@@ -1907,6 +1922,20 @@ static int process_response_header(wget_http_response *resp)
 
 		wget_cookie_normalize_cookies(job->iri, resp->cookies);
 		wget_cookie_store_cookies(config.cookie_db, resp->cookies);
+
+		// If Link headers are present, process_response() will handle the redirect
+		// with better logic for choosing the best mirror/metalink.
+		if (!wget_vector_size(resp->links)) {
+			wget_buffer uri_buf;
+			char uri_sbuf[1024];
+			wget_buffer_init(&uri_buf, uri_sbuf, sizeof(uri_sbuf));
+
+			wget_iri_relative_to_abs(iri, resp->location, (size_t) -1, &uri_buf);
+			if (uri_buf.length)
+				queue_url_from_remote(job, "utf-8", uri_buf.data, URL_FLG_REDIRECTION, NULL);
+
+			wget_buffer_deinit(&uri_buf);
+		}
 	}
 
 	return 0;
@@ -1976,7 +2005,7 @@ static void process_head_response(wget_http_response *resp)
 
 		job->done = 0; // do this job again with GET request
 		return;
-	} else if (config.chunk_size && resp->content_length > config.chunk_size) {
+	} else if (config.chunk_size && (long long) resp->content_length > config.chunk_size) {
 		// create metalink structure without hashing
 		wget_metalink_piece piece = { .length = config.chunk_size };
 		wget_metalink_mirror mirror = { .location = "-", .iri = job->iri };
@@ -2171,25 +2200,39 @@ static void process_response(wget_http_response *resp)
 		{
 			// print_status(downloader, "get metalink info\n");
 			// save_file(resp, job->local_filename, O_TRUNC);
-			job->metalink = resp->body && resp->body->data ? wget_metalink_parse(resp->body->data) : NULL;
+			if (resp->body && resp->body->data) {
+				job->metalink = wget_metalink_parse(resp->body->data);
+				if (config.output_document) {
+					xfree(job->metalink->name);
+					job->metalink->name = wget_strdup(config.output_document);
+				}
+			}
 		}
 		if (job->metalink) {
 			if (job->metalink->size <= 0) {
 				error_printf(_("File length %llu - remove job\n"), (unsigned long long)job->metalink->size);
 			} else if (!job->metalink->mirrors) {
 				error_printf(_("No download mirrors found - remove job\n"));
+			} else if (!job->metalink->name || !*job->metalink->name) {
+				error_printf(_("Metalink file name is invalid, missing or empty - remove job\n"));
 			} else {
 				// just loaded a metalink description, create parts and sort mirrors
 
 				// start or resume downloading
 				if (!job_validate_file(job)) {
-					// sort mirrors by priority to download from highest priority first
-					wget_metalink_sort_mirrors(job->metalink);
+					// Account for retries
+					if (config.tries && ++job->failures > config.tries) {
+						error_printf(_("Metalink validation failed: max tries reached - remove job\n"));
+						job->done = 1;
+					} else {
+						// sort mirrors by priority to download from highest priority first
+						wget_metalink_sort_mirrors(job->metalink);
 
-					// wake up sleeping workers
-					wget_thread_cond_signal(worker_cond);
+						// wake up sleeping workers
+						wget_thread_cond_signal(worker_cond);
 
-					job->done = 0; // do not remove this job from queue yet
+						job->done = 0; // do not remove this job from queue yet
+					}
 				} // else file already downloaded and checksum ok
 			}
 			return;
@@ -3100,6 +3143,9 @@ void metalink_parse_localfile(const char *fname)
 		} else if (!metalink->mirrors) {
 			error_printf(_("No download mirrors found\n"));
 			wget_metalink_free(&metalink);
+		} else if (!metalink->name || !*metalink->name) {
+			error_printf(_("Metalink file name is missing or empty\n"));
+			wget_metalink_free(&metalink);
 		} else {
 			// create parts and sort mirrors
 			JOB job = { .metalink = metalink };
@@ -3592,16 +3638,17 @@ static int WGET_GCC_NONNULL((1)) prepare_file(wget_http_response *resp, const ch
 		// TODO SAVE UNIQUE-NESS
 	} else {
 		if (fd == -1) {
-			if (errno == EEXIST && is_file(fname)) {
+			int err = errno;
+			if (err == EEXIST && is_file(fname)) {
 				error_printf(_("File '%s' already there; not retrieving.\n"), fname);
 
 				if (config.page_requisites && !config.clobber) {
 					parse_localfile(job, job->blacklist_entry->local_filename, config.remote_encoding, resp->content_type, job->iri);
 				}
-			} else if (errno == EISDIR || is_directory(fname))
+			} else if (err == EISDIR || is_directory(fname))
 				info_printf(_("Directory / file name clash - not saving '%s'\n"), fname);
 			else {
-				error_printf(_("Failed to open '%s' (%d)\n"), fname, errno);
+				error_printf(_("Failed to open '%s' (%d)\n"), fname, err);
 				set_exit_status(EXIT_STATUS_IO);
 			}
 		}
@@ -4220,7 +4267,9 @@ wget_http_response *http_receive_response(wget_http_connection *conn)
 			if (config.xattr && !terminate)
 				write_xattr_last_modified(resp->last_modified, context->outfd);
 
-			set_file_mtime(context->outfd, resp->last_modified - (terminate || resp->length_inconsistent));
+			// If requested, keep the local system timestamp rather than the server timestamp.
+			if (config.use_server_timestamps)
+				set_file_mtime(context->outfd, resp->last_modified - (terminate || resp->length_inconsistent));
 		}
 
 		if (config.fsync_policy) {
@@ -4339,6 +4388,7 @@ static int set_file_metadata(const wget_iri *origin_iri, const wget_iri *referre
 	if ((fd = fileno(fp)) < 0)
 		return -1;
 
+	errno = 0;
 	if (write_xattr_metadata("user.mime_type", mime_type, fd) < 0 && errno == ENOTSUP)
 		return -1; // give up early if file system doesn't support extended attributes
 

@@ -19,25 +19,20 @@ upstreamed.
 [![Coverage status](https://gnuwget.gitlab.io/wget2/coverage.svg)](https://gnuwget.gitlab.io/wget2/coverage)
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/7852/badge.svg)](https://scan.coverity.com/projects/rockdaboot-wget2)
 
-Solaris OpenCSW [![Build Status Solaris amd64](https://buildfarm.opencsw.org/buildbot/png?builder=wget2-solaris10-amd64)](https://buildfarm.opencsw.org/buildbot/builders/wget2-solaris10-amd64)
-[![Build Status Solaris i386](https://buildfarm.opencsw.org/buildbot/png?builder=wget2-solaris10-i386)](https://buildfarm.opencsw.org/buildbot/builders/wget2-solaris10-i386)
-[![Build Status Solaris Sparc](https://buildfarm.opencsw.org/buildbot/png?builder=wget2-solaris10-sparc)](https://buildfarm.opencsw.org/buildbot/builders/wget2-solaris10-sparc)
-[![Build Status Solaris SparcV9](https://buildfarm.opencsw.org/buildbot/png?builder=wget2-solaris10-sparcv9)](https://buildfarm.opencsw.org/buildbot/builders/wget2-solaris10-sparcv9)
-
 # Table of Content
-- [GNU Wget2 - Introduction](#GNU-Wget2---Introduction)
-- [Features](#Features)
-- [Links](#Links)
-- [Build Requirements](#Build-Requirements)
-- [Downloading and building from tarball](#Downloading-and-building-from-tarball)
-- [Building from git](#Building-from-git)
-  - [Download project and prepare sources with](#Download-project-and-prepare-sources-with)
-  - [Build Wget2 with](#Build-Wget2-with)
-  - [In Haiku build Wget2 with](#In-Haiku-build-Wget2-with)
-  - [Test the functionality](#Test-the-functionality)
-  - [Install Wget2 and libwget](#Install-Wget2-and-libwget)
+- [GNU Wget2 - Introduction](#gnu-wget2---introduction)
+- [Features](#features)
+- [Links](#links)
+- [Build Requirements](#build-requirements)
+- [Downloading and building from tarball](#downloading-and-building-from-tarball)
+- [Building from git](#building-from-git)
+  - [Download project and prepare sources with](#download-project-and-prepare-sources-with)
+  - [Build Wget2 with](#build-wget2-with)
+  - [In Haiku build Wget2 with](#in-haiku-build-wget2-with)
+  - [Test the functionality](#test-the-functionality)
+  - [Install Wget2 and libwget](#install-wget2-and-libwget)
   - [Build static wget2.exe on GNU/Linux for Windows](#build-static-wget2exe-on-gnulinux-for-windows)
-- [License](#License)
+- [License](#license)
 
 # GNU Wget2 - Introduction
 

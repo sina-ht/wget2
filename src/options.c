@@ -2265,6 +2265,12 @@ static const struct optionw options[] = {
 		{ "Print the server response headers. (default: off)\n"
 		}
 	},
+	{ "show-progress", &config.force_progress, parse_bool, -1, 0,
+		SECTION_DOWNLOAD,
+		{ "Show Progress Bar (Deprecated alias for --force-progress)\n",
+		  "(default: off)\n"
+		}
+	},
 #ifdef WITH_GPGME
 	{ "signature-extensions", &config.sig_ext, parse_stringlist, 1, 0,
 		SECTION_GPG,
@@ -2605,7 +2611,7 @@ static int WGET_GCC_NONNULL((1)) set_long_option(const char *name, const char *v
 		name += 2;
 	}
 	// If the option is negated (--no-) delete the "no-" prefix
-	if (!strncmp(name, "no-", 3)) {
+	if (!strncmp(name, "no-", 3) || !strncmp(name, "no_", 3)) {
 		invert = 1;
 		name += 3;
 	}
@@ -3124,18 +3130,9 @@ static int use_askpass(void)
 static wget_dns_cache *dns_cache;
 static wget_dns *dns;
 
-static int preload_dns_cache(const char *fname)
+static int scan_from_file(FILE *fp)
 {
-	FILE *fp;
 	char buf[256], ip[64], name[256];
-
-	// wget_options_fuzzer sets config.dont_write, avoid waiting for stdin input forever
-	if (!strcmp(fname, "-") && !config.dont_write)
-		fp = stdin;
-	else if (!(fp = fopen(fname, "r"))) {
-		error_printf(_("Failed to open %s"), fname);
-		return -1;
-	}
 
 	while (fgets(buf, sizeof(buf), fp)) {
 		if (sscanf(buf, "%63s %255s", ip, name) != 2)
@@ -3148,10 +3145,24 @@ static int preload_dns_cache(const char *fname)
 		wget_dns_cache_ip(dns, ip, name, 443);
 	}
 
-	if (fp != stdin)
-		fclose(fp);
+	return ferror(fp);
+}
 
-	return 0;
+static int preload_dns_cache(const char *fname)
+{
+	// wget_options_fuzzer sets config.dont_write, avoid waiting for stdin input forever
+	if (!strcmp(fname, "-") && !config.dont_write)
+		return scan_from_file(stdin);
+
+	FILE *fp = fopen(fname, "r");
+	if (!fp) {
+		error_printf(_("Failed to open %s"), fname);
+		return -1;
+	}
+
+	int rc = scan_from_file(fp);
+	fclose(fp);
+	return rc;
 }
 
 static void WGET_GCC_NONNULL_ALL get_config_files(const char *config_home, const char *user_home)
@@ -3492,7 +3503,7 @@ int init(int argc, const char **argv)
 	if (config.output_document && strcmp(config.output_document, "-") && !config.dont_write) {
 		if (config.unlink) {
 			unlink(config.output_document);
-		} else if (!config.continue_download) {
+		} else if (!config.continue_download && config.clobber) {
 			int fd = open(config.output_document, O_WRONLY | O_TRUNC | O_BINARY);
 
 			if (fd != -1)
